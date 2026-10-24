@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "runtime_version": "11.6.0.14552",
+  "runtime_sha256": {
+    "videoeditor_addon.node": "b428a3c090eb34bd946466342dc7428a20b92b37f9b069ac3da30fa4a8224f60",
+    "agent_runtime_addon.node": "64aec1613d87979666d94e3fe8a7695d641f87dc07c1e8eacbd41afe2976dfb3",
+    "vm_sdk/vm_sdk.dll": "34b7d259aa3567e98a75e6a4decefae6e7f09bb45734fc90c732d77d60437b91",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "ac566cd7f2ea3a9fd4a1e7ef6ab5db4b17c0c33cf224dc56fa41d01560b74b8f",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d554779defb93711e032a530e12158b5debe06a771031d394b1a63f42d6b3bc7",
+    "Resources/lumi_js_resources_video/js/video/video.js": "fa6181802fbb3754e9c3d6ebecd73b45dd3d4b5c77843d0ab905ca73723bf44b",
+    "Resources/lumi_js_resources_video/resources/feature-mask/AmazingFeature_mask/xshader/blend.frag": "8a24cbb9fbbf9fad88b836b9e213c89c7312c359643218f3a4a681845e67af4d"
+  },
+  "source_files": {
+    "config.json": "ad262fc4e3cc1f840fead43886a381d094e6d3ca6dd795f251ebec7217912985",
+    "amazingfeature/content.json": "1dec8754f7cae5b47421677649d9bbeb242338b4aa92021b3f0aca25524a6877",
+    "amazingfeature/js-meta.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "amazingfeature/lua-meta.json": "edf443b1d7149c258c748691435219f2e86e541e2e52f8e77e81e463c8edadbf",
+    "amazingfeature/LuaRTTI.MarkGen.lua": "92c21dcd89568286f774729df77109e6cb409920e9628f7ee1aff8fd804f72c3",
+    "amazingfeature/main.scene": "3b045a6b02453b8d6562a5bf55bd77a77f6d1b9ac1d2f5f53fa5b75d2fc81dff",
+    "amazingfeature/sticker.config": "c2e398fb02d37ea98d2dffe986c47975e76b3fff8d7df2085986b10eb07b48d9",
+    "amazingfeature/prefabs/rectangleMaskProcess.prefab": "432606f44532518b685581a0eb68a7700980800ee7d9d1dc96e5485762bc81bd",
+    "amazingfeature/rt/outputTex.rt": "667242ef0afee2af090d826600fe4ab6f0510eed836b99e5716714b89a1614af",
+    "amazingfeature/effects/lumi_rectangle_mask/lua/Process.lua": "fd3e08ea8c1f32bff5a8ef5afa6e9494ec0d082815a087df9f497ca059db3e7e",
+    "amazingfeature/effects/lumi_rectangle_mask/material/picture.material": "6c82bcde3673f2f72d639db238847125bae5e91ba08fa3b30f67d71038e4db28",
+    "amazingfeature/effects/lumi_rectangle_mask/mesh/SP_Quad.mesh": "8cb9e09decaad4c3eb863342cfbf1791dfde8a19b9a8ccac85a0d2eb8f27dd92",
+    "amazingfeature/effects/lumi_rectangle_mask/rt/outputTex.rt": "667242ef0afee2af090d826600fe4ab6f0510eed836b99e5716714b89a1614af",
+    "amazingfeature/effects/lumi_rectangle_mask/xshader/picture.frag": "c4ef10a27882c1a131d75f94474499826f64d81945a2f1ded1f50d9786881e0d",
+    "amazingfeature/effects/lumi_rectangle_mask/xshader/picture.vert": "c39d50c0eb23378068d3457572338453635f9454e883295593b9b68e49f5f4b1",
+    "amazingfeature/effects/lumi_rectangle_mask/xshader/picture.xshader": "33987bb7e7192dd72baa741d4b4f4772cd92c1cc9704c661eca7fd151c8c332c",
+    "amazingfeature/lua/LumiFamily/LumiManager.lua": "59651651476e6cb435452ede1ac4e9e2a7003ac7832692df77c7de2abc72eb75",
+    "amazingfeature/lua/LumiFamily/LumiObjectExtension.lua": "cd4295455c9c8ad7c5c1d31e8c128b8d581ceaad2227315e5c9b8c5f01882423",
+    "amazingfeature/lua/LumiFamily/LumiParamsSetter.lua": "f40b8f07255e9d1c62981ea943e1e5a1fe1ef54a587c5d92e8a3f0980949a2e3"
+  },
+  "fragment": "amazingfeature/effects/lumi_rectangle_mask/xshader/picture.frag",
+  "before": "gl_FragColor = texture2D(u_albedo, uv0) * alpha;",
+  "after": "gl_FragColor = u_diff > 0.0 ? vec4(vec3(1.0-alpha),1.0) : texture2D(u_albedo, uv0) * alpha;",
+  "patched_sha256": "d8359f88a80274cffaa4b8f9491e06e310c5d8a014810e9a0fc09111e3df26e7"
+}

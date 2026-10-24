@@ -1,0 +1,32 @@
+{
+  "放射发光": {
+    "label": "已测原生文字放射发光",
+    "resource_id": "7202576698775179837",
+    "effect_id": "",
+    "is_vip": true,
+    "cache_relative": "Cache/artistEffect/7202576698775179837/13fd5bb6c22236bb299c266428395180",
+    "files": {
+      "config.json": "81f642c01296f47db9be12b87c29de8da4dc3a09758fdcde2c12f0a715d145ea",
+      "effect_platform_children.tag": "25fef05e2b1335980e34a4948249ebcb259da0bdfac3c8b02b5bffa98606d57b",
+      "extra.json": "ffac4b964823938aae8d124855b353627d85247c40977cdb75734062febf3b79",
+      "TextBloom.lua": "ac3c6cc59c9e85c294028959a3d520f08c115e945400f900a7ae40d43fd78971",
+      "TextBloom.prefab": "1b52876ece46df4f93623eae0f5e399fab28e3ebb9216f52a006b8ea1c8dbe2e",
+      "material/noface.material": "f5d18749348cdfb2958575ef16b71e4bf663a808433929f85f79be8fd780c67c",
+      "rt/NewScreenRT.rt": "bd85d0103be943e44f9bde23928867692313d16a529e948d212c82a8902a9b76",
+      "rt/NewScreenRT2.rt": "bd85d0103be943e44f9bde23928867692313d16a529e948d212c82a8902a9b76",
+      "rt/NewScreenRT_2.rt": "c802bde2ef4b1f1366676f3f1d9779315d2054bae175386ca6c673831f3aa58b",
+      "rt/NewScreenRT_3.rt": "6832ac0033b3dcd1875c8e2c0745bb2e716c5ccea1fc660f3e077df490385f1e",
+      "xshader/blend.frag": "d755cafe9939bbda01cd686b5c8126b85aaee4eb0b7a29b776a24f891352f644",
+      "xshader/blend.vert": "09e1a40665ab07d3ec5ab870254c83b0ef4b299b9418416811d7f622f13b04a4",
+      "xshader/blurX.frag": "b281722641c21708f36826e0a4d4e2be5cf3d6280b4e96a3b3e303de5954e4a1",
+      "xshader/blurX.vert": "a09cb738670087fb6dd7478099c010703d3dfb21f059d8d1d928d71a014ae399",
+      "xshader/blurY.frag": "5606a91e92e93b2340f137e8ecf68fcc79a6b06d395a609f02e4faecafe64711",
+      "xshader/blurY.vert": "a09cb738670087fb6dd7478099c010703d3dfb21f059d8d1d928d71a014ae399",
+      "xshader/noface.xshader": "27812a6a5109710c35f0933187244f5c814d402c92242c9fe39922da8412652f",
+      "xshader/quad.frag": "9790d1afd937f9bb3aa9701bb32148aacb57a1d2c65ee14503122e97415a92b2",
+      "xshader/quad.vert": "0e02bd6d030dee5fae056222be7274188e9837887a7494da796180230252f709",
+      "xshader/quad1.frag": "2e7fa0e02b25a86f8b6a56421792287fc6cd9fba440f64c01adbb3df2c7e6211",
+      "xshader/quad1.vert": "9cb363010c85105373936678ee5d6fd16d82370ed599b908ec26e347808f0f02"
+    }
+  }
+}

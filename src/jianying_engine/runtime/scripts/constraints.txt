@@ -1,0 +1,10 @@
+# Versions installed in the verified Python 3.12 .venv (direct and transitive); use with
+# pip install -r requirements.txt -c constraints.txt
+comtypes==1.4.17
+imageio==2.38.0
+fonttools==4.60.2
+numpy==2.5.3
+pillow==12.3.0
+pyJianYingDraft==0.3.0
+pymediainfo==7.0.1
+uiautomation==2.0.29

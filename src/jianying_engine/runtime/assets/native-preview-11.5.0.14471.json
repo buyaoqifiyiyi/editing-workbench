@@ -1,0 +1,11 @@
+{
+  "version": "11.5.0.14471",
+  "files": {
+    "videoeditor_addon.node": "7f5d59204957391ab7a4d9ec69a45ee2a70edc4707ff2134f3185bb3e245ff78",
+    "agent_runtime_addon.node": "4187a23eddf3880b41f7b0938496424d62bc538365a5e3732722ad589208128d",
+    "vm_sdk/vm_sdk.dll": "dcbab0cf9aa1561ee1647c2073426a42a291f1f8abc4b252050ec09b37845390",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "83a1b2515b3ebac99e6a0d83b8040c361f593cde29a437aa5b1c02e673b2e585",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "85106d290b0aeb3fe86d5b871a2daa4baa9a88a84e5493c728da87871b59d9e6"
+  },
+  "note": "11.5 install is no longer present on this machine (checked 2026-10-16); the hashes are the recorded 11.5 baseline, re-verify before claiming 11.5 compatibility again."
+}

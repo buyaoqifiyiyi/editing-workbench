@@ -1,0 +1,37 @@
+{
+  "runtime_version": "11.6.0.14552",
+  "runtime_sha256": {
+    "videoeditor_addon.node": "b428a3c090eb34bd946466342dc7428a20b92b37f9b069ac3da30fa4a8224f60",
+    "agent_runtime_addon.node": "64aec1613d87979666d94e3fe8a7695d641f87dc07c1e8eacbd41afe2976dfb3",
+    "vm_sdk/vm_sdk.dll": "34b7d259aa3567e98a75e6a4decefae6e7f09bb45734fc90c732d77d60437b91",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "ac566cd7f2ea3a9fd4a1e7ef6ab5db4b17c0c33cf224dc56fa41d01560b74b8f",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d554779defb93711e032a530e12158b5debe06a771031d394b1a63f42d6b3bc7",
+    "Resources/lumi_js_resources_video/js/video/video.js": "fa6181802fbb3754e9c3d6ebecd73b45dd3d4b5c77843d0ab905ca73723bf44b",
+    "Resources/canvas_agent/app/static/js/ai-creation~12.a54b7e83.js": "c09510cccd9e857f5f501b67d049d411e28fbe36ede2ce3c85936a34de9f166f",
+    "Resources/canvas_agent/app/static/js/ai-creation~11.aa2812ea.js": "55fdf8bf612b08e112c5c7f048d6cd76e8e6c17b204ebdadca73ad63ecd0a5fd"
+  },
+  "rendering": "installed_chroma2_v1",
+  "resource": "Resources/Chroma2",
+  "resource_id": "",
+  "source_files": {
+    "amazingfeature/content.json": "0730c495cbd7ec318be9c59f9a0885cab5c2a1507727e584c1072db6f7287fda",
+    "amazingfeature/lua/SeekModeScript.lua": "9a129545957f8836748412235993647d1d149cf67544d8a29f3ea57fba6f2bd5",
+    "amazingfeature/LuaRTTI.MarkGen.lua": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "amazingfeature/main.scene": "7321e57febc4265611de05716c3e363ebd8b91c782f7c3dfe037e2965b8d704c",
+    "amazingfeature/material/entity.material": "8602675ba33e0a94385c790e519ccb7509cf4d4c4406dae5493c0cb23283b48c",
+    "amazingfeature/mesh/quad.mesh": "943caad7afadae21355774e5c16afdc5b8785cb3463ed48d3b79277f1f20a0c8",
+    "amazingfeature/rt/alpha.rt": "e5d6639385018b9e98de51f98990c6c0dcccc07d3d86096523c714c547c15a52",
+    "amazingfeature/rt/outputTex.rt": "099ba522f33e49160446e58a157549a29f86aca8dd18f15db939b85329f9889e",
+    "amazingfeature/rt/smoothx.rt": "92e68c3db48ea341f1ac870a11b371f37b4bd5eef28c1264797d244301383f7d",
+    "amazingfeature/scene.config": "9a3a0e5b64de01beafccdaff726c07be587b81b167e209667e0df7f3cf2a5c3b",
+    "amazingfeature/sticker.config": "f2172e00b3b273766b336dd56a14c4898d9145a3c41a702a36c4118cc5d3ce4c",
+    "amazingfeature/xshader/chromakey.frag": "124de3f59e4c893b206addcdb94533b215a3dfc44d90f81ec705089b42e6320b",
+    "amazingfeature/xshader/chromakey.vert": "54398dcfc26f5079254a3cfd48b71db52dc2e9c133607f9e98f32a231eeee69f",
+    "amazingfeature/xshader/entity.xshader": "b2ebc2a4af7f6b1c76555e5733a3201f8da6765854b84f5993da7b4c1a1f620d",
+    "amazingfeature/xshader/smoothx.frag": "6d754d17ebaaf70ac3742fc95ed5e543af90fe9227324cc5b7a814a6ba7a390b",
+    "amazingfeature/xshader/smoothx.vert": "54398dcfc26f5079254a3cfd48b71db52dc2e9c133607f9e98f32a231eeee69f",
+    "amazingfeature/xshader/smoothy.frag": "3dd84b89848ba1335e1c9e82b00b9e5fb6716423c66962bf95cd72a99a18b9c5",
+    "amazingfeature/xshader/smoothy.vert": "54398dcfc26f5079254a3cfd48b71db52dc2e9c133607f9e98f32a231eeee69f",
+    "config.json": "55851c159c7301660bec17d792a88739b6cc591d15d78affb9c3d034db4dc496"
+  }
+}

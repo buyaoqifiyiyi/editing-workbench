@@ -1,0 +1,364 @@
+{
+  "hsl": {
+    "constant_material_id": "",
+    "custom_color": "#FFE64444",
+    "hsl_color_type": 1,
+    "hue": 38,
+    "id": "",
+    "interacting": true,
+    "lightness": 20,
+    "lumi_hub_path": "",
+    "path": "",
+    "resource_id": "7416258989467374091",
+    "saturation": -27,
+    "source_platform": 1,
+    "type": "hsl",
+    "version": "1",
+    "cache_relative": "Cache/effect/7416258989467374091/9e1cfdca2b07a183049bfc9b5ed32895"
+  },
+  "color_curves": {
+    "blue": [
+      {
+        "anchor": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "left_control": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "right_control": {
+          "x": 0.1412893117391145,
+          "y": 0.18936897314511816
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 0.4912820512820508,
+          "y": 0.6584615384615384
+        },
+        "left_control": {
+          "x": 0.3166914517757217,
+          "y": 0.487816321430516
+        },
+        "right_control": {
+          "x": 0.672068976866893,
+          "y": 0.8351630575583804
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "left_control": {
+          "x": 0.7867702528146595,
+          "y": 0.8568437382808098
+        },
+        "right_control": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "sync_direction_control": true
+      }
+    ],
+    "green": [
+      {
+        "anchor": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "left_control": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "right_control": {
+          "x": 0.16359853573334507,
+          "y": 0.17623558337871836
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 0.4912820512820508,
+          "y": 0.5292307692307692
+        },
+        "left_control": {
+          "x": 0.3192018716151895,
+          "y": 0.3573425349070616
+        },
+        "right_control": {
+          "x": 0.6694694607074441,
+          "y": 0.707219421056571
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "left_control": {
+          "x": 0.8130958024049414,
+          "y": 0.8270382526287665
+        },
+        "right_control": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "sync_direction_control": true
+      }
+    ],
+    "id": "",
+    "link_status": false,
+    "luma": [
+      {
+        "anchor": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "left_control": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "right_control": {
+          "x": 0.15407886159773682,
+          "y": 0.18391807775222813
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 0.4956369982547991,
+          "y": 0.5916230366492146
+        },
+        "left_control": {
+          "x": 0.32129203794722355,
+          "y": 0.41855968287336465
+        },
+        "right_control": {
+          "x": 0.6730514120889166,
+          "y": 0.7677332804563295
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "left_control": {
+          "x": 0.8020803540893041,
+          "y": 0.8397467226882255
+        },
+        "right_control": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "sync_direction_control": true
+      }
+    ],
+    "lumi_hub_path": "",
+    "panel": "adjust_collection",
+    "path": "",
+    "red": [
+      {
+        "anchor": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "left_control": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "right_control": {
+          "x": 0.1330405676976227,
+          "y": 0.19497803449630743
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 0.4912820512820508,
+          "y": 0.7200000000000002
+        },
+        "left_control": {
+          "x": 0.31421286222262235,
+          "y": 0.5507500189558766
+        },
+        "right_control": {
+          "x": 0.6746355330638394,
+          "y": 0.8952567653400533
+        },
+        "sync_direction_control": true
+      },
+      {
+        "anchor": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "left_control": {
+          "x": 0.7763111804081841,
+          "y": 0.8768809521198273
+        },
+        "right_control": {
+          "x": 1.0,
+          "y": 1.0
+        },
+        "sync_direction_control": true
+      }
+    ],
+    "resource_id": "7416258989467374091",
+    "select_channel": 3,
+    "source_platform": 1,
+    "type": "color_curves",
+    "cache_relative": "Cache/effect/7416258989467374091/9e1cfdca2b07a183049bfc9b5ed32895"
+  },
+  "common_mask": {
+    "category": "adjust",
+    "category_id": "all",
+    "category_name": "全部(对应Loki All分类)",
+    "config": {
+      "aspectRatio": 1.0,
+      "centerX": 0.0,
+      "centerY": 0.0,
+      "expansion": 0.0,
+      "feather": 0.2,
+      "height": 0.5,
+      "invert": false,
+      "rotation": 0.0,
+      "roundCorner": 0.0,
+      "width": 0.28
+    },
+    "constant_material_id": "",
+    "contour_path": null,
+    "id": "",
+    "is_old_version": false,
+    "loader_work_space": "",
+    "name": "圆形",
+    "panel": "",
+    "path": "",
+    "platform": "all",
+    "position_info": "",
+    "resource_id": "7356934080102928946",
+    "resource_type": "circle",
+    "source_platform": 1,
+    "text_config": {
+      "align_type": 15,
+      "bold_width": 0.0,
+      "char_spacing": 0.0,
+      "content": "",
+      "font_name": "",
+      "font_path": "",
+      "font_resource_id": "",
+      "font_size": 15.0,
+      "has_underline": false,
+      "italic_degree": 0,
+      "line_gap": 0.0,
+      "scale": 1.0
+    },
+    "track_segment": "",
+    "type": "none",
+    "cache_relative": "Cache/effect/7356934080102928946/c71848a7c8a70529a25bae8b41c5a031"
+  },
+  "blur": {
+    "adjust_params": [
+      {
+        "default_value": 0.5,
+        "name": "effects_adjust_blur",
+        "value": 0.0
+      }
+    ],
+    "aigc_current_artifact_cnt": 0,
+    "aigc_current_artifact_freeze_progress": 0.0,
+    "aigc_current_artifact_freeze_time": -1,
+    "aigc_current_artifact_path": "",
+    "algorithm_artifact_path": "",
+    "apply_target_type": 2,
+    "apply_time_range": null,
+    "bind_segment_id": "",
+    "category_id": "1111",
+    "category_name": "画面特效",
+    "common_keyframes": [],
+    "covering_relation_change": 0,
+    "disable_effect_faces": [],
+    "effect_id": "7399495140399746304",
+    "effect_mask": [],
+    "enable_mask": true,
+    "enable_video_mask_shadow": true,
+    "enable_video_mask_stroke": true,
+    "formula_id": "",
+    "id": "",
+    "item_effect_type": 0,
+    "name": "模糊",
+    "path": "",
+    "platform": "all",
+    "render_index": 0,
+    "request_id": "",
+    "resource_id": "7399495140399746304",
+    "sdk_extra": "",
+    "source_platform": 1,
+    "sub_type": 0,
+    "time_range": null,
+    "track_render_index": 0,
+    "transparent_params": "",
+    "type": "video_effect",
+    "value": 1.0,
+    "version": "",
+    "cache_relative": "Cache/effect/7399495140399746304/abb0b0e8472b73a42e796086c708d216"
+  },
+  "rectangle_mask": {
+    "category": "video",
+    "category_id": "jichu",
+    "category_name": "基础",
+    "config": {
+      "aspectRatio": 1,
+      "centerX": 0.3125,
+      "centerY": 0,
+      "expansion": 0,
+      "feather": 0,
+      "height": 0.5,
+      "invert": false,
+      "rotation": 0,
+      "roundCorner": 0,
+      "width": 0.28020833333333334
+    },
+    "constant_material_id": "",
+    "contour_path": null,
+    "id": "",
+    "is_old_version": false,
+    "loader_work_space": "",
+    "name": "矩形",
+    "panel": "",
+    "path": "",
+    "platform": "all",
+    "position_info": "",
+    "resource_id": "7356934318301647410",
+    "resource_type": "rectangle",
+    "source_platform": 0,
+    "text_config": {
+      "align_type": 15,
+      "bold_width": 0,
+      "char_spacing": 0,
+      "content": "",
+      "font_name": "",
+      "font_path": "",
+      "font_resource_id": "",
+      "font_size": 15,
+      "has_underline": false,
+      "italic_degree": 0,
+      "line_gap": 0,
+      "scale": 1
+    },
+    "track_segment": "",
+    "type": "mask",
+    "cache_relative": "Cache/effect/7356934318301647410/1270adfa22a3bb42f179b0a089714d74",
+    "file_sha256": {
+      "config.json": "ad262fc4e3cc1f840fead43886a381d094e6d3ca6dd795f251ebec7217912985",
+      "amazingfeature/effects/lumi_rectangle_mask/lua/Process.lua": "fd3e08ea8c1f32bff5a8ef5afa6e9494ec0d082815a087df9f497ca059db3e7e",
+      "amazingfeature/effects/lumi_rectangle_mask/xshader/picture.frag": "c4ef10a27882c1a131d75f94474499826f64d81945a2f1ded1f50d9786881e0d"
+    }
+  }
+}

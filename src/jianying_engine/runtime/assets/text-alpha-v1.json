@@ -1,0 +1,15 @@
+{
+  "runtime_version": "11.6.0.14552",
+  "runtime_sha256": {
+    "videoeditor_addon.node": "b428a3c090eb34bd946466342dc7428a20b92b37f9b069ac3da30fa4a8224f60",
+    "agent_runtime_addon.node": "64aec1613d87979666d94e3fe8a7695d641f87dc07c1e8eacbd41afe2976dfb3",
+    "vm_sdk/vm_sdk.dll": "34b7d259aa3567e98a75e6a4decefae6e7f09bb45734fc90c732d77d60437b91",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "ac566cd7f2ea3a9fd4a1e7ef6ab5db4b17c0c33cf224dc56fa41d01560b74b8f",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d554779defb93711e032a530e12158b5debe06a771031d394b1a63f42d6b3bc7",
+    "Resources/canvas_agent/app/static/js/ai-creation~12.a54b7e83.js": "c09510cccd9e857f5f501b67d049d411e28fbe36ede2ce3c85936a34de9f166f",
+    "Resources/canvas_agent/app/static/js/ai-creation~15.f6ca3ef2.js": "89776f308bafb476ac8c7ffafbc886f569314b638eeaf7fa4e7b24eb2c49cbfe"
+  },
+  "font_sha256": "23c4c2392431725af8a8cf23b8e355c181ead687a43e79e842c9ae1647b293b2",
+  "font_relative": "Resources/Font/SystemFont/zh-hans.ttf",
+  "native_property": "KFTypeGlobalAlpha"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "剪映 Skill 维护层"
+  short_description: "提炼可复用剪辑经验、精简执行规则并保持素材与项目数据外置"
+  default_prompt: "使用 $editing-workbench 维护剪辑与剪前决策 Skill，将项目经验提炼为通用规则。"

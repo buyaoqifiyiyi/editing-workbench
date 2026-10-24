@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jianying-engine"
+version = "0.6.3"
+description = "Local Jianying editing engine with CLI and optional MCP adapter"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pyJianYingDraft==0.3.0", "Pillow==12.3.0", "pymediainfo==7.0.1",
+  "numpy==2.5.3", "comtypes==1.4.17", "imageio==2.38.0", "uiautomation==2.0.29",
+  "fonttools==4.60.2",
+]
+
+[project.optional-dependencies]
+exchange = ["opentimelineio==0.18.1"]
+rhythm = ["librosa==0.11.0", "numba==0.68.0"]
+audio = ["faster-whisper==1.2.1", "onnxruntime==1.31.0", "av==19.0.1"]
+tracking = ["opencv-contrib-python-headless==4.13.0.92", "av==19.0.1"]
+mcp = ["mcp==2.3.0"]
+workbench = ["starlette==1.8.0", "uvicorn==0.54.0"]
+desktop = ["starlette==1.8.0", "uvicorn==0.54.0", "pywebview==6.2.1"]
+all = ["opentimelineio==0.18.1", "librosa==0.11.0", "numba==0.68.0", "faster-whisper==1.2.1", "onnxruntime==1.31.0", "av==19.0.1", "opencv-contrib-python-headless==4.13.0.92", "mcp==2.3.0", "starlette==1.8.0", "uvicorn==0.54.0", "pywebview==6.2.1"]
+
+[project.scripts]
+jianying-engine = "jianying_engine.cli:main"
+jianying-engine-mcp = "jianying_engine.mcp_server:main"
+jianying-workbench = "jianying_engine.workbench:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["jianying_engine*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+jianying_engine = ["runtime/scripts/*.py", "runtime/scripts/*.cjs", "runtime/scripts/*.ps1", "runtime/scripts/*.txt", "runtime/assets/*.json", "runtime/references/*.md", "runtime/references/styles/*.md", "runtime/guides/*.md", "web/*.html", "web/*.css", "web/*.js", "web/*.ico", "*.cjs"]
+
+
+
+
+
+
+

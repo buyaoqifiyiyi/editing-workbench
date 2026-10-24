@@ -1,0 +1,4 @@
+# Optional offline single-object tracking; choose only one OpenCV package in an environment.
+# Install with -c constraints.txt. Models are not required by CSRT.
+opencv-contrib-python-headless==4.13.0.92
+av==19.0.1

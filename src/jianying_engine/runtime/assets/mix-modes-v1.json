@@ -1,0 +1,315 @@
+{
+  "runtime_version": "11.6.0.14552",
+  "runtime_sha256": {
+    "videoeditor_addon.node": "b428a3c090eb34bd946466342dc7428a20b92b37f9b069ac3da30fa4a8224f60",
+    "agent_runtime_addon.node": "64aec1613d87979666d94e3fe8a7695d641f87dc07c1e8eacbd41afe2976dfb3",
+    "vm_sdk/vm_sdk.dll": "34b7d259aa3567e98a75e6a4decefae6e7f09bb45734fc90c732d77d60437b91",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "ac566cd7f2ea3a9fd4a1e7ef6ab5db4b17c0c33cf224dc56fa41d01560b74b8f",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d554779defb93711e032a530e12158b5debe06a771031d394b1a63f42d6b3bc7",
+    "Resources/lumi_js_resources_video/js/video/video.js": "fa6181802fbb3754e9c3d6ebecd73b45dd3d4b5c77843d0ab905ca73723bf44b",
+    "Resources/canvas_agent/app/static/js/ai-creation~12.a54b7e83.js": "c09510cccd9e857f5f501b67d049d411e28fbe36ede2ce3c85936a34de9f166f",
+    "Resources/canvas_agent/app/static/js/ai-creation~11.aa2812ea.js": "55fdf8bf612b08e112c5c7f048d6cd76e8e6c17b204ebdadca73ad63ecd0a5fd"
+  },
+  "rendering": "installed_mix_v1",
+  "index_sha256": "ad19693613adcaf33e528b89ac1b96ae92e44807ed968b97cecf9e88e1497b71",
+  "modes": {
+    "滤色": {
+      "resource": "Resources/MixMode/d9c1d4ca7ab91df4f48d12b339f2da88",
+      "files": {
+        "anim.prefab": "8a2d55961af2760ca05513cd16043d09aa5cb713addda8f49b639c5d5e01ce6f",
+        "blend.material": "dd47fd8c062e756098cb60e2c23996240fa88379dc952868d9364bd45773339e",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/035879b1a5574e2f6cbad412256fb31c/shaderGLES/d8eaa90b50d0c0a335da3aaf63f195cd.frag": "5c36c4df02a1f2ebe98b6709c9999b3d4f3ac6eb9bcc615c6c9dcf4cde2ea9f7",
+        "Library/ShaderData/035879b1a5574e2f6cbad412256fb31c/shaderGLES/d8eaa90b50d0c0a335da3aaf63f195cd.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/035879b1a5574e2f6cbad412256fb31c/shaderMetal/d8eaa90b50d0c0a335da3aaf63f195cd.frag": "fef39501c7e0b09efe02af2d266ff59bb897d00460f5c9b5058cf09789aea8a2",
+        "Library/ShaderData/035879b1a5574e2f6cbad412256fb31c/shaderMetal/d8eaa90b50d0c0a335da3aaf63f195cd.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "62e15ae0546f15e9211834780bd61325789b73bdcae95a221146431f831c8ada"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "滤色",
+        "effect_id": "871339",
+        "resource_id": "6758325170760323597",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      }
+    },
+    "正片叠底": {
+      "resource": "Resources/MixMode/8001e07eefc5d8b69572b977ca14bef9",
+      "files": {
+        "anim.prefab": "e5e36483010b3b9a1035a9f6f8cb71a907d98b8d4ee2a44e40ebbedc858285f8",
+        "blend.material": "2816f8fef1ff203bfada35962020c66cd748f82077691a7a07a62f5a0889858e",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/4f319e573e91f1baf47c1a51caba7f23/shaderGLES/b99ebb584046179bb1065d96eec3fb18.frag": "afcf75d25c9cb7fac36315bcd6087f61e5163da9afa9f394150c5a2fdd93f62a",
+        "Library/ShaderData/4f319e573e91f1baf47c1a51caba7f23/shaderGLES/b99ebb584046179bb1065d96eec3fb18.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/4f319e573e91f1baf47c1a51caba7f23/shaderMetal/b99ebb584046179bb1065d96eec3fb18.frag": "1c4b8e40b884d23b8c6b61c71e309d05bb486e5e71d4b5be511ea8766deb257b",
+        "Library/ShaderData/4f319e573e91f1baf47c1a51caba7f23/shaderMetal/b99ebb584046179bb1065d96eec3fb18.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "ef469689dbd863e2d4d2f84a84fa2eaba1e20b791d66187eb3d98ebd3c197759"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "正片叠底",
+        "effect_id": "871333",
+        "resource_id": "6758325895519277582",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      }
+    },
+    "叠加": {
+      "resource": "Resources/MixMode/e6a48579910dfe831ba53a6acc6737f9",
+      "files": {
+        "anim.prefab": "74b88fdd67d016ca0fe9890b352dface6eb60fe6308c417b93517fec3e98b80a",
+        "blend.material": "c3a5670810f1aed08dfe473cdd5cc9a1865aee4752d416e6efa3d94a5c238e66",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/723deef7d051b738513cc57fee070890/shaderGLES/d4996a43d654ddc6f35303ed57ebf295.frag": "6f38890a09f50115a30001ec1d24aaf487becd4eff74e1c25f33ba5a01079fd0",
+        "Library/ShaderData/723deef7d051b738513cc57fee070890/shaderGLES/d4996a43d654ddc6f35303ed57ebf295.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/723deef7d051b738513cc57fee070890/shaderMetal/d4996a43d654ddc6f35303ed57ebf295.frag": "7216bcec04dd72403bae101eb051da0ee460fab811d0927993b5b013b4262650",
+        "Library/ShaderData/723deef7d051b738513cc57fee070890/shaderMetal/d4996a43d654ddc6f35303ed57ebf295.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "ab0c66e59fe569d565ade1f5eeedf4a41b07e7b6cb5ec87c94357a0b02a8d7fa"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "叠加",
+        "effect_id": "871340",
+        "resource_id": "6758324989931295240",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      }
+    },
+    "柔光": {
+      "resource": "Resources/MixMode/042aa15b71b1e17bca0bd928eec6fba7",
+      "files": {
+        "anim.prefab": "62ddcd244679958cfeec1aa6d9b38af3860138bba5266d9eac8337b10c2f8ece",
+        "blend.material": "01563bdb69b76378c132c942cc86dc6ac3cd2d93a9b2fec3ee6493920c72e221",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/6559a00ccc2878fd10120144e85d4ddb/shaderGLES/5ccf14a16ee408733fb178d87473b43b.frag": "55e18639b99a45a6f281ce4bca4ab3c4484407fd6e8daae3d21b1b497dce2a66",
+        "Library/ShaderData/6559a00ccc2878fd10120144e85d4ddb/shaderGLES/5ccf14a16ee408733fb178d87473b43b.vert": "9dfbdd0675f73b67c06c163c715a414e16262d20ccd3bebc9a2c7d71672e9f5b",
+        "Library/ShaderData/6559a00ccc2878fd10120144e85d4ddb/shaderMetal/5ccf14a16ee408733fb178d87473b43b.frag": "8afb226bf4f1f3e4cabaeeed66ce48d20e79e033e066f5584d49a6011f677d01",
+        "Library/ShaderData/6559a00ccc2878fd10120144e85d4ddb/shaderMetal/5ccf14a16ee408733fb178d87473b43b.vert": "cdc0b1610c32b9843628180ebaab40b6c5bf7b9d7324c91a9cbf58b1877c0a3e",
+        "xshader/blend.xshader": "3ea7b888cd13d1b46d49ca626c7f9ebe57edad3f24b9b3fcf7d82324b0e3bb01"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "柔光",
+        "effect_id": "871337",
+        "resource_id": "6758325439212556814",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      }
+    },
+    "强光": {
+      "resource": "Resources/MixMode/840ca85a1a33e6fc3ea78bbdb2db8f60",
+      "files": {
+        "anim.prefab": "360110c734d7e60653b64130f5d75568ad7971caac0fa8dfe660f77cf5f2fe2d",
+        "blend.material": "3d29ea53266f09eee7702662a016756df2033d1c8227d496022e4ea5ac746094",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/12ec3c30d03aaab000dde9be9960a06d/shaderGLES/12fb74826a380d88a276dfa92fc2a18b.frag": "cd25b1d3953e36d97aa786e1828e30c15ac9f19cba5742b42905845c4bc78d88",
+        "Library/ShaderData/12ec3c30d03aaab000dde9be9960a06d/shaderGLES/12fb74826a380d88a276dfa92fc2a18b.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/12ec3c30d03aaab000dde9be9960a06d/shaderMetal/12fb74826a380d88a276dfa92fc2a18b.frag": "69605f73f9cd910004d4df648a1a36ab9f2c879d8e13fd79a697241bebb9ea59",
+        "Library/ShaderData/12ec3c30d03aaab000dde9be9960a06d/shaderMetal/12fb74826a380d88a276dfa92fc2a18b.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "5fc5fb37690aabed2a586e215a9897e9ab6813bd8fe37b5639507573d2f2bffa"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "强光",
+        "effect_id": "871338",
+        "resource_id": "6758325264670790152",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    },
+    "线性加深": {
+      "resource": "Resources/MixMode/655f3590dd07ece41209fb312348ffe9",
+      "files": {
+        "anim.prefab": "ccae401e75653548fccde3b194c10e5849e3635e0003914d2663e14867d55876",
+        "blend.material": "701e38b25129c515cbcbf10a4577163e47b23eafc877a59be176197b0dc8bc7e",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/651f497c1b2200a4b4709ef67759eb2c/shaderGLES/3d03e554460899c4cdbbd7fb866a0c3d.frag": "071ea2d3a3f3840ee89b25efa52bf4b50f7bff19ed8b5d64b694d75806c06a58",
+        "Library/ShaderData/651f497c1b2200a4b4709ef67759eb2c/shaderGLES/3d03e554460899c4cdbbd7fb866a0c3d.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/651f497c1b2200a4b4709ef67759eb2c/shaderMetal/3d03e554460899c4cdbbd7fb866a0c3d.frag": "4a2cbda2290a9aab6db76676b27caab3c189933f831fa2dd10bde174fcba3193",
+        "Library/ShaderData/651f497c1b2200a4b4709ef67759eb2c/shaderMetal/3d03e554460899c4cdbbd7fb866a0c3d.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "27b7d16c20d9438bf4c78b72ed0f55dc71f3e786844cb76a5e832b52620af71a"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "线性加深",
+        "effect_id": "871336",
+        "resource_id": "6758325619253056013",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    },
+    "颜色加深": {
+      "resource": "Resources/MixMode/b76087cda4833f553cf09e82fb81c463",
+      "files": {
+        "anim.prefab": "be57fde2b0c09ff859093ecd4f42312e1ae443d3eb5eda85b5fbde69c88fedc9",
+        "blend.material": "1b8a43828112d77afc27977c15fb73798fd8506b009dc3846699dbe043c34fbe",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/38b3f704394c070051d1e97f07945d99/shaderGLES/9ccd87af6addcf1c9c1367a68476c995.frag": "f69f93bfc1a4d60f0d403ab2d1faf822cfdf478072128a4b2fc984c9db12e241",
+        "Library/ShaderData/38b3f704394c070051d1e97f07945d99/shaderGLES/9ccd87af6addcf1c9c1367a68476c995.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/38b3f704394c070051d1e97f07945d99/shaderMetal/9ccd87af6addcf1c9c1367a68476c995.frag": "077c9ff8d0f9ad0925a2a0261bd8e4d5fa9ff515de734b1b5861456129cb8176",
+        "Library/ShaderData/38b3f704394c070051d1e97f07945d99/shaderMetal/9ccd87af6addcf1c9c1367a68476c995.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "aef5e57a7d08055d87fcce03d2668ebf9249d86d2a1d8e0b5d25c6835a9f5b2a"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "颜色加深",
+        "effect_id": "871335",
+        "resource_id": "6758325724848853518",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    },
+    "颜色减淡": {
+      "resource": "Resources/MixMode/f979dd10def50fad3ffb77c7f0df3db7",
+      "files": {
+        "anim.prefab": "c12270fd14027593f8c9edef07a86b2bf1edb90ede1007d4ac0a84c3e09a1e8b",
+        "blend.material": "83cde8b141c4d880fc4e21a18a1b747ec5b4c64de6e66d5104970e3ccc61b488",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/1706404261cbb04617f156085df4ee47/shaderGLES/c9a94909777c82671f59e28db667c4ba.frag": "bc270ca5c7d0cfb89acb96066bb6e462101e83f0ba291744337eae0eb9fdf5bb",
+        "Library/ShaderData/1706404261cbb04617f156085df4ee47/shaderGLES/c9a94909777c82671f59e28db667c4ba.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/1706404261cbb04617f156085df4ee47/shaderMetal/c9a94909777c82671f59e28db667c4ba.frag": "1fc66f0543967d4492fd0b01a7734aaeb5f8f0cc57e8476c1074008f7dba55ec",
+        "Library/ShaderData/1706404261cbb04617f156085df4ee47/shaderMetal/c9a94909777c82671f59e28db667c4ba.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "607b7636792c3d897bc49b100e09d5160b8d912ef362348f4d738f24b677c0dd"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "颜色减淡",
+        "effect_id": "871334",
+        "resource_id": "6758325800031752712",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    },
+    "变亮": {
+      "resource": "Resources/MixMode/b0e90c43dc266a317b05b0cd3ca5bfba",
+      "files": {
+        "anim.prefab": "c94892211d38b522be2be550e03f9e4afb5d7d341e3764028fb970ab45991b7e",
+        "blend.material": "402328db584642b00b97c4a078bab947f3385c15945b9b104a1dbf45f6f66d52",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/f0d87050f5f98b0e9d8b599df28c0840/shaderGLES/b56b2792e75fcde177ffb61953d3eee9.frag": "4610b2eaeb514210fed96cbdcb4ee52a85e7aa19dc9b3b6be9abc7670ab1c17a",
+        "Library/ShaderData/f0d87050f5f98b0e9d8b599df28c0840/shaderGLES/b56b2792e75fcde177ffb61953d3eee9.vert": "7183f002ffedd462deff313d89320503c027113009670ee69e08673b59cb4306",
+        "Library/ShaderData/f0d87050f5f98b0e9d8b599df28c0840/shaderMetal/b56b2792e75fcde177ffb61953d3eee9.frag": "c58cd8cd1d2e0cc5aaeceb78829f06b44fc98fe810fcb669e312099dc9b45d21",
+        "Library/ShaderData/f0d87050f5f98b0e9d8b599df28c0840/shaderMetal/b56b2792e75fcde177ffb61953d3eee9.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "035d1904719dd5f27dcda039108094c74385ba347f0baddcb1b0eaf3565603cb"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "变亮",
+        "effect_id": "871341",
+        "resource_id": "6758324919789949453",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    },
+    "变暗": {
+      "resource": "Resources/MixMode/420c92a2b480dc8e402d9269a5f83515",
+      "files": {
+        "anim.prefab": "33f93348b9a09f9b2f78dad7ace969a522690da50a3eae28eec4199af9f0d7dd",
+        "blend.material": "eff4eb6f0c23e3b4779079ebea1abbc9763106545683a57f278eb2110c8bb4d9",
+        "config.json": "690a2f9c5a345cc13d7bc5a867914cd0cf8f0c54ecd230b7dce0ea4c4f0c04dc",
+        "content.json": "424c068d0f0e848d3b8f25ec1a55f1086df3c87ad95eca13fe6b265c46400fc0",
+        "Library/ShaderData/b7fa0a73977094b1d90d443e9ce14cf5/shaderGLES/a7f18cbf37004a23627033ba8c8b047f.frag": "b137a4e5f49fbdce4e302ca41ffd37a737b92ff3f397a161a4f64f984f39db99",
+        "Library/ShaderData/b7fa0a73977094b1d90d443e9ce14cf5/shaderGLES/a7f18cbf37004a23627033ba8c8b047f.vert": "ea9f35c4e8a349470be31c47a183e5094ce6bf1e23f8544f517892c9c599462c",
+        "Library/ShaderData/b7fa0a73977094b1d90d443e9ce14cf5/shaderMetal/a7f18cbf37004a23627033ba8c8b047f.frag": "66d8eeca60443068912e879f6542cafc4fdc1399a7aed36bab23c41c74989054",
+        "Library/ShaderData/b7fa0a73977094b1d90d443e9ce14cf5/shaderMetal/a7f18cbf37004a23627033ba8c8b047f.vert": "ac818d938eb0e35d95791f87248a294aa79ae1508d53baec1189c2787c4003c3",
+        "xshader/blend.xshader": "2578ae6d1bd440765e27b61dac4a4cff3727ae8dc432d654b60398954095dba9"
+      },
+      "material": {
+        "type": "mix_mode",
+        "name": "变暗",
+        "effect_id": "871342",
+        "resource_id": "6758324839670354445",
+        "value": 1.0,
+        "apply_target_type": 0,
+        "platform": "all",
+        "source_platform": 0,
+        "category_id": "",
+        "category_name": "",
+        "sub_type": "none",
+        "time_range": null
+      },
+      "media_kinds": [
+        "image"
+      ]
+    }
+  }
+}

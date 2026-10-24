@@ -1,0 +1,4 @@
+interface:
+  display_name: "剪映剪前决策层"
+  short_description: "方向未定时给简短方向供选择；已有明确要求时只拆解并交给剪辑层"
+  default_prompt: "使用 $editing-workbench 判断是否需要先选剪辑方向，并把我的要求整理后交给 $editing-workbench 执行。"

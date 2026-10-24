@@ -1,0 +1,17 @@
+{
+  "version": "11.6.0.14552",
+  "files": {
+    "videoeditor_addon.node": "b428a3c090eb34bd946466342dc7428a20b92b37f9b069ac3da30fa4a8224f60",
+    "agent_runtime_addon.node": "64aec1613d87979666d94e3fe8a7695d641f87dc07c1e8eacbd41afe2976dfb3",
+    "vm_sdk/vm_sdk.dll": "34b7d259aa3567e98a75e6a4decefae6e7f09bb45734fc90c732d77d60437b91",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "ac566cd7f2ea3a9fd4a1e7ef6ab5db4b17c0c33cf224dc56fa41d01560b74b8f",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d554779defb93711e032a530e12158b5debe06a771031d394b1a63f42d6b3bc7"
+  },
+  "runtime": {
+    "file": "vebun.exe",
+    "sha256": "ac1e5b59460e104f94595c965e76fd49168c425677aa694c23acc0fdf21c77e0",
+    "product": "Bun 1.3.14-canary.1",
+    "note": "11.6 ships its Bun runtime as vebun.exe instead of the 11.5 bun.exe; the default runtime lookup falls back to it, an explicit --runtime still overrides."
+  },
+  "measured": "2026-10-16"
+}

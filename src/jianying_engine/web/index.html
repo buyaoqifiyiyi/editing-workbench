@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="workbench-token" content="__WORKBENCH_TOKEN__">
+  <title>剪辑工作台</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v11H3zM3 6V4h7l2 2h7v3"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+</svg>
+<div id="app" class="workbench">
+  <aside class="sidebar" aria-label="项目任务与工作区">
+    <div class="brand"><svg class="icon brand-icon"><use href="#i-film"/></svg><span>剪辑工作台</span><span class="local-tag">本地</span></div>
+    <button id="new-session" class="new-session" title="创建一个新的制作任务"><svg class="icon"><use href="#i-add"/></svg>新建任务</button>
+    <div class="section-label">项目任务 <span id="session-count"></span></div>
+    <nav id="session-list" class="session-list" aria-label="项目任务列表"><p class="muted list-empty">正在读取任务…</p></nav>
+    <div class="sidebar-bottom">
+      <button id="workspace-button" class="workspace-button" title="选择或粘贴工作区目录"><svg class="icon"><use href="#i-folder"/></svg><span><span class="eyebrow">工作区</span><strong id="workspace-name">尚未选择</strong></span><span class="small-arrow">›</span></button>
+      <div class="connection"><span id="connection-dot" class="status-dot"></span><span id="connection-label">正在读取状态</span><button id="connect-button" class="text-button" title="连接本机 Agent CLI">连接</button></div>
+      <button id="connection-settings" class="subtle-button" title="查看 CLI 路径或指定其他 CLI">执行引擎设置</button>
+    </div>
+  </aside>
+
+  <main class="conversation">
+    <header class="conversation-header"><div class="header-titles"><span class="workspace-eyebrow">制作工作台</span><h1 id="session-title">新建任务</h1><p id="workspace-path">选择工作区，添加素材。</p></div><button id="omni-settings" class="secondary-button omni-entry" type="button" title="配置原生音视频分析服务">视听 API</button><button id="toggle-inspector" class="panel-toggle" aria-expanded="true" title="管理素材与成果"><svg class="icon"><use href="#i-panel"/></svg><span>资源面板</span></button></header>
+    <nav class="workspace-navigation" aria-label="工作台模块"><button id="view-workspace" class="workspace-nav active" type="button" aria-current="page">制作工作区</button><button id="backend-toggle" class="workspace-nav" type="button" aria-expanded="false" aria-controls="backend-panel">软件配置<span id="backend-toggle-label" class="sr-only">配置</span></button><button id="view-records" class="workspace-nav" type="button">执行记录<span id="record-count" class="nav-count"></span></button><span id="workspace-status" class="workspace-status">等待任务</span></nav>
+    <div id="error-banner" class="error-banner" role="alert" hidden><span id="error-text"></span><button id="dismiss-error" class="icon-button" title="关闭错误提示"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <section class="backend-workspace" aria-label="软件后端">
+      <section id="backend-panel" class="backend-panel" aria-label="配置软件后端" hidden>
+        <div class="backend-panel-heading"><div><span class="module-eyebrow">软件配置</span><h2>为制作流程分配工具</h2><p>按功能组合软件。灰色项显示尚未适配或本机缺少的应用。</p></div><div class="backend-modes" role="group" aria-label="调用方式"><button id="backend-mode-workflow" type="button" class="backend-control" aria-pressed="true">组合工作流</button><button id="backend-mode-single" type="button" class="backend-control" aria-pressed="false">单独调用</button></div></div>
+        <div class="backend-panel-scroll"><div class="backend-matrix"><div class="matrix-heading"><span>制作职责</span><span>应用与接入状态</span></div><div id="backend-role-list" class="backend-role-list"></div><div id="backend-single-choice" class="backend-single-choice" hidden><label for="backend-single-select">本次调用的软件</label><select id="backend-single-select" class="backend-control"></select><p>只使用所选软件；保存后在制作任务单中填写具体要求。</p></div></div><aside class="software-inventory" aria-label="本机软件"><div class="backend-catalog-heading"><h3>本机软件</h3><button id="backend-refresh" type="button" class="secondary-button" title="重新检测本机软件">重新检测</button></div><div id="backend-catalog" class="backend-catalog"></div></aside></div>
+        <p id="backend-error" class="backend-error" role="alert" hidden></p><div class="backend-panel-footer"><span id="backend-save-note">保存到当前任务，并作为新任务的初始配置。</span><div><button id="backend-cancel" type="button" class="secondary-button">取消</button><button id="backend-save" type="button" class="primary-button">保存配置</button></div></div>
+      </section>
+    </section>
+    <section id="workspace-view" class="workspace-view" aria-label="制作工作区">
+    <div class="production-layout"><div class="production-main">
+      <section class="preview-stage" aria-label="素材监看"><div class="stage-heading"><div class="viewer-title"><svg class="icon"><use href="#i-film"/></svg><h2>源监看器</h2></div><div class="viewer-tools"><span id="stage-media-count" class="stage-counter">0 项素材</span><button id="viewer-fit" class="viewer-zoom" type="button" aria-pressed="false" title="查看原始像素大小" disabled>适合窗口</button></div></div><div id="media-preview" class="media-preview"><div class="preview-empty"><svg class="icon"><use href="#i-film"/></svg><strong>尚未载入素材</strong><span>添加本地文件，或在资源面板选择素材预览。</span></div></div><div class="viewer-status"><div id="preview-caption" class="preview-caption">尚未添加素材</div><span id="preview-kind" class="viewer-meta"></span><span id="preview-size" class="viewer-meta"></span></div></section>
+      <div id="running-indicator" class="running-indicator" role="status" hidden><span class="working-dot"></span><span id="running-label">正在执行</span><button id="open-progress" type="button" class="text-button">查看进度</button></div>
+      <div id="welcome" class="welcome">
+        <span>任务准备</span><p>添加素材，分配软件，再填写制作要求。</p><div class="welcome-actions"><button id="welcome-connect" class="text-button">连接执行引擎</button><button id="welcome-media" class="text-button">添加素材</button></div>
+      </div>
+    <section id="approvals" class="approvals" aria-label="待确认事项" hidden></section>
+    <form id="composer-form" class="composer-area">
+      <div class="task-form-heading"><h2>制作任务</h2><span id="backend-summary" class="backend-summary">正在读取软件配置…</span><button id="task-software" type="button" class="text-button">配置软件</button></div>
+      <div class="composer">
+        <button id="attached-media" type="button" class="attached-media" title="查看已添加的文件和文件夹" hidden></button>
+        <label class="sr-only" for="prompt">剪辑要求</label><textarea id="prompt" rows="3" placeholder="填写本次任务：目标时长、画面风格、声音要求或需要修改的部分。" spellcheck="false"></textarea>
+        <div class="composer-toolbar"><div class="composer-options"><button id="attach-button" type="button" class="icon-button" title="添加素材或粘贴素材路径"><svg class="icon"><use href="#i-add"/></svg></button><button id="composer-agent" type="button" class="agent-picker" title="选择或切换本机执行引擎"><span class="agent-picker-dot"></span><span id="composer-agent-name">选择执行引擎</span></button><label class="sr-only" for="model-select">模型</label><select id="model-select" title="选择实际可用的模型" disabled><option value="">尚未连接模型</option></select><span class="option-divider"></span><label class="sr-only" for="effort-select">推理强度</label><select id="effort-select" title="所选模型支持的推理强度" disabled><option value="">随 CLI 配置</option></select><label class="sr-only" for="mode-select">工作模式</label><select id="mode-select" title="执行模式" hidden></select></div><div class="send-controls"><button id="interrupt-button" type="button" class="stop-button" title="停止当前执行" hidden><svg class="icon"><use href="#i-stop"/></svg>停止</button><button id="send-button" type="submit" class="send-button" title="执行任务（Ctrl / ⌘ + Enter）" disabled><span id="send-label">执行任务</span><svg class="icon"><use href="#i-arrow"/></svg></button></div></div>
+      </div>
+      <p id="media-feedback" class="media-feedback" role="status" aria-live="polite" hidden></p>
+      <div class="composer-footer"><span id="composer-status" role="status">正在读取本地服务状态…</span><span class="keyboard-hint">Ctrl / ⌘ + Enter 执行任务</span></div>
+    </form>
+    </div>
+  <aside id="inspector" class="inspector" aria-label="素材、进度与成果">
+    <div id="inspector-resize" class="resize-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整右侧面板宽度" aria-valuemin="260" aria-valuemax="500" aria-valuenow="336" title="拖动调整宽度；方向键微调"></div>
+    <div class="inspector-tabs" role="tablist"><button id="tab-media" class="tab active" role="tab" aria-selected="true" aria-controls="panel-media" data-tab="media">素材</button><button id="tab-progress" class="tab" role="tab" aria-selected="false" aria-controls="panel-progress" data-tab="progress">进度<span id="progress-count" class="count-badge" hidden></span></button><button id="tab-artifacts" class="tab" role="tab" aria-selected="false" aria-controls="panel-artifacts" data-tab="artifacts">成果<span id="artifact-count" class="count-badge" hidden></span></button></div>
+    <section id="panel-media" class="inspector-panel" role="tabpanel" aria-labelledby="tab-media"><div class="panel-toolbar"><span>本地素材 <span id="media-count">0</span></span><button id="add-media" class="text-button" title="选择本地素材或粘贴路径">添加素材</button></div><div id="media-list" class="media-list"><p class="panel-empty">添加视频、图片或音频。原文件保留在本机。</p></div></section>
+    <section id="panel-progress" class="inspector-panel" role="tabpanel" aria-labelledby="tab-progress" hidden><div class="panel-toolbar"><span>任务进度</span><span id="task-state" class="muted">尚未开始</span></div><div id="event-list" class="event-list"><p class="panel-empty">任务开始后，这里显示阶段进度。</p></div></section>
+    <section id="panel-artifacts" class="inspector-panel" role="tabpanel" aria-labelledby="tab-artifacts" hidden><div class="panel-toolbar"><span>交付成果</span><button id="refresh-artifacts" class="text-button" title="重新扫描并分类工作区文件">刷新</button></div><div id="artifact-list" class="artifact-list"><p class="panel-empty">交付成果显示在这里，项目资料和过程文件默认折叠。</p></div></section>
+  </aside>
+  </div></section>
+  <section id="records-view" class="records-view" aria-label="执行记录" hidden><div class="records-heading"><div><span class="module-eyebrow">执行记录</span><h2>任务说明与处理记录</h2></div><p>保留每轮要求、执行反馈与交付说明。</p></div><div id="messages-scroll" class="messages-scroll"><div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text"></div></div></section>
+  </main>
+</div>
+
+<dialog id="media-dialog"><form id="media-form"><div class="dialog-heading"><h2>添加本地素材</h2><button type="button" data-close-dialog class="icon-button" title="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="muted">选择文件或文件夹，也可粘贴路径。文件夹只保留路径引用，Agent 会按需查看内容；不会预先展开或复制所有文件。</p><button id="browse-media" type="button" class="secondary-button"><svg class="icon"><use href="#i-folder"/></svg>选择文件</button> <button id="browse-media-folder" type="button" class="secondary-button">选择文件夹</button><p id="media-dialog-status" role="status" class="muted" hidden></p><label for="media-paths">素材路径</label><textarea id="media-paths" rows="5" placeholder="每行一个本地文件或文件夹完整路径" spellcheck="false"></textarea><div class="dialog-actions"><button type="button" data-close-dialog class="secondary-button">取消</button><button type="submit" class="primary-button">添加</button></div></form></dialog>
+<dialog id="workspace-dialog"><form id="workspace-form"><div class="dialog-heading"><h2>工作区目录</h2><button type="button" data-close-dialog class="icon-button" title="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="muted">制作任务在此目录中读取素材并保存成果。</p><label for="workspace-input">完整目录路径</label><div class="path-input-row"><input id="workspace-input" type="text" spellcheck="false" placeholder="输入本地工作区目录"><button id="browse-workspace" type="button" class="secondary-button">浏览</button></div><div class="dialog-actions"><button type="button" data-close-dialog class="secondary-button">取消</button><button type="submit" class="primary-button">使用此目录</button></div></form></dialog>
+<dialog id="connection-dialog"><form id="connection-form"><div class="dialog-heading"><h2>连接本机 Agent</h2><button type="button" data-close-dialog class="icon-button" title="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div><p id="connection-detail" class="muted">使用本机 CLI 的账号、模型与权限设置。</p><label for="agent-select">选择 Agent</label><select id="agent-select"></select><p id="agent-status" class="muted"></p><button id="rescan-agents" type="button" class="secondary-button">重新扫描</button><details id="agent-advanced"><summary>高级启动设置（可选）</summary><label for="cli-path">可执行文件路径</label><input id="cli-path" type="text" placeholder="留空自动查找本机 CLI" spellcheck="false"><label for="agent-args">启动参数（JSON 数组）</label><textarea id="agent-args" rows="3" spellcheck="false">[]</textarea></details><p class="muted">ACP 使用 Agent 自己的默认模型与权限设置；各 Agent 分别登录。不要在启动参数中填写密钥。</p><div class="dialog-actions"><button type="button" data-close-dialog class="secondary-button">取消</button><button id="connection-submit" type="submit" class="primary-button">连接</button></div></form></dialog>
+<dialog id="omni-dialog" aria-labelledby="omni-title">
+  <form id="omni-form" autocomplete="off">
+    <div class="dialog-heading"><h2 id="omni-title">原生视听 API</h2><button type="button" class="icon-button" data-close-dialog title="关闭">×</button></div>
+    <p class="muted">使用你选择的视听模型分析 BGM 和候选镜头，辅助声画匹配与动作卡点。</p>
+    <label for="omni-protocol">接口协议</label><select id="omni-protocol"><option value="openai-compatible">OpenAI 兼容</option><option value="gemini">Gemini 原生 API</option></select>
+    <label for="omni-model">模型 ID</label><input id="omni-model" required placeholder="填写服务端提供的模型 ID" spellcheck="false" autocomplete="off">
+    <label for="omni-url">接口根地址</label><input id="omni-url" type="url" required placeholder="填写服务的 HTTPS API 根地址" spellcheck="false" autocomplete="off"><p id="omni-protocol-hint" class="omni-hint"></p>
+    <label for="omni-key">API Key</label><input id="omni-key" type="password" placeholder="填写密钥；已保存时留空表示保留" spellcheck="false" autocomplete="new-password"><p id="omni-key-status" class="omni-hint"></p>
+    <details><summary>高级请求参数（可选）</summary><label for="omni-options">模型参数 JSON</label><textarea id="omni-options" rows="2" spellcheck="false" placeholder="{}"></textarea><p class="omni-hint">按服务文档填写思考、温度等参数，不填密钥。OpenAI 兼容参数放入请求体，Gemini 参数放入 generationConfig。</p></details>
+    <label class="omni-checkbox"><input id="omni-enabled" type="checkbox">启用原生视听分析</label><label class="omni-checkbox"><input id="omni-clear-key" type="checkbox">清除已保存的密钥</label>
+    <p id="omni-status" class="omni-status" role="status" aria-live="polite"></p><p class="omni-hint">所选模型与服务须支持音频和视频输入。密钥用当前 Windows 账户加密保存，不回显；切换服务时请填写对应密钥。保存和检查不会上传素材，执行分析时会产生 API 用量。</p>
+    <div class="dialog-actions"><button id="omni-check" type="button" class="secondary-button">检查配置</button><button id="omni-save" type="submit" class="primary-button">保存配置</button></div>
+  </form>
+</dialog>
+<dialog id="artifact-dialog"><div class="dialog-heading"><h2 id="artifact-title">成果预览</h2><button type="button" class="icon-button" data-close-dialog title="关闭">×</button></div><div id="artifact-preview"></div></dialog></body>
+</html>
+
+
+
+
+
+
+
+
+

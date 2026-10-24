@@ -1,0 +1,4 @@
+pyJianYingDraft==0.3.0
+Pillow==12.3.0
+pymediainfo==7.0.1
+fonttools==4.60.2

@@ -1,0 +1,4 @@
+# Optional local transcription and stem separation. Models are supplied separately.
+# Install with: python -m pip install -r requirements-offline-audio.txt -c constraints.txt
+faster-whisper==1.2.1
+onnxruntime==1.31.0
