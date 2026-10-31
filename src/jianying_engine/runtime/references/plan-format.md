@@ -44,6 +44,7 @@ CLI 校验未知字段、非法数值、缺失素材、越界截取、同轨重�
 可选字段：
 
 - `track`：默认 `video`；如 `overlay` 为额外画面轨道。不同轨道按第一次出现顺序从背景到前景创建。
+- 带透明通道的视频：只接受 MOV 内 PNG（rgba）或 QuickTime Animation（argb），放在叠层轨；VP9/ProRes 4444 等其他透明编码在校验时拒绝。验证范围见 [透明视频叠层](capabilities.md#alpha-video)。
 - `volume`：默认 0，原声的线性增益，1 表示保持原增益。需要同步声时显式写 1；不主动消除有效原声。
 - `fit`：默认 `contain`，完整显示；`cover` 填满画布，可能裁掉主体，需视觉确认。
 - `transform`：ClipSettings 参数 `scale_x`、`scale_y`、`transform_x`、`transform_y`、`rotation`、`alpha`、`flip_horizontal`、`flip_vertical`。scale 是 fit 后的相对缩放，必须大于 0；位移单位为半个画布宽/高，字幕常用 y=-0.8；alpha 为 0–1。

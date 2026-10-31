@@ -32,6 +32,9 @@ import runtime_paths
 IMAGE_EXT = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 MEDIA_EXT = IMAGE_EXT | {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.gif', '.m4v',
                          '.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg'}
+# Transparent overlay videos whose alpha the native player composites exactly (11.6 pixel probe).
+ALPHA_VIDEO_FORMATS = {('png', 'rgba'), ('qtrle', 'argb')}
+ALPHA_PIX_FMT = re.compile(r'^(yuva|gbrap|rgba|bgra|argb|abgr|ya\d)')
 KEYFRAMES = {'uniform_scale', 'scale_x', 'scale_y', 'position_x', 'position_y', 'rotation', 'alpha'}
 TRANSFORMS = {'scale_x', 'scale_y', 'transform_x', 'transform_y', 'rotation', 'alpha',
               'flip_horizontal', 'flip_vertical'}
@@ -545,6 +548,11 @@ def probe(path):
         numerator, denominator = v.get('avg_frame_rate', '0/1').split('/')
         info.update(width=v['width'], height=v['height'],
                     fps=float(numerator) / float(denominator) if float(denominator) else 0)
+        if kind == 'video':  # GIF probes as bgra; its transparency is unverified and stays as before
+            pix_fmt = v.get('pix_fmt', '')
+            info.update(codec=v.get('codec_name', ''), pix_fmt=pix_fmt,
+                        alpha=v.get('codec_name') != 'gif' and (bool(ALPHA_PIX_FMT.match(pix_fmt)) or
+                                                               str(v.get('tags', {}).get('alpha_mode', '')) == '1'))
     if kind != 'image' and duration <= 0:
         raise ValueError(f'Media duration could not be measured: {path}')
     return info
@@ -1402,6 +1410,10 @@ def validate_plan(path, user_data=None, mask_resource_root=None):
             number(item.setdefault('volume', 0 if group == 'clips' else 1), label + '.volume', 0, 10)
             if group == 'clips' and info['kind'] == 'audio':
                 raise ValueError(f'{label} requires video or image')
+            if group == 'clips' and info.get('alpha') and (info.get('codec'), info.get('pix_fmt')) not in ALPHA_VIDEO_FORMATS:
+                raise ValueError(f'{label}: transparent video {info.get("codec")}/{info.get("pix_fmt")} is not admitted; '
+                                 'Jianying shows VP9 alpha as black and shifts ProRes 4444 colour. Re-encode as MOV with '
+                                 '-c:v png -pix_fmt rgba or -c:v qtrle -pix_fmt argb')
             if group == 'audio' and info['kind'] != 'audio':
                 raise ValueError(f'{label} requires an audio-only file; extract a copy first')
             if info['kind'] == 'image':

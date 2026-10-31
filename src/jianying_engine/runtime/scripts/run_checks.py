@@ -43,6 +43,7 @@ CHECKS = {
     'circle_mask': ('circle_mask_self_check.py', 'circle', True, False),
     'extensions': ('extensions_self_check.py', 'extensions', True, False),
     'layout_tracks': ('layout_tracks_self_check.py', 'out', False, False),
+    'alpha_video': ('alpha_video_self_check.py', 'out_install', False, True),
     'native_preview': ('native_preview_self_check.py', 'install', False, True),
     'draft_state': ('draft_state_self_check.py', 'out', False, False),
     'refresh_registration': ('refresh_registration_self_check.py', 'out', False, False),
@@ -116,6 +117,8 @@ def arguments(kind, out, media, options):
         return []
     if kind == 'install':
         return ['--install', str(options.install)]
+    if kind == 'out_install':
+        return ['--out', str(out), '--install', str(options.install)]
     if kind == 'work':
         return ['--work', str(out)]
     if kind == 'out':
@@ -163,7 +166,7 @@ def skip_reason(name, spec, options, native_ready):
         return 'Windows paths only'
     if needs_native and not native_ready:
         return 'no configured Jianying user data (JIANYING_USER_DATA / LOCALAPPDATA)'
-    if kind == 'install' and not options.install:
+    if kind in ('install', 'out_install') and not options.install:
         return 'no recorded Jianying install directory for the native preview manifests'
     if kind and kind.startswith('plan:') and not getattr(options, kind[5:]):
         return f'needs --{kind[5:].replace("_", "-")} (external measured plan)'
