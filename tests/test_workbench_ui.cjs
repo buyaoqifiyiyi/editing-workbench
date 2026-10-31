@@ -11,10 +11,12 @@ function element(id) {
   if (!elements.has(id)) {
     const classes = new Set();
     elements.set(id, {
-      textContent: '', hidden: false, disabled: false, value: '', options: [], className: '', dataset: {},
+      _text: '', hidden: false, disabled: false, value: '', options: [], className: '', dataset: {},
+      get textContent() { return this._text + this.options.map(child => child.textContent || child.text || '').join(''); },
+      set textContent(value) { this._text=String(value);this.options=[]; },
       listeners: {},
       get children() { return this.options; },
-      replaceChildren(...items) { this.options = items; this.value = items[0]?.value || ''; },
+      replaceChildren(...items) { this._text='';this.options = items; this.value = items[0]?.value || ''; },
       append(...items) { this.options.push(...items); },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       close() { this.open = false; },
@@ -41,8 +43,15 @@ let pickedPaths = [];
 let rejectMedia = false;
 let rejectConnect = false;
 let rejectBackend = false, holdBackend = false, resolveBackend;
-let rejectOmni = false;
+let rejectOmni = false, holdOmniSave = false, resolveOmniSave;
+let holdOmniTest = false, resolveOmniTest;
+let omniTestReport = {
+  success: true, message: '接口连接成功。', tested_at: '2026-10-26T08:00:00+08:00', latency_ms: 1485,
+  model: 'qwen3.8-omni-flash', protocol: 'openai-compatible', endpoint_host: 'maas.qianwenapi.com',
+  network_called: true, http_status: 200, usage: {total_tokens: 146}
+};
 const omniPayloads = [];
+const omniTestPayloads = [];
 const backendPayloads = [];
 const calls = [];
 let generatedNodes = 0;
@@ -54,7 +63,7 @@ const document = {
   createElementNS: (_, tag) => createNode(tag),
   getElementById: element,
   querySelector: selector => selector.includes('meta') ? { content: 'test-token' } : selector === '.conversation' ? element('conversation') : null,
-  querySelectorAll: selector => selector === '.approval-card' ? [approvalCard] : selector === '.backend-control' ? [...elements.values()].filter(item=>item.className.split(' ').includes('backend-control')) : [],
+  querySelectorAll: selector => selector === '.approval-card' ? [approvalCard] : selector === '.backend-control' ? [...elements.values()].filter(item=>item.className.split(' ').includes('backend-control')) : selector === '[data-import-media]' ? [...elements.values()].filter(item=>Object.hasOwn(item,'data-import-media')) : [],
 };
 const context = {
   document, window: { setTimeout() {} }, console,
@@ -82,9 +91,16 @@ const context = {
     if (url === '/api/omni/configure') {
       const payload=JSON.parse(options.body);omniPayloads.push(payload);
       if(rejectOmni)return {ok:false,status:400,json:async()=>({error:'测试：视听配置保存失败'})};
+      if(holdOmniSave)await new Promise(resolve=>{resolveOmniSave=resolve;});
       backend.omni={base_url:payload.base_url,enabled:payload.enabled,protocol:payload.protocol,model:payload.model,
         request_options:payload.request_options,credential_source:'saved',credential_present:true,ready:payload.enabled,
-        message:'配置就绪，尚未验证API连通性与余额。'};
+        message:'配置已保存，可测试连接。',connection_test:{}};
+    }
+    if (url === '/api/omni/test') {
+      assert.equal(options.method,'POST');
+      omniTestPayloads.push(JSON.parse(options.body||'{}'));
+      if(holdOmniTest)await new Promise(resolve=>{resolveOmniTest=resolve;});
+      return response(omniTestReport);
     }
     if (url === '/api/backends/configure') {
       const payload=JSON.parse(options.body);backendPayloads.push(payload);
@@ -108,7 +124,7 @@ assert(applyPattern.test(fragment), 'applyState changed; update the render stub'
 fragment = fragment.replace(applyPattern, '  function applyState(next) {state=next;online=true;controls();}');
 vm.runInContext(fragment + '\nthis.test={mutate,poll,renderModels,renderMedia,renderProgress,renderApprovals,renderBackends,openBackendPanel,cancelBackendPanel,changeBackendMode,saveBackendSelection,callSingleBackend,setWorkspaceView,toggleInspector,toggleViewerSize,getBackendDraft:()=>backendDraft,getState:()=>state};', context);
 context.showDialog=id=>element(id).showModal();
-vm.runInContext(source.slice(source.indexOf('  function renderOmniStatus'),source.indexOf('  function showMedia()'))+'\nthis.omniTest={openOmniSettings,saveOmniSettings,renderOmniStatus};',context);
+vm.runInContext(source.slice(source.indexOf('  function omniFormSignature'),source.indexOf('  function showMedia()'))+'\nthis.omniTest={openOmniSettings,saveOmniSettings,renderOmniStatus,testOmniConnection,markOmniDirty,closeOmniSettings};',context);
 
 async function main() {
   await context.test.poll();
@@ -174,6 +190,21 @@ async function main() {
   await context.test.poll();
   assert.equal(element('send-button').disabled, true, 'non-ACP missing catalog must not enable sending');
   console.log('PASS agent catalog: ACP empty catalog permits defaults; non-ACP empty catalog blocks send');
+
+  backend.agent={id:'codex-picker',protocol:'codex',state:'connected',models:[
+    {model:'quick',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]},
+    {model:'recommended',isDefault:true,defaultReasoningEffort:'high',supportedReasoningEfforts:[{reasoningEffort:'medium'},{reasoningEffort:'high'}]},
+    {model:'hidden',hidden:true,isDefault:true}]};
+  await context.test.poll();context.test.renderModels();
+  assert.equal(element('model-select').value,'recommended');
+  assert.equal(element('effort-select').value,'high');
+  assert.equal(element('effort-select').disabled,false);
+  assert(element('model-select').options.every(option=>option.value&&option.value!=='hidden'));
+  backend.agent.currentModel='quick';backend.agent.currentEffort='low';
+  await context.test.poll();context.test.renderModels();
+  assert.equal(element('model-select').value,'quick');
+  assert.equal(element('effort-select').value,'low');
+  console.log('PASS Codex model picker: explicit recommended defaults, real supported effort, confirmed session selection and no blank CLI placeholders');
 
   const connectionHandler = source.match(/  \$\('connection-form'\)\.addEventListener\('submit',[^\n]+\);/);
   assert(connectionHandler, 'connection submit changed; update focused handler extraction');
@@ -287,7 +318,15 @@ async function main() {
   assert.equal(context.test.getState().media.length,0);
   assert.equal(element('media-count').textContent,'0');
   assert.equal(element('attached-media').hidden,true);
-  assert.equal(element('media-preview').children[0].children.at(-1).textContent,'选择素材查看预览');
+  const standby=element('media-preview').children[0];
+  assert(standby.children.some(child=>child.textContent==='让画面，从这里开始。'));
+  const standbyImport=standby.children.at(-1);
+  assert.equal(standbyImport.tagName,'button');
+  assert.equal(standbyImport.children.at(-1).textContent,'载入素材');
+  assert.equal(standbyImport.disabled,false);
+  let standbyImportOpened=false;context.showMedia=()=>{standbyImportOpened=true;};
+  standbyImport.listeners.click();
+  assert(standbyImportOpened,'Empty monitor must keep a working media import entry');
   assert.equal(element('error-banner').hidden,true);
   await context.test.poll();
   assert.equal(element('new-session').disabled,false,'Empty media must not break subsequent polling');
@@ -472,7 +511,7 @@ async function main() {
   console.log('PASS production modules: primary material monitor, separate task/records/software views, no chat hero, explicit task execution shortcut');
   backend.current_session={id:'omni-id',status:'idle'};
   backend.omni={base_url:'https://example.invalid/v1',enabled:true,credential_source:'none',ready:false,
-    protocol:'openai-compatible',model:'vendor/past-model',request_options:{temperature:.2},message:'未配置密钥'};
+    protocol:'openai-compatible',model:'vendor/past-model',request_options:{temperature:.2},message:'未配置密钥',connection_test:{}};
   await context.test.poll();context.omniTest.openOmniSettings();
   assert.equal(element('omni-dialog').open,true);
   assert.equal(element('omni-url').value,'https://example.invalid/v1');
@@ -480,29 +519,117 @@ async function main() {
   assert.equal(element('omni-model').value,'vendor/past-model');
   assert.equal(JSON.parse(element('omni-options').value).temperature,.2);
   assert.equal(element('omni-key').value,'');
+  assert.equal(element('omni-check').textContent,'测试连接');
+  assert.equal(element('omni-check').disabled,false,'Saved config can be tested before any edit');
+  const css=fs.readFileSync(path.join(__dirname,'../src/jianying_engine/web/app.css'),'utf8');
+  assert(html.includes('class="omni-dialog-body"')&&html.includes('class="omni-field-grid"')&&html.includes('class="dialog-actions omni-dialog-footer"'));
+  assert(html.includes('id="omni-check" type="button" class="secondary-button">测试连接</button>'));
+  assert(/\.omni-field-grid \{[^}]*grid-template-columns: repeat\(2,minmax\(0,1fr\)\)/.test(css));
+  assert(/\.omni-dialog-body \{[^}]*overflow-y: auto/.test(css));
+  assert(/\.omni-dialog-header \{[^}]*flex: 0 0 auto/.test(css)&&/\.omni-dialog-footer \{[^}]*flex: 0 0 auto/.test(css));
+  assert(/#omni-dialog::backdrop \{[^}]*backdrop-filter: none/.test(css));
+  assert(css.includes('@media (max-width: 720px)')&&/\.omni-field-grid,\.omni-feedback-grid \{ grid-template-columns: 1fr; \}/.test(css));
+  console.log('PASS omni layout: compact two-column fields, one-column narrow layout, fixed header/footer, content-only scrolling and dialog-only backdrop blur removal');
+
+  element('omni-model').value='unsaved-model';context.omniTest.markOmniDirty();
+  assert.match(element('omni-status').textContent,/有未保存修改，请先保存再测试/);
+  assert.equal(element('omni-status').dataset.kind,'dirty');
+  assert.equal(element('omni-check').disabled,true,'Dirty form cannot test the old saved configuration');
+  element('omni-model').focus();
+  const testCallsBeforeDirty=calls.filter(item=>item==='/api/omni/test').length;
+  await context.test.poll();
+  assert.equal(element('omni-model').value,'unsaved-model','Polling must not overwrite unsaved fields');
+  assert.equal(document.activeElement,element('omni-model'),'Polling must not steal input focus');
+  await context.omniTest.testOmniConnection();
+  assert.equal(calls.filter(item=>item==='/api/omni/test').length,testCallsBeforeDirty,'Dirty form cannot issue a saved-config test');
+  element('omni-model').value='vendor/past-model';context.omniTest.markOmniDirty();
+  assert.equal(element('omni-check').disabled,false,'Reverting to the saved draft enables testing again');
+  console.log('PASS omni dirty state: explicit save-first feedback, blocked old-config test, polling preserves draft and focus');
+
   element('omni-key').value='fixture-ui-key';element('omni-enabled').checked=true;
   element('omni-protocol').value='gemini';element('omni-model').value='gemini-custom-fixture';
-  element('omni-options').value='{"temperature":0.4}';
+  element('omni-options').value='{"temperature":0.4}';context.omniTest.markOmniDirty();
+  holdOmniSave=true;
+  const configureCalls=calls.filter(item=>item==='/api/omni/configure').length;
   const saved=context.omniTest.saveOmniSettings({preventDefault(){}});
   assert.equal(element('omni-key').value,'','Secret is cleared before awaiting save');
+  assert.equal(element('omni-save').textContent,'正在保存…');
+  assert.equal(element('omni-save').disabled,true);
+  assert.equal(element('omni-check').disabled,true);
+  assert.equal(await context.omniTest.saveOmniSettings({preventDefault(){}}),null,'Duplicate save is blocked locally');
+  assert.equal(calls.filter(item=>item==='/api/omni/configure').length,configureCalls+1);
+  resolveOmniSave();
   await saved;
+  holdOmniSave=false;
   assert.equal(omniPayloads.at(-1).api_key,'fixture-ui-key');
   assert.equal(omniPayloads.at(-1).protocol,'gemini');
   assert.equal(omniPayloads.at(-1).model,'gemini-custom-fixture');
   assert.equal(omniPayloads.at(-1).request_options.temperature,.4);
   assert(!JSON.stringify(context.test.getState()).includes('fixture-ui-key'));
-  assert(element('omni-status').textContent.startsWith('已保存。'));
+  assert.equal(element('omni-status').dataset.kind,'saved');
+  assert.equal(element('omni-save').textContent,'保存配置');
+  assert.equal(element('omni-check').disabled,false,'Saving enables testing the saved config');
+  console.log('PASS omni save pending: local labels/disablement, duplicate blocked, key cleared and saved config ready to test');
+
+  rejectOmni=true;element('omni-key').value='fixture-retry-key';context.omniTest.markOmniDirty();
+  await context.omniTest.saveOmniSettings({preventDefault(){}});
+  assert.equal(element('omni-key').value,'');
+  assert.match(element('omni-status').textContent,/保存失败/);
+  assert.equal(element('omni-status').dataset.kind,'error');
+  assert.equal(element('omni-check').disabled,true);
+  assert.equal(element('error-banner').hidden,true,'Omni save failure stays local instead of freezing or replacing the workbench error surface');
+  rejectOmni=false;
+  console.log('PASS omni save failure: readable local error, cleared sensitive input and blocked stale-config testing');
+
+  element('omni-key').value='fixture-final-key';context.omniTest.markOmniDirty();
+  await context.omniTest.saveOmniSettings({preventDefault(){}});
   context.omniTest.openOmniSettings();assert.equal(element('omni-key').value,'');
   assert(element('omni-key-status').textContent.includes('已加密保存'));
   assert(html.includes('id="omni-key" type="password"'));
-  console.log('PASS omni configuration: visible entry, endpoint form, local save, key cleared and never in state, saved status and blank reopen');
-  rejectOmni=true;element('omni-key').value='fixture-retry-key';
-  await context.omniTest.saveOmniSettings({preventDefault(){}});
-  assert.equal(element('omni-key').value,'');
-  assert(element('error-text').textContent.includes('保存失败'));
-  rejectOmni=false;
-  console.log('PASS omni failure: save error is visible and sensitive input remains cleared');
-  console.log('PASS omni model choice: protocol/model/request options round-trip through the form and request');
-  console.log('RESULT: 28 assertion groups passed. No network, paid turn, model, or browser rendering executed.');
+  assert(!JSON.stringify(context.test.getState()).includes('fixture-final-key'));
+
+  holdOmniTest=true;
+  const testCallsBeforePending=calls.filter(item=>item==='/api/omni/test').length;
+  const tested=context.omniTest.testOmniConnection();
+  assert.equal(element('omni-check').textContent,'正在测试…');
+  assert.equal(element('omni-check').disabled,true);
+  assert.equal(element('omni-test-result').dataset.kind,'pending');
+  assert.match(element('omni-test-result').textContent,/正在测试已保存配置/);
+  assert.equal(await context.omniTest.testOmniConnection(),null,'Duplicate test is blocked locally');
+  assert.equal(calls.filter(item=>item==='/api/omni/test').length,testCallsBeforePending+1);
+  resolveOmniTest();await tested;holdOmniTest=false;
+  assert.deepEqual(omniTestPayloads.at(-1),{},'Connection test only posts an empty object and never reads the form');
+  assert.equal(element('omni-test-result').dataset.kind,'success');
+  assert.match(element('omni-test-result').textContent,/接口连接成功.*1485 ms.*HTTP 200.*146/s);
+  assert.match(element('omni-test-result').textContent,/不代表视听分析质量/);
+  assert.equal(element('omni-check').textContent,'测试连接');
+  assert.equal(element('omni-check').disabled,false);
+  console.log('PASS omni test pending/success: immediate local feedback, duplicate blocked, empty saved-config request and readable metrics');
+
+  const configKindBeforeTest=element('omni-status').dataset.kind;
+  omniTestReport={success:false,message:'鉴权失败：API Key 无效。',tested_at:'2026-10-26T08:01:00+08:00',
+    latency_ms:321,model:'qwen3.8-omni-flash',protocol:'openai-compatible',endpoint_host:'maas.qianwenapi.com',
+    network_called:true,http_status:401};
+  await context.omniTest.testOmniConnection();
+  assert.equal(element('omni-test-result').dataset.kind,'failure');
+  assert.match(element('omni-test-result').textContent,/连接测试失败.*鉴权失败.*HTTP 401/s);
+  assert.equal(element('omni-status').dataset.kind,configKindBeforeTest,'Test failure must not change configuration status');
+  console.log('PASS omni test failure: backend report remains readable and success styling is reserved for an actual test result');
+
+  context.omniTest.closeOmniSettings();
+  backend.omni={...backend.omni,model:'fresh-model',connection_test:{}};await context.test.poll();context.omniTest.openOmniSettings();
+  holdOmniTest=true;const staleTest=context.omniTest.testOmniConnection();
+  context.omniTest.closeOmniSettings();
+  backend.omni={...backend.omni,model:'newer-model'};await context.test.poll();context.omniTest.openOmniSettings();
+  assert.equal(element('omni-model').value,'newer-model');
+  omniTestReport={success:true,message:'旧请求结果',tested_at:'2026-10-26T08:02:00+08:00',latency_ms:99,
+    model:'fresh-model',protocol:'openai-compatible',endpoint_host:'maas.qianwenapi.com',network_called:true,http_status:200};
+  resolveOmniTest();await staleTest;holdOmniTest=false;
+  assert.equal(element('omni-model').value,'newer-model','Late test response must not overwrite a newly opened form');
+  assert.equal(element('omni-test-result').hidden,true,'Late test response must not populate the new dialog result area');
+  assert.equal(element('omni-check').textContent,'测试连接');
+  assert.equal(element('omni-check').disabled,false);
+  console.log('PASS omni close safety: late async result is isolated from a newly opened changed form');
+  console.log('RESULT: 33 assertion groups passed. No network, paid turn, model, or browser rendering executed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -16,6 +16,8 @@ _EDITOR = {
     'admit-matting': 'Register an externally reviewed existing mask cache; never computes or rates a cutout.',
 }
 _SCRIPTS = {
+    'layout-tracks': ('layout_tracks.py', 'Create a separate plan reusing safe non-overlapping overlay video tracks, preserving active layer order and protected groups; source unchanged.'),
+    'preview-sequence': ('preview_sequence.py', 'Create a bounded low-resolution review video from native Jianying frames, optionally with one explicit audio selection; not a final export or full timeline mix.'),
     'music-edit': ('music_edit.py', 'Prepare bounded local media, call the configured native audio/video model through OpenAI-compatible or Gemini APIs, and compile musical/action anchors into validated Jianying or Resolve plans; analyze consumes API usage.'),
     'resolve-workflow': ('resolve_workflow.py', 'Validate/prepare bounded Resolve plans, create/save/reopen native projects and render verified NVIDIA H264/AAC outputs; no silent effect loss.'),
     'adobe-workflow': ('adobe_workflow.py', 'Validate/prepare bounded PR+AE plans, create native AE projects and lossless shots, then hand off standard XML to Premiere; no QE.'),

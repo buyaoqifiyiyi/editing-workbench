@@ -52,6 +52,7 @@ class Workbench:
         self.media, self.sessions, self.artifacts = [], [], []
         self.current_id = None
         self.backend_default = software_backends.default_selection()
+        self.ui_theme = 'dark'
         self.backend_detection, self.backend_checked_at = None, 0
         self.catalog = AgentCatalog(self.directory)
         self.agent = {'id': self.catalog.selected, 'state': 'disconnected', 'models': [], 'version': '', 'cli_path': '', 'error': None}
@@ -61,6 +62,7 @@ class Workbench:
         self.background_tasks = set()
         self.generation, self.closing = 0, False
         self.actions = asyncio.Lock()
+        self.omni_actions = asyncio.Lock()
         self.close_lock = asyncio.Lock()
         self.load_error = None
         if self.file.exists():
@@ -77,6 +79,8 @@ class Workbench:
                 self.sessions = data['sessions']
                 self.workspace = data.get('workspace', self.workspace)
                 self.backend_default = data.get('backend_default', self.backend_default)
+                if data.get('ui_theme') in ('dark', 'light'):
+                    self.ui_theme = data['ui_theme']
                 self.current_id = data.get('current_id')
                 for session in self.sessions:
                     if session.get('status') in BUSY:
@@ -102,25 +106,52 @@ class Workbench:
 
     def save(self):
         data = {'workspace': self.workspace, 'current_id': self.current_id, 'media': self.media,
-                'backend_default': self.backend_default,
+                'backend_default': self.backend_default, 'ui_theme': self.ui_theme,
                 'sessions': [{k: v for k, v in s.items() if not k.startswith('_')} for s in self.sessions]}
         temporary = self.file.with_suffix('.tmp')
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')
         temporary.replace(self.file)
 
     def state(self):
-        return {'agent': self.agent, 'agents': self.catalog.entries, 'workspace': self.workspace, 'media': self.media,
+        agent = dict(self.agent)
+        if agent.get('protocol') == 'codex' and agent.get('state') == 'connected':
+            agent.update(self.codex_selection())
+        return {'agent': agent, 'agents': self.catalog.entries, 'workspace': self.workspace, 'media': self.media,
                 'sessions': [{'id': s['id'], 'title': s['title'], 'updated_at': s['updated_at'], 'agent_id': s.get('agent_id', 'codex')} for s in sorted(self.sessions, key=lambda s: s['updated_at'], reverse=True)],
-                'current_session': self.current(),
+                'current_session': self.current(), 'ui_theme': self.ui_theme,
                 'approvals': [{k: v for k, v in a.items() if not k.startswith('_')} for a in self.approvals.values()],
                 'artifacts': self.artifacts, 'error': self.load_error,
                 'backends': self.backend_state(), 'omni': omni_config.status()}
 
+    def codex_selection(self):
+        """Resolve an explicit next-turn choice from this session and the live CLI catalog."""
+        models = [m for m in self.agent.get('models', []) if not m.get('hidden')]
+        session = self.current()
+        owned = session and session.get('agent_id', 'codex') == self.agent['id'] and session.get('agent_fingerprint') in (None, self.agent.get('fingerprint'))
+        saved = session.get('settings', {}) if owned else {}
+        model = next((m for m in models if saved.get('currentModel') and saved['currentModel'] in (m.get('id'), m.get('model'))), None)
+        model = model or next((m for m in models if m.get('isDefault')), None) or next(iter(models), {})
+        efforts = [e['reasoningEffort'] for e in model.get('supportedReasoningEfforts', [])]
+        effort = saved.get('currentEffort') if saved.get('currentModel') in (model.get('id'), model.get('model')) else None
+        if effort not in efforts:
+            effort = model.get('defaultReasoningEffort')
+        return {'currentModel': model.get('model') or model.get('id'),
+                'currentEffort': effort if effort in efforts else next(iter(efforts), None)}
+
     async def configure_omni(self, base_url, enabled, api_key='', clear_key=False, protocol=None, model=None, request_options=None):
         async with self.actions:
             self.require_idle()
-            return await asyncio.to_thread(omni_config.save, base_url, enabled, api_key, clear_key,
-                                           protocol=protocol, model=model, request_options=request_options)
+            if self.omni_actions.locked():
+                raise ValueError('连接测试或保存进行中，请等待结束后再操作。')
+            async with self.omni_actions:
+                return await asyncio.to_thread(omni_config.save, base_url, enabled, api_key, clear_key,
+                                               protocol=protocol, model=model, request_options=request_options)
+
+    async def test_omni(self):
+        if self.omni_actions.locked():
+            raise ValueError('连接测试或保存进行中，请勿重复提交。')
+        async with self.omni_actions:
+            return await asyncio.to_thread(omni_config.test_connection)
 
     def backend_selection(self, session=None):
         session = self.current() if session is None else session
@@ -314,9 +345,15 @@ class Workbench:
     def feedback_instructions():
         return ('工作台只负责本轮剪辑、特效、调色或声音制作任务；不要执行维护、整理记忆或读写Obsidian。'
                 '创作判断按planning贯穿选段、声画组织、镜头连接、技法选择与短段回看；未读该指南时先读取，局部修改只复查受影响部分。'
+                '技术流/丰富表现任务按planning第5–6步先检索已有方法，落实段落起始、变化、停留和接管，再用连续原生预览复核；'
+                '新建剪映计划为人工微调优先复用不同时段的普通叠层：显式layer_order的生成计划build前运行layout-tracks并审查映射；'
+                '保留主轨、已有职责轨、复合/转场等受保护轨及遮挡顺序；不适合人工定位或无安全复用时沿原计划。不要把已保存用户工程直接重排。'
+                '复用用户已确认的相关反馈，不用效果数量、静帧或结构检查替代连续画面表现，不能先铺满再零散贴包装。'
                 '用户指定BGM并要求自动配镜头或卡点时，读取reference/music-edit，先music-edit doctor；'
                 '配置就绪则prepare选区、analyze实际音视频、用beats检测BGM候选，再compile动作对拍计划并交所选后端执行。'
                 '允许使用该明确配置的视听服务；不得自行换模型。配置缺失时报告视听模型尚未就绪，不用均匀切镜冒充内容匹配或精准卡点。'
+                '当前任务已授权且视听API就绪时，候选交付前对带声音连续成片prepare并music-edit review，按时间码核实问题后修订；'
+                '素材analyze不算成片审片，结构/静帧/解码检查不能替代，模型意见不覆盖用户偏好；调用失败须报告且不自动付费重试。'
                 '用户已授权剪辑全程免审批，直接执行本任务内的素材分析、计划、构建和验证；'
                 '不要请求权限确认或调用用户提问工具。创作细节自行选择合适方案；'
                 '确实无法完成的部分简短报告，不停在确认窗口。此授权不扩大剪辑职责。'
@@ -428,6 +465,28 @@ class Workbench:
     async def configure_session(self, model=None, effort=None, mode=None):
         async with self.actions:
             self.require_idle()
+            if self.agent.get('protocol') == 'codex' and self.bridge and self.agent['state'] == 'connected':
+                if mode is not None:
+                    raise ValueError('当前 Agent 未声明可切换的工作模式。')
+                current = self.current()
+                if current and (current.get('agent_id', 'codex') != self.agent['id'] or current.get('agent_fingerprint') not in (None, self.agent.get('fingerprint'))):
+                    raise ValueError('此会话属于另一个 Agent，请新建会话。')
+                selected = self.codex_selection()
+                model = model or selected['currentModel']
+                entry = next((m for m in self.agent['models'] if model in (m.get('id'), m.get('model')) and not m.get('hidden')), None)
+                if entry is None:
+                    raise ValueError('所选模型不在当前 CLI 返回的目录中，请重新连接。')
+                efforts = [e['reasoningEffort'] for e in entry.get('supportedReasoningEfforts', [])]
+                if effort is None:
+                    effort = selected['currentEffort'] if model == selected['currentModel'] else entry.get('defaultReasoningEffort')
+                    if effort not in efforts:
+                        effort = next(iter(efforts), None)
+                if effort is not None and effort not in efforts:
+                    raise ValueError('所选模型未声明支持此推理强度。')
+                session = current or self.new_session()
+                session['settings'] = {'currentModel': model, 'currentEffort': effort}
+                self.save()
+                return
             session = self.current()
             if not session or not session.get('thread_id') or not self.bridge or self.agent['state'] != 'connected':
                 raise ValueError('请先连接并读取 Agent 会话设置。')
@@ -458,6 +517,9 @@ class Workbench:
             if not Path(self.workspace).is_dir():
                 raise ValueError('工作目录已不存在，请重新选择。')
             software_backends.require_available(self.backend_selection(current), self.backend_catalog(refresh=True))
+            if self.agent.get('protocol') == 'codex' and not model:
+                selected = self.codex_selection()
+                model, effort = selected['currentModel'], effort or selected['currentEffort']
             if model:
                 entry = next((m for m in self.agent['models'] if model in (m.get('id'), m.get('model'))), None)
                 if entry is None:
@@ -465,9 +527,15 @@ class Workbench:
                 supported = {e['reasoningEffort'] for e in entry.get('supportedReasoningEfforts', [])}
                 if effort and effort not in supported:
                     raise ValueError('所选模型未声明支持此推理强度。')
+                if not effort and self.agent.get('protocol') == 'codex':
+                    effort = entry.get('defaultReasoningEffort')
+                    if effort not in supported:
+                        effort = next((e['reasoningEffort'] for e in entry.get('supportedReasoningEfforts', [])), None)
             elif effort:
                 raise ValueError('使用 CLI 默认模型时，请同时使用 CLI 默认推理强度。')
             session = self.current() or self.new_session()
+            if self.agent.get('protocol') == 'codex':
+                session['settings'] = {'currentModel': model, 'currentEffort': effort}
             session['agent_id'], session['agent_fingerprint'] = self.agent['id'], self.agent.get('fingerprint')
             session.update(status='starting', error=None, updated_at=now(), plan=[], turn_status='inProgress', current_run_id=uuid.uuid4().hex)
             session.pop('_cancel_requested', None)
@@ -787,11 +855,13 @@ def create_app(service, token, port, open_url=None, *, desktop=None, activate_to
             return response
 
     async def home(request):
-        return HTMLResponse((WEB / 'index.html').read_text(encoding='utf-8').replace('__WORKBENCH_TOKEN__', token))
+        return HTMLResponse((WEB / 'index.html').read_text(encoding='utf-8')
+                            .replace('__WORKBENCH_TOKEN__', token).replace('__WORKBENCH_THEME__', service.ui_theme))
 
     async def asset(request):
         name = request.path_params['name']
-        if name not in ('app.css', 'app.js'):
+        if name not in ('app.css', 'app.js', 'theme.js', 'software-resolve.png', 'software-jianying.png',
+                        'software-after-effects.png', 'software-premiere.svg'):
             return JSONResponse({'error': '文件不存在。'}, status_code=404)
         return FileResponse(WEB / name)
 
@@ -843,11 +913,25 @@ def create_app(service, token, port, open_url=None, *, desktop=None, activate_to
                 await service.configure_session(data.get('model'), data.get('effort'), data.get('mode'))
             elif action == 'backends/configure':
                 service.configure_backends(data.get('selection'))
+            elif action == 'theme':
+                if set(data) != {'theme'} or data['theme'] not in ('dark', 'light'):
+                    raise ValueError('主题必须为 dark 或 light。')
+                previous = service.ui_theme
+                service.ui_theme = data['theme']
+                try:
+                    service.save()
+                except OSError:
+                    service.ui_theme = previous
+                    raise
             elif action == 'backends/refresh':
                 await asyncio.to_thread(service.backend_catalog, refresh=True)
             elif action == 'omni/configure':
                 await service.configure_omni(data.get('base_url'), data.get('enabled'), data.get('api_key', ''), data.get('clear_key', False),
                                              data.get('protocol'), data.get('model'), data.get('request_options'))
+            elif action == 'omni/test':
+                if data:
+                    raise ValueError('连接测试只使用已保存配置，不接受其他参数。')
+                return JSONResponse(await service.test_omni())
             elif action == 'interrupt':
                 await service.interrupt()
             elif action == 'approval':

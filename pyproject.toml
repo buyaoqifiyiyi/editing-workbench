@@ -35,7 +35,7 @@ include = ["jianying_engine*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-jianying_engine = ["runtime/scripts/*.py", "runtime/scripts/*.cjs", "runtime/scripts/*.ps1", "runtime/scripts/*.txt", "runtime/assets/*.json", "runtime/references/*.md", "runtime/references/styles/*.md", "runtime/guides/*.md", "web/*.html", "web/*.css", "web/*.js", "web/*.ico", "*.cjs"]
+jianying_engine = ["runtime/scripts/*.py", "runtime/scripts/*.cjs", "runtime/scripts/*.ps1", "runtime/scripts/*.txt", "runtime/assets/*.json", "runtime/references/*.md", "runtime/references/styles/*.md", "runtime/guides/*.md", "web/*.html", "web/*.css", "web/*.js", "web/*.ico", "web/*.png", "web/*.svg", "*.cjs"]
 
 
 

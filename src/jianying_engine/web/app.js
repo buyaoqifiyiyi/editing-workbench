@@ -9,6 +9,7 @@
   let mediaVisible = 100, mediaContext = '';
   let autoConnectAttempted = false;
   let backendOpen = false, backendDraft = null, backendContext = '', backendRenderKey = '', backendError = '';
+  let omniBusy = '', omniDirty = false, omniSnapshot = '', omniViewToken = 0, omniBaseConfig = null, omniBaseTest = null;
   let workspaceView = 'workspace';
   const busyStates = new Set(['starting', 'running', 'stopping', 'awaiting_approval']);
   const busy = () => busyStates.has(state?.current_session?.status);
@@ -55,10 +56,11 @@
   }
   const modelId = model => String(model.model || model.id || '');
   const models = () => (state?.agent?.models || []).filter(model => modelId(model) && !model.hidden);
-  function effortOptions() {
+  function effortOptions(reset=false) {
     const selected = models().find(model => modelId(model) === $('model-select').value);
     const old = $('effort-select').value; $('effort-select').replaceChildren();
-    $('effort-select').append(new Option('随 CLI 配置', ''));
+    const acp=state?.agent?.protocol==='acp';
+    if(acp||!selected?.supportedReasoningEfforts?.length)$('effort-select').append(new Option(acp?'Agent 当前档位':'未提供档位', ''));
     const names = {none:'无', minimal:'最低', low:'低', medium:'中', high:'高', xhigh:'更高', max:'最高（Max）', ultra:'极限（Ultra）'};
     for (const item of selected?.supportedReasoningEfforts || []) {
       const value = typeof item === 'string' ? item : item.reasoningEffort;
@@ -66,27 +68,28 @@
       const option = new Option(names[value] || value, value); option.title = item.description || value; $('effort-select').append(option);
     }
     const values = [...$('effort-select').options].map(option => option.value);
-    const wanted=state?.agent?.protocol==='acp'?state.agent.currentEffort:old;
-    $('effort-select').value = selected && values.includes(wanted) ? wanted : '';
-    $('effort-select').disabled = pending || busy() || !selected || $('effort-select').options.length < 2;
+    const wanted=acp?state.agent.currentEffort:reset?selected?.defaultReasoningEffort:old||state?.agent?.currentEffort;
+    $('effort-select').value = selected && values.includes(wanted) ? wanted : !acp&&selected ? values.find(v=>v===selected.defaultReasoningEffort)||values[0]||'' : '';
+    $('effort-select').disabled = pending || busy() || !selected || !$('effort-select').value&&$('effort-select').options.length < 2;
   }
   function renderModels() {
-    const signature = JSON.stringify([state?.agent?.id,state?.agent?.state,state?.agent?.currentModel,state?.agent?.currentEffort,models()]);
+    const signature = JSON.stringify([state?.current_session?.id,state?.agent?.id,state?.agent?.state,state?.agent?.currentModel,state?.agent?.currentEffort,models()]);
     if (signature === modelKey) return;
     modelKey = signature;
     const changedAgent = modelAgentId !== state?.agent?.id;
     modelAgentId = state?.agent?.id;
     const previous = changedAgent ? '' : $('model-select').value;
     if(changedAgent)$('effort-select').value='';
-    $('model-select').replaceChildren(new Option(state?.agent?.state === 'connected' ? '使用 Agent 默认模型' : '连接后读取模型', ''));
+    const acp=state?.agent?.protocol==='acp';
+    $('model-select').replaceChildren();
+    if(acp||!models().length)$('model-select').append(new Option(state?.agent?.state === 'connected' ? 'Agent 未提供模型选项' : '连接后读取模型', ''));
     for (const model of models()) { const option = new Option(model.displayName || modelId(model), modelId(model)); option.title = model.description || modelId(model); $('model-select').append(option); }
-    const wanted=state?.agent?.protocol==='acp'?state.agent.currentModel:previous;
-    $('model-select').value = models().some(model => modelId(model) === wanted) ? wanted : '';
+    const wanted=state?.agent?.currentModel||previous;
+    $('model-select').value = models().some(model => modelId(model) === wanted) ? wanted : acp?'':modelId(models().find(model=>model.isDefault)||models()[0]||{});
+    if(!acp)$('effort-select').value=state?.agent?.currentEffort||'';
     effortOptions();
   }
   function controls() {
-    $('omni-settings').disabled=pending||!online;
-    $('omni-check').disabled=pending||!online;
     const connected = online && state?.agent?.state === 'connected';
     const hasModels = models().length > 0 || state?.agent?.protocol === 'acp';
     const working = busy();
@@ -95,20 +98,20 @@
     const connectionState=connecting&&!connected?'connecting':state?.agent?.state;
     $('composer-agent').dataset.state=connectionState||'disconnected';
     $('composer-agent').disabled=pending||working;
+    document.querySelectorAll('[data-import-media]').forEach(button=>{button.disabled=pending||!online;});
     text($('connection-label'),(state?.agent?.name ? state.agent.name+' · ' : '')+(labels[connectionState]||'未连接'));$('connection-dot').className='status-dot '+(connectionState||'disconnected');
     text($('connect-button'),connecting?'连接中…':connected?'重连':'连接');text($('welcome-connect'),connecting?'正在连接…':'连接 Agent');
     $('send-button').disabled = pending || !connected || !hasModels || working || !$('prompt').value.trim();
     $('interrupt-button').hidden = !working&&!submitting;
     $('interrupt-button').disabled = controlRequests.has('/api/interrupt') || !online || state?.current_session?.status === 'stopping';
     $('model-select').disabled = pending || working || !connected || !models().length;
-    $('effort-select').disabled = pending || working || !connected || !$('model-select').value || $('effort-select').options.length < 2;
+    $('effort-select').disabled = pending || working || !connected || !$('model-select').value || !$('effort-select').value&&$('effort-select').options.length < 2;
     for (const id of ['new-session','workspace-button']) $(id).disabled = pending || working || !online;
     for (const id of ['add-media','attach-button','welcome-media','refresh-artifacts']) $(id).disabled = pending || !online;
     for (const id of ['connect-button','welcome-connect','connection-settings','connection-submit']) $(id).disabled = pending || working || state?.agent?.state === 'connecting';
     document.querySelectorAll('.session-item').forEach(button => { button.disabled = pending || working; });
     document.querySelectorAll('dialog button[type="submit"],#browse-media,#browse-media-folder,#browse-workspace').forEach(button => { button.disabled = pending; });
     $('connection-submit').disabled=pending||working||state?.agent?.state==='connecting';
-    $('omni-save').disabled=pending||!online||working;
     $('mode-select').disabled=pending||working||!connected;
     document.querySelectorAll('.approval-card').forEach(card=>card.querySelectorAll('.approval-actions button').forEach(button=>{button.disabled=!online||controlRequests.has('/api/approval:'+card.dataset.approvalId);}));
     document.querySelectorAll('.row-actions button,.artifact-row button').forEach(button=>{button.disabled=pending||!online;});
@@ -121,6 +124,7 @@
     text($('composer-status'), status);
     text($('workspace-status'),working?(labels[state.current_session.status]||'正在执行'):state?.current_session?.turn_status==='completed'?'本轮已完成':'等待任务');
     text($('send-label'),submitting?'正在提交':'执行任务');
+    updateOmniControls();
     backendControls();
   }
   const backendCatalog = () => state?.backends?.catalog || [];
@@ -197,6 +201,13 @@
     if(pending||busy()||!online||!backendCatalog().some(item=>item.id===id&&item.selectable))return;
     backendOpen=true;backendDraft={mode:'single',roles:{},single_backend:id};backendRenderKey='';renderBackends();return saveBackendSelection();
   }
+  function softwareLogo(id) {
+    const logo=node('img','software-logo');
+    logo.src='/software-'+id+(id==='premiere'?'.svg':'.png');
+    logo.alt='';logo.setAttribute('aria-hidden','true');
+    logo.width=26;logo.height=26;
+    return logo;
+  }
   function renderBackends() {
     const context=JSON.stringify([state?.workspace,state?.current_session?.id]);
     if(backendContext!==context){backendContext=context;backendOpen=false;backendDraft=null;backendError='';backendRenderKey='';}
@@ -226,7 +237,7 @@
             const option=node('label','backend-option');const input=node('input','backend-control');input.id='backend-'+role.id+'-'+item.id;input.type=role.id==='editing'?'radio':'checkbox';input.name='backend-role-'+role.id;input.value=item.id;input.checked=(backendDraft.roles?.[role.id]||[]).includes(item.id);input.setAttribute('aria-label',role.label+'：'+item.name);
             input.dataset.unavailable=String(!availability.selectable&&!(input.type==='checkbox'&&input.checked));option.classList.toggle('is-unavailable',!availability.selectable);
             input.addEventListener('change',()=>{if(pending||busy())return;if(!availability.selectable&&input.checked){input.checked=false;return;}const previous=backendDraft.roles?.[role.id]||[];backendDraft.roles={...backendDraft.roles,[role.id]:role.id==='editing'?[item.id]:input.checked?[...new Set([...previous,item.id])]:previous.filter(id=>id!==item.id)};backendError='';renderBackends();});
-            option.append(input,node('span','software-monogram software-'+item.id,({resolve:'DR',premiere:'Pr','after-effects':'Ae',jianying:'剪'})[item.id]||''),node('span','',item.short_name||item.name));option.append(node('span','backend-option-state',availability.selectable?'已接入':availability.label||'不可用'));option.title=availability.selectable?item.status_label+' · '+(item.summary||''):availability.reason||'当前不可用';choices.append(option);
+            option.append(input,softwareLogo(item.id),node('span','',item.short_name||item.name));option.append(node('span','backend-option-state',availability.selectable?'已接入':availability.label||'不可用'));option.title=availability.selectable?item.status_label+' · '+(item.summary||''):availability.reason||'当前不可用';choices.append(option);
           }
           if(!choices.children.length)choices.append(node('span','muted','暂无已接入软件'));row.append(choices);roles.append(row);
         }
@@ -234,7 +245,7 @@
         for(const item of backendCatalog()){const option=new Option(item.name+' · '+(item.availability?.label||'状态未知')+' · '+item.status_label,item.id);option.disabled=!item.selectable;select.append(option);}select.value=backendDraft.single_backend||'';
         const catalog=$('backend-catalog');catalog.replaceChildren();
         for(const item of backendCatalog()){
-          const article=node('article','backend-software');article.dataset.backendId=item.id;article.classList.toggle('is-unavailable',!item.selectable);const heading=node('div','backend-software-heading');const name=node('strong','',item.name);const status=node('span','backend-status',item.status_label||item.status);heading.append(node('span','software-monogram software-'+item.id,({resolve:'DR',premiere:'Pr','after-effects':'Ae',jianying:'剪'})[item.id]||''),name,status);article.append(heading,node('p','backend-software-roles',(state.backends.roles||[]).filter(role=>item.roles?.includes(role.id)).map(role=>role.label).join(' / ')),node('p','backend-software-summary',item.summary));
+          const article=node('article','backend-software');article.dataset.backendId=item.id;article.classList.toggle('is-unavailable',!item.selectable);const heading=node('div','backend-software-heading');const name=node('strong','',item.name);const status=node('span','backend-status',item.status_label||item.status);heading.append(softwareLogo(item.id),name,status);article.append(heading,node('p','backend-software-roles',(state.backends.roles||[]).filter(role=>item.roles?.includes(role.id)).map(role=>role.label).join(' / ')),node('p','backend-software-summary',item.summary));
           const availability=item.availability||{};const detection=node('p','backend-detection'+(item.selectable?' is-available':' is-unavailable'),(availability.label||'状态未知')+(availability.reason?' · '+availability.reason:''));detection.title=availability.path||'';article.append(detection);
           if(item.limitations?.length){const details=node('details','backend-limit-details');details.append(node('summary','','能力范围与限制'));const list=node('ul','backend-limit');for(const limitation of item.limitations)list.append(node('li','',limitation));details.append(list);article.append(details);}
           const call=node('button','backend-control backend-single-action',item.single_supported?'单独调用 ↗':'暂不支持单独调用');call.type='button';call.dataset.unavailable=String(!item.selectable);call.title=item.selectable?'单独调用'+item.name:availability.reason||'当前不可用';call.setAttribute('aria-label','单独调用'+item.name);call.addEventListener('click',()=>callSingleBackend(item.id));article.append(call);catalog.append(article);
@@ -307,7 +318,7 @@
     text($('preview-kind'),({image:'图像',video:'视频',audio:'音频',folder:'文件夹'})[media?.kind]||'');
     text($('preview-size'),media?.kind==='folder'?'按需读取':bytes(media?.size));
     text($('preview-caption'),media?.name || '尚未添加素材'); $('preview-caption').title = media?.path || '';
-    if (!media) { const empty = node('div','preview-empty'); empty.append(icon('film'),node('span','','选择素材查看预览')); panel.append(empty); return; }
+    if (!media) { panel.append(standbyPreview()); return; }
     if(media.kind==='folder'){
       const folder=node('div','preview-empty');folder.append(icon('folder'),node('strong','','文件夹已引用'),node('span','','Agent 将按需查看目录中的内容，不预先导入全部文件。'));panel.append(folder);return;
     }
@@ -327,6 +338,15 @@
     });
     element.addEventListener('error', () => { if (previewKey === key) { panel.replaceChildren(node('div','preview-empty','无法预览此格式；素材路径仍可用于剪辑。')); } });
     panel.append(element);
+  }
+  function standbyPreview() {
+    const empty=node('div','preview-empty preview-standby');
+    const optic=node('div','standby-optic');optic.setAttribute('aria-hidden','true');optic.append(icon('aperture'));
+    const label=node('span','standby-label','A FRAME BEGINS HERE');label.setAttribute('aria-hidden','true');
+    const add=node('button','standby-import');add.type='button';add.setAttribute('data-import-media','');add.disabled=pending||!online;
+    add.append(icon('add'),node('span','','载入素材'));add.addEventListener('click',()=>showMedia());
+    empty.append(optic,label,node('strong','','让画面，从这里开始。'),node('span','','添加本地素材，开始这一轮创作。'),add);
+    return empty;
   }
   function renderMedia() {
     const media = state.media || [];
@@ -500,32 +520,120 @@
     if (agent.error) setError(agent.error); else if (state.current_session?.error) setError(state.current_session.error);
   }
   function showDialog(id) { if (!$(''+id).open) $(id).showModal(); }
-  function renderOmniStatus(value, saved=false) {
-    text($('omni-status'),(saved?'已保存。':'')+(value?.message||'尚未配置视听API。'));
-    $('omni-status').dataset.ready=String(!!value?.ready);
-    text($('omni-key-status'),value?.credential_source==='saved'?'密钥已加密保存；留空可保留。':value?.credential_source==='environment'?'已使用本机环境变量中的密钥。':'尚未提供密钥。');
+  function omniFormSignature() {
+    return JSON.stringify([$('omni-protocol').value,$('omni-model').value.trim(),$('omni-url').value.trim(),
+      $('omni-options').value.trim(),!!$('omni-enabled').checked,!!$('omni-clear-key').checked,!!$('omni-key').value]);
+  }
+  function updateOmniControls() {
+    const offline=!online, locked=!!omniBusy;
+    $('omni-settings').disabled=offline;
+    for(const id of ['omni-protocol','omni-model','omni-url','omni-key','omni-options','omni-enabled','omni-clear-key'])$(id).disabled=locked;
+    $('omni-save').disabled=offline||locked;
+    $('omni-check').disabled=offline||locked||omniDirty;
+    text($('omni-save'),omniBusy==='save'?'正在保存…':'保存配置');
+    text($('omni-check'),omniBusy==='test'?'正在测试…':'测试连接');
+    text($('omni-footer-hint'),omniDirty?'有未保存修改，请先保存再测试。':omniBusy==='test'?'正在连接服务…':omniBusy?'正在保存…':omniBaseTest?.success===true?'已连接 · '+omniBaseTest.latency_ms+' ms':omniBaseTest?.success===false?'连接失败，请查看测试结果。':'测试只读取已保存配置。');
+  }
+  function renderOmniStatus(value, kind='idle') {
+    const message=kind==='dirty'?'有未保存修改，请先保存再测试。':kind==='saving'?'正在保存已填写的配置…':kind==='error'?value?.message||'保存失败，请检查后重试。':value?.message||'尚未配置视听 API。';
+    text($('omni-status'),message);
+    $('omni-status').dataset.kind=kind;
+    if(value&&Object.hasOwn(value,'credential_source'))text($('omni-key-status'),value.credential_source==='saved'?'密钥已加密保存；留空可保留。':value.credential_source==='environment'?'已使用本机环境变量中的密钥。':'尚未提供密钥。');
+  }
+  function renderOmniTestPending() {
+    const result=$('omni-test-result');result.hidden=false;result.dataset.kind='pending';
+    result.replaceChildren(node('strong','','正在测试已保存配置'),
+      node('p','','服务响应中，请稍候。'));
+    result.scrollIntoView?.({block:'nearest'});
+  }
+  function renderOmniTestResult(value) {
+    const result=$('omni-test-result');
+    if(!value||typeof value!=='object'||!Object.keys(value).length){result.hidden=true;result.dataset.kind='idle';result.replaceChildren();return;}
+    const success=value.success===true;
+    result.hidden=false;result.dataset.kind=success?'success':'failure';
+    const details=[
+      value.model&&('模型 '+value.model),
+      Number.isFinite(value.latency_ms)&&(value.latency_ms+' ms'),
+      Number.isFinite(value.http_status)&&('HTTP '+value.http_status),
+      Number.isFinite(value.usage?.total_tokens)&&(value.usage.total_tokens+' tokens')
+    ].filter(Boolean);
+    result.replaceChildren(
+      node('strong','',success?'接口连接成功':'连接测试失败'),
+      node('p','',success?'服务已正常响应。':value.message||'服务端未返回可读错误。'),
+      node('small','',details.join(' · ')||'服务端未返回附加信息。'),
+      node('small','','仅验证接口调用，不代表视听分析质量。')
+    );
+    if(omniBusy==='test')result.scrollIntoView?.({block:'nearest'});
+  }
+  function markOmniDirty() {
+    if(omniBusy)return;
+    omniDirty=omniFormSignature()!==omniSnapshot;
+    if(omniDirty){renderOmniStatus(null,'dirty');renderOmniTestResult(null);}
+    else{renderOmniStatus(omniBaseConfig||{},'idle');renderOmniTestResult(omniBaseTest);}
+    updateOmniControls();
   }
   function openOmniSettings() {
+    omniViewToken++;omniBusy='';omniDirty=false;
     const cfg=state?.omni||{};
     $('omni-protocol').value=cfg.protocol||'openai-compatible';$('omni-model').value=cfg.model||'';
     $('omni-options').value=JSON.stringify(cfg.request_options||{},null,2);updateOmniProtocolHint();
     $('omni-url').value=cfg.base_url||'';$('omni-key').value='';
     $('omni-enabled').checked=cfg.enabled??true;$('omni-clear-key').checked=false;
-    renderOmniStatus(cfg);showDialog('omni-dialog');
+    omniSnapshot=omniFormSignature();omniBaseConfig=cfg;omniBaseTest=cfg.connection_test||{};
+    renderOmniStatus(cfg);renderOmniTestResult(omniBaseTest);updateOmniControls();showDialog('omni-dialog');
+  }
+  function closeOmniSettings() {
+    omniViewToken++;omniBusy='';omniDirty=false;$('omni-key').value='';updateOmniControls();
   }
   function updateOmniProtocolHint() {
     text($('omni-protocol-hint'),$('omni-protocol').value==='gemini'?'使用 Gemini 原生 generateContent，例如官方根地址 https://generativelanguage.googleapis.com/v1beta。':'使用服务的 Chat Completions 根地址；模型和服务必须支持实际音视频输入。');
   }
   async function saveOmniSettings(event) {
     event.preventDefault();
+    if(omniBusy)return null;
+    if(!online){renderOmniStatus({message:'本地服务未连接，恢复后才能保存。'},'error');return null;}
     let requestOptions;
     try{requestOptions=JSON.parse($('omni-options').value||'{}');if(!requestOptions||Array.isArray(requestOptions)||typeof requestOptions!=='object')throw new Error();}
-    catch(_){setError('高级请求参数必须是有效的 JSON 对象。');return;}
+    catch(_){renderOmniStatus({message:'高级请求参数必须是有效的 JSON 对象。'},'error');omniDirty=true;updateOmniControls();return null;}
     const payload={protocol:$('omni-protocol').value,model:$('omni-model').value.trim(),request_options:requestOptions,base_url:$('omni-url').value.trim(),api_key:$('omni-key').value,enabled:$('omni-enabled').checked,clear_key:$('omni-clear-key').checked};
     // Remove the secret from the DOM before awaiting the local save; never put it in state.
     $('omni-key').value='';
-    const result=await mutate('/api/omni/configure',payload);
-    if(result){$('omni-clear-key').checked=false;renderOmniStatus(result.omni,true);}
+    const viewToken=omniViewToken;omniBusy='save';omniDirty=true;renderOmniStatus(null,'saving');updateOmniControls();
+    try {
+      const result=await fetchAPI('/api/omni/configure','POST',payload);
+      if(result?.agent)applyState(result);else if(result?.omni&&state){state.omni=result.omni;controls();}
+      if(viewToken!==omniViewToken)return result;
+      $('omni-clear-key').checked=false;
+      omniSnapshot=omniFormSignature();omniDirty=false;omniBaseConfig=result?.omni||state?.omni||{};omniBaseTest={};
+      renderOmniStatus(omniBaseConfig,'saved');renderOmniTestResult(null);
+      return result;
+    } catch(error) {
+      if(viewToken===omniViewToken){omniDirty=true;renderOmniStatus({message:error?.message||'保存失败，请重试。'},'error');renderOmniTestResult(null);}
+      return null;
+    } finally {
+      if(viewToken===omniViewToken){omniBusy='';updateOmniControls();}
+    }
+  }
+  async function testOmniConnection() {
+    if(omniBusy)return null;
+    if(omniDirty){renderOmniStatus(null,'dirty');updateOmniControls();return null;}
+    if(!online){renderOmniTestResult({success:false,message:'本地服务未连接，恢复后才能测试已保存配置。',network_called:false});return null;}
+    const viewToken=omniViewToken;omniBusy='test';renderOmniTestPending();updateOmniControls();
+    try {
+      const result=await fetchAPI('/api/omni/test','POST',{});
+      if(viewToken===omniViewToken){
+        omniBaseTest=result;
+        if(state?.omni)state.omni.connection_test=result;
+        renderOmniTestResult(result);
+      }
+      return result;
+    } catch(error) {
+      const result={success:false,message:error?.message||'连接测试请求失败。',network_called:false};
+      if(viewToken===omniViewToken)renderOmniTestResult(result);
+      return result;
+    } finally {
+      if(viewToken===omniViewToken){omniBusy='';updateOmniControls();}
+    }
   }
   function showMedia() { $('media-dialog-status').hidden=true;showDialog('media-dialog'); }
   async function prepareACP(){if(state?.agent?.state==='connected'&&state.agent.protocol==='acp'&&(!state.current_session||state.current_session.agent_id===state.agent.id))return mutate('/api/session/prepare',{});}
@@ -558,6 +666,7 @@
   $('backend-panel').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();cancelBackendPanel();}});
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click',()=>button.closest('dialog').close()));
   ['add-media','attach-button','welcome-media'].forEach(id=>$(id).addEventListener('click',showMedia));
+  document.querySelectorAll('[data-import-media]').forEach(button=>button.addEventListener('click',showMedia));
   $('attached-media').addEventListener('click',showMediaPanel);
   $('viewer-fit').addEventListener('click',toggleViewerSize);
   $('workspace-button').addEventListener('click',()=>{$('workspace-input').value=state?.workspace||'';showDialog('workspace-dialog');});
@@ -575,10 +684,13 @@
   }
   ['connection-settings','composer-agent'].forEach(id=>$(id).addEventListener('click',()=>{showAgents();showDialog('connection-dialog');}));
   $('omni-settings').addEventListener('click',openOmniSettings);
-  $('omni-protocol').addEventListener('change',updateOmniProtocolHint);
+  $('omni-protocol').addEventListener('change',()=>{updateOmniProtocolHint();markOmniDirty();});
+  for(const id of ['omni-model','omni-url','omni-key','omni-options','omni-enabled','omni-clear-key']){
+    $(id).addEventListener('input',markOmniDirty);$(id).addEventListener('change',markOmniDirty);
+  }
   $('omni-form').addEventListener('submit',saveOmniSettings);
-  $('omni-dialog').addEventListener('close',()=>{$('omni-key').value='';});
-  $('omni-check').addEventListener('click',()=>perform(async()=>{renderOmniStatus(await fetchAPI('/api/omni/status'));}));
+  $('omni-dialog').addEventListener('close',closeOmniSettings);
+  $('omni-check').addEventListener('click',testOmniConnection);
   $('agent-select').addEventListener('change',fillAgentFields);
   $('rescan-agents').addEventListener('click',async()=>{const selected=$('agent-select').value;if(await mutate('/api/agents/refresh',{}))showAgents(selected);});
   ['connect-button','welcome-connect'].forEach(id=>$(id).addEventListener('click',()=>connectAgent({})));
@@ -591,8 +703,8 @@
   $('new-session').addEventListener('click',async()=>{if(await mutate('/api/sessions',{})){await prepareACP();$('prompt').focus();}});
   $('refresh-artifacts').addEventListener('click',()=>mutate('/api/artifacts/refresh',{}));
   $('interrupt-button').addEventListener('click',()=>mutate('/api/interrupt',{}));
-  $('model-select').addEventListener('change',async()=>{const model=$('model-select').value;$('effort-select').value='';effortOptions();controls();if(state?.agent?.protocol==='acp'&&model)await configureACP({model});});
-  $('effort-select').addEventListener('change',()=>{if(state?.agent?.protocol==='acp'&&$('effort-select').value)configureACP({effort:$('effort-select').value});});
+  $('model-select').addEventListener('change',async()=>{const model=$('model-select').value;$('effort-select').value='';effortOptions(true);controls();if(model)await configureACP(state?.agent?.protocol==='acp'?{model}:{model,effort:$('effort-select').value||null});});
+  $('effort-select').addEventListener('change',()=>{if($('effort-select').value)configureACP({effort:$('effort-select').value});});
   $('mode-select').addEventListener('change',()=>{if($('mode-select').value)configureACP({mode:$('mode-select').value});});
   $('artifact-dialog').addEventListener('close',()=>{$('artifact-preview').replaceChildren();});
   $('prompt').addEventListener('input',()=>{const field=$('prompt');field.style.height='auto';field.style.height=Math.min(175,Math.max(79,field.scrollHeight))+'px';controls();});

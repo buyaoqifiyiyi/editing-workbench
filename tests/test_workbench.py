@@ -91,6 +91,119 @@ class WorkbenchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()['agent']['state'], 'connected')
         self.assertEqual(self.service.sessions, [])
 
+    async def test_theme_script_is_served_as_javascript(self):
+        response = await self.client.get('/theme.js')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn('javascript', response.headers['content-type'])
+        source = Path(__file__).parents[1] / 'src/jianying_engine/web/theme.js'
+        self.assertEqual(response.content, source.read_bytes())
+        self.assertIsNone(self.service.bridge)
+
+    async def test_codex_selection_defaults_switches_persists_and_reaches_turn(self):
+        await self.post('connect')
+        models = [
+            {'id': 'quick', 'model': 'quick', 'supportedReasoningEfforts': [{'reasoningEffort': 'low'}], 'defaultReasoningEffort': 'low'},
+            {'id': 'recommended', 'model': 'recommended', 'isDefault': True, 'supportedReasoningEfforts': [{'reasoningEffort': 'medium'}, {'reasoningEffort': 'high'}], 'defaultReasoningEffort': 'medium'},
+            {'id': 'hidden', 'model': 'hidden', 'hidden': True, 'isDefault': True}]
+        self.service.agent['models'] = models
+        self.assertEqual(self.service.state()['agent']['currentModel'], 'recommended')
+        self.assertEqual(self.service.state()['agent']['currentEffort'], 'medium')
+        chosen = await self.post('session/configure', {'model': 'recommended', 'effort': 'high'})
+        self.assertEqual(chosen.status_code, 200, chosen.text)
+        first = self.service.current()['id']
+        self.assertEqual(self.service.bridge.calls, ['connect'], 'Selecting settings must not create a thread or paid turn')
+        self.assertEqual(self.service.state()['agent']['currentEffort'], 'high')
+        second = self.service.new_session()['id']
+        await self.post('session/configure', {'model': 'quick'})
+        self.assertEqual(self.service.state()['agent']['currentEffort'], 'low')
+        self.service.select(first)
+        self.assertEqual(self.service.state()['agent']['currentEffort'], 'high')
+        saved = json.loads(self.service.file.read_text(encoding='utf-8'))
+        self.assertEqual(next(s for s in saved['sessions'] if s['id'] == first)['settings']['currentModel'], 'recommended')
+        for invalid in ({'model': 'missing'}, {'model': 'hidden'}, {'model': 'quick', 'effort': 'high'}):
+            result = await self.post('session/configure', invalid)
+            self.assertEqual(result.status_code, 400, result.text)
+        self.assertEqual(self.service.state()['agent']['currentEffort'], 'high')
+        sent = await self.post('send', {'text': 'test selected model'})
+        self.assertEqual(sent.status_code, 200, sent.text)
+        self.assertEqual(self.service.bridge.calls[-1][2:], ('recommended', 'high'))
+        self.assertNotEqual(first, second)
+
+    async def test_software_logo_assets_are_local_images(self):
+        for name in ('software-resolve.png', 'software-jianying.png', 'software-after-effects.png', 'software-premiere.svg'):
+            response = await self.client.get('/' + name)
+            self.assertEqual(response.status_code, 200, name)
+            self.assertTrue(response.headers['content-type'].startswith('image/'), name)
+            self.assertGreater(len(response.content), 100)
+        self.assertEqual((await self.client.get('/software-unknown.svg')).status_code, 404)
+
+    async def test_theme_survives_rebuilding_workbench_and_renders_in_home(self):
+        self.assertEqual(self.service.ui_theme, 'dark')
+        backend_default = self.service.backend_default
+        session = self.service.new_session()
+        session['status'] = 'running'
+        self.service.active_id = session['id']
+        for theme in ('light', 'dark'):
+            with patch.object(self.service, 'require_idle', side_effect=AssertionError('must not require idle')):
+                response = await self.post('theme', {'theme': theme})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['ui_theme'], theme)
+            self.assertEqual(session['status'], 'running')
+            self.assertIsNone(self.service.bridge)
+            self.assertEqual(session['messages'], [])
+            rebuilt = Workbench(self.root / 'state', self.workspace, FakeBridge)
+            try:
+                self.assertEqual(rebuilt.ui_theme, theme)
+                self.assertEqual(rebuilt.backend_default, backend_default)
+                rebuilt.save()
+                self.assertEqual(json.loads(rebuilt.file.read_text(encoding='utf-8'))['ui_theme'], theme)
+                app = create_app(rebuilt, 'new-token', 9876)
+                async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app),
+                                             base_url='http://127.0.0.1:9876') as client:
+                    home = await client.get('/')
+                self.assertEqual(home.status_code, 200)
+                self.assertIn(f'data-theme="{theme}"', home.text)
+                self.assertNotIn('__WORKBENCH_THEME__', home.text)
+            finally:
+                await rebuilt.close()
+
+    async def test_theme_rejects_invalid_input_without_changing_saved_selection(self):
+        await self.post('theme', {'theme': 'light'})
+        saved = self.service.file.read_bytes()
+        for payload in ({}, {'theme': 'auto'}, {'theme': 'LIGHT'}, {'theme': None},
+                        {'theme': []}, {'theme': {}}, {'theme': True},
+                        {'theme': 'dark', 'extra': True}, [], 'dark'):
+            response = await self.client.post('/api/theme', json=payload)
+            self.assertEqual(response.status_code, 400, response.text)
+            self.assertEqual(self.service.ui_theme, 'light')
+            self.assertEqual(self.service.file.read_bytes(), saved)
+        response = await self.client.post('/api/theme', json={'theme': 'dark'},
+                                          headers={'X-Workbench-Token': 'wrong'})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.service.file.read_bytes(), saved)
+
+    async def test_theme_load_defaults_invalid_or_missing_values_without_discarding_history(self):
+        session = self.service.new_session()
+        data = json.loads(self.service.file.read_text(encoding='utf-8'))
+        for value in (None, 'auto', [], {}, True):
+            data['ui_theme'] = value
+            self.service.file.write_text(json.dumps(data), encoding='utf-8')
+            rebuilt = Workbench(self.root / 'state', self.workspace, FakeBridge)
+            try:
+                self.assertEqual(rebuilt.ui_theme, 'dark')
+                self.assertIsNone(rebuilt.load_error)
+                self.assertEqual(rebuilt.sessions[0]['id'], session['id'])
+            finally:
+                await rebuilt.close()
+        del data['ui_theme']
+        self.service.file.write_text(json.dumps(data), encoding='utf-8')
+        rebuilt = Workbench(self.root / 'state', self.workspace, FakeBridge)
+        try:
+            self.assertEqual(rebuilt.ui_theme, 'dark')
+            self.assertIsNone(rebuilt.load_error)
+        finally:
+            await rebuilt.close()
+
     async def test_creative_guide_reaches_new_and_continuing_turns(self):
         await self.post('connect')
         response = await self.post('send', {'text': '自主剪动漫情绪MV，仅模拟入口'})

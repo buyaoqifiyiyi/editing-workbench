@@ -2,14 +2,23 @@
 import base64
 import ctypes
 from ctypes import wintypes
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import socket
+import threading
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
 
 PROTOCOLS = ('openai-compatible', 'gemini')
+_connection_results = {}
+_test_lock = threading.Lock()
 
 
 def config_path(path=None):
@@ -114,21 +123,142 @@ def get_key(cfg, path=None):
 def status(path=None):
     result = {'model': '', 'protocol': 'openai-compatible', 'request_options': {}, 'base_url': '', 'enabled': False, 'ready': False,
               'credential_present': False, 'credential_source': 'none', 'network_called': False,
-              'config': str(config_path(path)), 'api_key_env': 'MULTIMODAL_API_KEY'}
+              'config': str(config_path(path)), 'api_key_env': 'MULTIMODAL_API_KEY', 'connection_test': None}
     try:
         cfg = load_config(path, allow_incomplete=True)
         result.update(cfg)
-        present = bool(get_key(cfg, path))
+        key = get_key(cfg, path)
+        present = bool(key)
         result.update(credential_present=present, ready=cfg['enabled'] and present and bool(cfg['model']),
                       credential_source=('saved' if key_path(path).exists() else 'environment') if present else 'none')
         result['message'] = ('旧配置已保留密钥，请填写协议和模型 ID 后重新保存。' if not cfg['model'] else
                              '配置就绪，尚未验证API连通性与余额。' if result['ready'] else
                              '已停用视听分析。' if not cfg['enabled'] else '请填写API密钥或配置密钥环境变量。')
+        cached = _connection_results.get(str(config_path(path)))
+        if cached and cached[0] == _fingerprint(cfg, key):
+            result['connection_test'] = dict(cached[1])
     except FileNotFoundError:
         result['message'] = '尚未配置视听API。'
     except (ValueError, OSError, TypeError):
         result['message'] = '视听配置或加密密钥无法读取，请重新保存。'
     return result
+
+
+def _fingerprint(cfg, key):
+    return hashlib.sha256((json.dumps(cfg, sort_keys=True) + '\0' + key).encode('utf-8')).digest()
+
+
+class RequestError(ValueError):
+    def __init__(self, message, http_status=None):
+        super().__init__(message)
+        self.http_status = http_status
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RequestError('Omni endpoint redirect refused; configure the final HTTPS API root')
+
+
+def send_request(cfg, body, config=None, timeout=180):
+    """One authenticated request; no redirects, retries, or provider-body logging."""
+    cfg = validate(cfg)
+    key = get_key(cfg, config)
+    if not cfg['enabled'] or not key:
+        raise ValueError('Omni is disabled or its API key environment variable is missing')
+    if cfg['protocol'] == 'gemini':
+        suffix = '/models/' + urllib.parse.quote(cfg['model'], safe='') + ':generateContent'
+        headers = {'x-goog-api-key': key, 'Content-Type': 'application/json'}
+    else:
+        suffix = '/chat/completions'
+        headers = {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
+    request = urllib.request.Request(cfg['base_url'].rstrip('/') + suffix,
+        data=json.dumps(body, ensure_ascii=False).encode('utf-8'), headers=headers)
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
+            raw = response.read(4 * 1024 * 1024 + 1)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        exc.close()
+        raise RequestError(f'Multimodal API HTTP {code}; no automatic retry or response-body logging', code) from None
+    except (urllib.error.URLError, socket.timeout, TimeoutError):
+        raise RequestError('Multimodal API connection failed or timed out; billing/completion unknown, no automatic retry') from None
+    if len(raw) > 4 * 1024 * 1024:
+        raise RequestError('Multimodal API response exceeds 4 MiB')
+    try:
+        return json.loads(raw)
+    except (ValueError, UnicodeError):
+        raise RequestError('Multimodal API did not return valid JSON') from None
+
+
+def test_connection(path=None):
+    """Explicit, bounded text-only probe. It does not verify media or account balance."""
+    if not _test_lock.acquire(blocking=False):
+        raise ValueError('正在测试视听连接，请等待当前测试结束。')
+    started = time.monotonic()
+    result = {'success': False, 'tested_at': datetime.now(timezone.utc).isoformat(),
+              'latency_ms': 0, 'network_called': False, 'model': '', 'protocol': '', 'endpoint_host': ''}
+    fingerprint = None
+    try:
+        try:
+            cfg = load_config(path)
+            key = get_key(cfg, path)
+            fingerprint = _fingerprint(cfg, key)
+            result.update(model=cfg['model'], protocol=cfg['protocol'],
+                          endpoint_host=urllib.parse.urlsplit(cfg['base_url']).hostname)
+            if not cfg['enabled'] or not key:
+                result['message'] = '请先启用视听分析并保存有效密钥，再测试连接。'
+                return result
+            expected = 'CONNECTION_OK_' + secrets.token_hex(4)
+            prompt = 'Connection test. Reply with exactly this text and nothing else: ' + expected
+            if cfg['protocol'] == 'gemini':
+                body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}],
+                        'generationConfig': {**cfg['request_options'], 'maxOutputTokens': 256}}
+            else:
+                body = {**cfg['request_options'], 'model': cfg['model'],
+                        'messages': [{'role': 'user', 'content': prompt}], 'stream': False, 'max_tokens': 256}
+            result['network_called'] = True
+            response = send_request(cfg, body, path, timeout=45)
+            if cfg['protocol'] == 'gemini':
+                candidate = response['candidates'][0]
+                answer = ''.join(p.get('text', '') for p in candidate['content']['parts'] if not p.get('thought'))
+                finished = candidate.get('finishReason') == 'STOP'
+                usage = response.get('usageMetadata', {})
+            else:
+                candidate = response['choices'][0]
+                answer = candidate['message']['content']
+                finished = candidate.get('finish_reason') == 'stop'
+                usage = response.get('usage', {})
+            allowed = {'prompt_tokens', 'completion_tokens', 'total_tokens', 'promptTokenCount',
+                       'candidatesTokenCount', 'totalTokenCount', 'thoughtsTokenCount'}
+            if isinstance(usage, dict):
+                result['usage'] = {k: v for k, v in usage.items() if k in allowed and type(v) is int and v >= 0}
+            if finished and isinstance(answer, str) and answer.strip() == expected:
+                result.update(success=True, http_status=200,
+                    message='连接成功：模型已完成最小文本请求。尚未验证音视频分析效果或账户余额。')
+            else:
+                result.update(http_status=200,
+                    message='接口已响应，但模型未完整返回测试答案。请检查思考参数、模型支持及输出限制；未自动重试。')
+        except RequestError as exc:
+            code = exc.http_status
+            messages = {400: '请求参数不受支持，请核对模型、接口协议和高级参数。',
+                        401: '密钥无效或已过期，请重新保存该服务的密钥。',
+                        403: '访问被拒绝，请检查模型权限、地域或账号状态。',
+                        404: '未找到接口或模型，请核对根地址和模型 ID。',
+                        402: '账户余额或付费状态不足，请在服务控制台检查。',
+                        429: '请求受限，可能是额度不足或限流，请在服务控制台检查。'}
+            result['message'] = ('连接失败：HTTP ' + str(code) + '。' + messages.get(code, '服务暂时不可用，请稍后手动重试。')
+                                 if code else '连接未完成：网络、超时、重定向或响应格式异常；完成及计费状态不确定，未自动重试。')
+            if code:
+                result['http_status'] = code
+        except (KeyError, IndexError, TypeError, ValueError, OSError, AttributeError):
+            result['message'] = ('接口返回内容不符合所选协议，请检查地址和模型；未自动重试。' if result['network_called'] else
+                                 '配置或密钥无法读取，请先检查配置并保存。')
+        return result
+    finally:
+        result['latency_ms'] = round((time.monotonic() - started) * 1000)
+        if fingerprint is not None:
+            _connection_results[str(config_path(path))] = (fingerprint, dict(result))
+        _test_lock.release()
 
 
 def _write_atomic(path, data):

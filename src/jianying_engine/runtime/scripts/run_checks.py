@@ -16,6 +16,7 @@ import editor
 SCRIPTS = Path(__file__).resolve().parent
 # name -> (script, media/args builder key, needs native Jianying user data, needs Windows)
 CHECKS = {
+    'preview_sequence': ('preview_sequence_self_check.py', 'out', False, False),
     'music_edit': ('music_edit_self_check.py', 'out', False, False),
     'resolve_workflow': ('resolve_workflow_self_check.py', 'out', False, False),
     'adobe_workflow': ('adobe_workflow_self_check.py', 'out', False, False),
@@ -41,6 +42,7 @@ CHECKS = {
     'grading': ('grading_self_check.py', 'grading', True, False),
     'circle_mask': ('circle_mask_self_check.py', 'circle', True, False),
     'extensions': ('extensions_self_check.py', 'extensions', True, False),
+    'layout_tracks': ('layout_tracks_self_check.py', 'out', False, False),
     'native_preview': ('native_preview_self_check.py', 'install', False, True),
     'draft_state': ('draft_state_self_check.py', 'out', False, False),
     'refresh_registration': ('refresh_registration_self_check.py', 'out', False, False),

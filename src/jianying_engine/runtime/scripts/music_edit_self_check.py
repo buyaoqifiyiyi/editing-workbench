@@ -173,6 +173,18 @@ class MusicEditTests(unittest.TestCase):
                 music_edit.analyze(self.bundle, self.config)
         self.assertFalse((self.bundle / 'analysis.json').exists())
 
+    def test_invalid_final_json_is_retained_without_reasoning_or_acceptance(self):
+        response = self.response([])
+        response['choices'][0]['message']['reasoning_content'] = 'private model reasoning'
+        with patch.dict(os.environ, {'MUSIC_EDIT_TEST_KEY': 'fixture-only-key'}), \
+                patch.object(music_edit, 'send_payload', return_value=response):
+            with self.assertRaises(ValueError):
+                music_edit.analyze(self.bundle, self.config)
+        self.assertEqual(music_edit.read_json(self.bundle / 'analysis-response.json'), [])
+        self.assertFalse((self.bundle / 'analysis.json').exists())
+        self.assertFalse((self.bundle / 'analysis-report.json').exists())
+        self.assertFalse(music_edit.read_json(self.bundle / 'analysis-attempt.json')['analysis_validated'])
+
     def test_reject_bad_endpoint_key_and_budget_before_call(self):
         for url in ('http://example.invalid/v1', 'https://user:secret@example.invalid/v1', 'https://example.invalid/v1?key=secret'):
             editor.write_json(self.config, {'enabled': True, 'base_url': url, 'api_key_env': 'MUSIC_EDIT_TEST_KEY',
@@ -300,6 +312,154 @@ class MusicEditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             music_edit.compile_edit(self.bundle, self.root / 'bad', 'resolve', 4000, 2000)
         self.assertFalse((self.root / 'bad').exists())
+
+    def review_fixture(self):
+        return {'summary': '局部画面遮挡，需要复核', 'observations': [
+            {'source_id': 'a', 'start': .5, 'end': 1.2, 'category': 'transition',
+             'severity': 'major', 'evidence': '大块前景遮住背景人物',
+             'suggestion': '调整交接构图', 'confidence': 'medium'}]}
+
+    def test_review_sends_native_media_and_keeps_plan_analysis_separate(self):
+        value = self.review_fixture()
+        with patch.dict(os.environ, {'MUSIC_EDIT_TEST_KEY': 'fixture-only-key'}), \
+                patch.object(music_edit, 'send_payload', return_value=self.response(value)) as send:
+            result = music_edit.analyze(self.bundle, self.config, review=True)
+        self.assertEqual(result['status'], 'model_review_received')
+        self.assertEqual(send.call_count, 1)
+        body = send.call_args.args[1]
+        content = body['messages'][0]['content']
+        self.assertTrue(any(item['type'] == 'video_url' for item in content))
+        self.assertTrue(any(item['type'] == 'input_audio' for item in content))
+        self.assertIn(music_edit.REVIEW_PROMPT, content[-1]['text'])
+        self.assertEqual(music_edit.read_json(self.bundle / 'review.json'), value)
+        self.assertFalse((self.bundle / 'analysis.json').exists())
+        with self.assertRaises(FileNotFoundError):
+            music_edit.compile_edit(self.bundle, self.root / 'review-not-plan')
+        with patch.dict(os.environ, {'MUSIC_EDIT_TEST_KEY': 'fixture-only-key'}), \
+                patch.object(music_edit, 'send_payload') as again:
+            with self.assertRaises(ValueError):
+                music_edit.analyze(self.bundle, self.config, review=True)
+            again.assert_not_called()
+
+    def test_review_rejects_unknown_source_bad_clock_and_schema(self):
+        _, manifest = music_edit.load_bundle(self.bundle)
+        for field, invalid in [('source_id', 'unknown'), ('start', -1), ('end', 6.1),
+                               ('end', .5), ('end', float('nan')), ('category', 'score'),
+                               ('severity', 'passed'), ('confidence', 'certain'), ('evidence', '')]:
+            with self.subTest(field=field, invalid=invalid):
+                value = self.review_fixture()
+                value['observations'][0][field] = invalid
+                with self.assertRaises(ValueError):
+                    music_edit.validate_review(value, manifest['request'])
+        with self.assertRaises(ValueError):
+            music_edit.validate_review(self.analysis, manifest['request'])
+
+    def test_failed_review_keeps_paid_attempt_and_does_not_retry(self):
+        invalid = self.review_fixture()
+        invalid['observations'][0]['end'] = 100
+        with patch.dict(os.environ, {'MUSIC_EDIT_TEST_KEY': 'fixture-only-key'}), \
+                patch.object(music_edit, 'send_payload', return_value=self.response(invalid)) as send:
+            with self.assertRaises(ValueError):
+                music_edit.analyze(self.bundle, self.config, review=True)
+            with self.assertRaises(ValueError):
+                music_edit.analyze(self.bundle, self.config, review=True)
+            self.assertEqual(send.call_count, 1)
+        self.assertTrue((self.bundle / 'review-attempt.json').is_file())
+        self.assertTrue((self.bundle / 'review-response.json').is_file())
+        self.assertFalse((self.bundle / 'review.json').exists())
+
+    def test_gemini_review_keeps_review_instruction_and_media(self):
+        root, manifest = music_edit.load_bundle(self.bundle)
+        cfg = music_edit.load_config(self.config)
+        cfg.update(protocol='gemini', model='gemini-fixture', base_url='https://example.invalid/v1beta', request_options={})
+        body = music_edit.payload(root, manifest, cfg, music_edit.REVIEW_PROMPT)
+        parts = body['contents'][0]['parts']
+        self.assertIn(music_edit.REVIEW_PROMPT, parts[-1]['text'])
+        self.assertEqual(len([part for part in parts if 'inlineData' in part]), 2)
+
+    def test_single_json_fence_is_accepted_but_extraneous_text_is_not(self):
+        for protocol in ['gemini','openai-compatible']:
+            def reply(content, finish=True):
+                if protocol == 'gemini':
+                    return {'candidates':[{'finishReason':'STOP' if finish else 'MAX_TOKENS',
+                        'content':{'parts':[{'text':'not saved reasoning','thought':True},{'text':content}]}}]}
+                return {'choices':[{'finish_reason':'stop' if finish else 'length','message':{'content':content}}]}
+            for wrapper in ['{}','```json\n{}\n```','```\r\n{}\r\n```']:
+                encoded = json.dumps(self.review_fixture())
+                self.assertEqual(music_edit.read_response(reply(wrapper.format(encoded)),protocol),self.review_fixture())
+            for content in ['prefix\n```json\n{}\n```','```json\n{}\n```\nsuffix',
+                            '```python\n{}\n```','```json\n{"a":1,"a":2}\n```',
+                            '```json\n{"a":NaN}\n```','```json\n{\n```']:
+                with self.subTest(protocol=protocol,content=content),self.assertRaises(ValueError):
+                    music_edit.read_response(reply(content),protocol)
+            with self.assertRaises(ValueError):
+                music_edit.read_response(reply('```json\n{}\n```',False),protocol)
+
+    def test_review_profile_preserves_resolution_audio_and_requests_sampling(self):
+        large = self.root/'hd.mp4'
+        editor.run([editor.tool('ffmpeg'),'-v','error','-nostdin','-n','-f','lavfi',
+                    '-i','testsrc2=s=1920x1080:r=30:d=2','-f','lavfi','-i','sine=duration=2',
+                    '-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest',str(large)])
+        request = copy.deepcopy(self.request)
+        request['music'].update(duration=2)
+        request['sources'][0].update(path=str(large),start=0,duration=2)
+        editor.write_json(self.root/'hd-request.json',request)
+        music_edit.prepare(self.root/'hd-request.json',self.root/'hd-bundle','review',frame_times=[0,.5,1])
+        root,manifest=music_edit.load_bundle(self.root/'hd-bundle')
+        measured=editor.probe(root/'media/a.mp4')
+        self.assertEqual((measured['width'],measured['height']),(1920,1080))
+        self.assertTrue(measured['has_audio'])
+        self.assertEqual(manifest['video_profile'],'review')
+        self.assertEqual([frame['time'] for frame in manifest['frames']],[0,.5,1])
+        for frame in manifest['frames']:
+            info=editor.probe(root/frame['path'])
+            self.assertEqual((info['width'],info['height']),(640,360))
+        cfg=music_edit.load_config(self.config)
+        cfg.update(protocol='gemini',model='gemini-fixture',base_url='https://example.invalid/v1beta',request_options={})
+        body=music_edit.payload(root,manifest,cfg,music_edit.REVIEW_PROMPT)
+        media=[part for part in body['contents'][0]['parts'] if 'inlineData' in part]
+        self.assertNotIn('videoMetadata',media[0])
+        self.assertEqual(media[1]['videoMetadata'],{'fps':8})
+        self.assertEqual(len(media),5)
+        self.assertEqual([part['inlineData']['mimeType'] for part in media[2:]],['image/jpeg']*3)
+        controlled=copy.deepcopy(manifest)
+        controlled['video_fps']=1
+        control=music_edit.payload(root,controlled,cfg,music_edit.REVIEW_PROMPT)
+        self.assertEqual(control['contents'][0]['parts'][3]['videoMetadata'],{'fps':1})
+        for invalid in [True,0,30,'8']:
+            controlled['video_fps']=invalid
+            with self.assertRaises(ValueError):
+                music_edit.payload(root,controlled,cfg,music_edit.REVIEW_PROMPT)
+        cfg.update(protocol='openai-compatible')
+        other=music_edit.payload(root,manifest,cfg,music_edit.REVIEW_PROMPT)
+        self.assertNotIn('videoMetadata',json.dumps(other))
+        images=[part for part in other['messages'][0]['content'] if part['type']=='image_url']
+        self.assertEqual(len(images),3)
+        self.assertEqual(base64.b64decode(images[0]['image_url']['url'].split(',',1)[1]),
+                         (root/manifest['frames'][0]['path']).read_bytes())
+        editor.run([editor.tool('ffmpeg'),'-v','error','-xerror','-nostdin','-i',str(root/'media/a.mp4'),'-f','null','-'])
+
+    def test_review_profile_does_not_upscale_low_resolution_and_rejects_unknown_profile(self):
+        music_edit.prepare(self.request_file,self.root/'small-review','review')
+        info=editor.probe(self.root/'small-review/media/a.mp4')
+        self.assertEqual((info['width'],info['height']),(320,180))
+        with self.assertRaises(ValueError):
+            music_edit.prepare(self.request_file,self.root/'unknown','guess')
+        self.assertFalse((self.root/'unknown').exists())
+
+    def test_explicit_frames_reject_bad_selection_and_manifest_tampering(self):
+        for points in [[],[0]*9,[.5,.5],[-1],[6],[True],[float('nan')]]:
+            with self.subTest(points=points),self.assertRaises(ValueError):
+                music_edit.prepare(self.request_file,self.root/'bad-frames','review',frame_times=points)
+            self.assertFalse((self.root/'bad-frames').exists())
+        with self.assertRaises(ValueError):
+            music_edit.prepare(self.request_file,self.root/'bad-profile',frame_times=[0])
+        music_edit.prepare(self.request_file,self.root/'frames','review',frame_times=[0,1])
+        root,manifest=music_edit.load_bundle(self.root/'frames')
+        manifest['frames'][0]['source_id']='unknown'
+        editor.write_json(root/'manifest.json',manifest)
+        with self.assertRaises(ValueError):
+            music_edit.load_bundle(root)
 
 
 def main():
