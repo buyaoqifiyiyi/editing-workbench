@@ -589,8 +589,7 @@ def draft_location(user_data=None):
     if setting.is_file():
         config = configparser.ConfigParser(interpolation=None, strict=False)
         config.read_string(setting.read_text(encoding='utf-8-sig'))
-        # Qt QSettings escapes Windows separators in this INI value.
-        custom = config.get('General', 'currentCustomDraftPath', fallback='').strip().strip('"').replace('\\\\', '\\')
+        custom = qt_ini_value(config.get('General', 'currentCustomDraftPath', fallback=''))
     active = Path(custom) if custom else default_root
     if custom and not active.is_dir():
         raise ValueError(f'Configured Jianying draft directory is unavailable: {active}')
@@ -623,6 +622,50 @@ def jianying_running():
     except (ValueError, OSError, subprocess.TimeoutExpired):
         return False
     return 'JianyingPro.exe' in listing
+
+
+QT_ESCAPES = {'0': '\0', 'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v'}
+
+
+def qt_ini_value(raw):
+    """Decode a QSettings INI string: optional quotes, backslash escapes and \\xHHHH for non-ASCII
+    (a Chinese draft folder is written that way); surrogate pairs are joined. A value with single
+    backslashes and no \\x code was not written by Qt and is kept as it is."""
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]
+    if '\\\\' not in value and not re.search(r'\\x[0-9a-fA-F]{4}', value):
+        return value
+    decoded = re.sub(r'\\(?:x([0-9a-fA-F]{1,4})|(.))',
+                     lambda m: chr(int(m.group(1), 16)) if m.group(1) else QT_ESCAPES.get(m.group(2), m.group(2)), value)
+    return decoded.encode('utf-16-le', 'surrogatepass').decode('utf-16-le')
+
+
+def register_media_library(content, internal_roots):
+    """Give each top-level local video, photo and audio material a media-library entry and point its
+    local_material_id at it (one entry per file), so Jianying lists the files in its media panel.
+    Draft-internal resources and nested sub-draft copies are left as they are.
+    shortcut: top-level materials only, extend to sub-drafts if their own media panel needs it."""
+    internal = [Path(r).resolve() for r in internal_roots]
+    library, entries = [], {}
+    for kind, metetype in (('videos', None), ('audios', 'music')):
+        for material in content['materials'].get(kind, []):
+            path = material.get('path') or ''
+            if not path or not Path(path).is_file() or any(Path(path).resolve().is_relative_to(r) for r in internal):
+                continue
+            mtype = metetype or ('photo' if material.get('type') == 'photo' else 'video')
+            key = str(Path(path).resolve()).lower()
+            if key not in entries:
+                entries[key] = str(uuid.uuid4()).upper()
+                library.append({
+                    'ai_group_type': '', 'create_time': -1, 'duration': 5_000_000 if mtype == 'photo' else material.get('duration', 0),
+                    'enter_from': 0, 'extra_info': Path(path).name, 'file_Path': path,
+                    'height': material.get('height', 0), 'id': entries[key], 'import_time': -1, 'import_time_ms': -1,
+                    'item_source': 1, 'material_color_tag': '', 'md5': '', 'metetype': mtype,
+                    'roughcut_time_range': {'duration': -1, 'start': -1}, 'sub_time_range': {'duration': -1, 'start': -1},
+                    'type': 0, 'width': material.get('width', 0)})
+            material['local_material_id'] = entries[key]
+    return library
 
 
 def draft_tree_digest(root):
@@ -2298,6 +2341,7 @@ def build_draft(args):
         native_mask_feather.prepare(content, plan, project, destination)
         native_advanced.apply_extensions(content, plan, None, measure_loudness)
         native_advanced.apply_composites(content, plan)
+        media_library = register_media_library(content, (project, destination))
         has_animations = any(item.get('animations') for item in plan['clips'] + plan['captions'])
         animation_paths = native_advanced.bind_animation_paths(content, configured_user_data() if has_animations else None)
         dropped_animations = animation_drops or animation_paths['dropped']
@@ -2319,6 +2363,9 @@ def build_draft(args):
         meta.update(draft_id=draft_id, draft_name=plan['name'], draft_fold_path=str(destination),
                     draft_root_path=str(destination.parent), tm_duration=content['duration'],
                     tm_draft_create=int(time.time() * 1_000_000), tm_draft_modified=int(time.time() * 1_000_000))
+        for group in meta.get('draft_materials', []):
+            if group.get('type') == 0:
+                group['value'] = media_library
         write_json(project / 'draft_meta_info.json', meta)
         write_json(project / 'edit-plan.json', plan)
         write_json(project / 'verification.json', status)

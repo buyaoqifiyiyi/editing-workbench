@@ -44,6 +44,7 @@ CHECKS = {
     'extensions': ('extensions_self_check.py', 'extensions', True, False),
     'layout_tracks': ('layout_tracks_self_check.py', 'out', False, False),
     'alpha_video': ('alpha_video_self_check.py', 'out_install', False, True),
+    'draft_library': ('draft_library_self_check.py', 'out', False, False),
     'native_preview': ('native_preview_self_check.py', 'install', False, True),
     'draft_state': ('draft_state_self_check.py', 'out', False, False),
     'refresh_registration': ('refresh_registration_self_check.py', 'out', False, False),
