@@ -13,6 +13,7 @@
   let workspaceView = 'workspace';
   const busyStates = new Set(['starting', 'running', 'stopping', 'awaiting_approval']);
   const busy = () => busyStates.has(state?.current_session?.status);
+  const anyBusy = () => busyStates.has(state?.active_status) || busy();
   const labels = {disconnected:'未连接', connecting:'连接中', connected:'已连接', error:'错误',
     idle:'等待指令', starting:'正在启动', running:'正在执行', stopping:'正在停止', awaiting_approval:'等待确认',
     completed:'已完成', complete:'已完成', succeeded:'已完成', done:'已完成', failed:'失败',
@@ -39,7 +40,7 @@
     finally { if(controlKey)controlRequests.delete(controlKey);else{pending=false;pendingAction='';}controls(); }
   }
   function applyState(next) { if (!next || !next.agent) throw new Error('服务响应缺少工作台状态');if(state&&!online&&!next.agent.error&&!next.current_session?.error)clearError();state=next;online=true;render();void connectOnOpen(); }
-  function connectOnOpen(){if(autoConnectAttempted||!online||pending||busy()||!state?.agent)return;autoConnectAttempted=true;if(state.agent.state==='disconnected')return connectAgent({});}
+  function connectOnOpen(){if(autoConnectAttempted||!online||pending||anyBusy()||!state?.agent)return;autoConnectAttempted=true;if(state.agent.state==='disconnected')return connectAgent({});}
   function applyResponse(next,generation){if(generation===epoch){applyState(next);epoch++;}}
   const mutate = (path, body = {}, method = 'POST') => {
     const controlKey=path==='/api/interrupt'?path:path==='/api/approval'?path+':'+body.id:'';
@@ -70,7 +71,7 @@
     const values = [...$('effort-select').options].map(option => option.value);
     const wanted=acp?state.agent.currentEffort:reset?selected?.defaultReasoningEffort:old||state?.agent?.currentEffort;
     $('effort-select').value = selected && values.includes(wanted) ? wanted : !acp&&selected ? values.find(v=>v===selected.defaultReasoningEffort)||values[0]||'' : '';
-    $('effort-select').disabled = pending || busy() || !selected || !$('effort-select').value&&$('effort-select').options.length < 2;
+    $('effort-select').disabled = pending || anyBusy() || !selected || !$('effort-select').value&&$('effort-select').options.length < 2;
   }
   function renderModels() {
     const signature = JSON.stringify([state?.current_session?.id,state?.agent?.id,state?.agent?.state,state?.agent?.currentModel,state?.agent?.currentEffort,models()]);
@@ -92,7 +93,8 @@
   function controls() {
     const connected = online && state?.agent?.state === 'connected';
     const hasModels = models().length > 0 || state?.agent?.protocol === 'acp';
-    const working = busy();
+    const viewingActive = !state?.active_session_id || state.active_session_id === state.current_session?.id;
+    const working = anyBusy();
     const connecting=pendingAction==='/api/connect'||state?.agent?.state==='connecting';
     const submitting=pendingAction==='/api/send';
     const connectionState=connecting&&!connected?'connecting':state?.agent?.state;
@@ -102,14 +104,16 @@
     text($('connection-label'),(state?.agent?.name ? state.agent.name+' · ' : '')+(labels[connectionState]||'未连接'));$('connection-dot').className='status-dot '+(connectionState||'disconnected');
     text($('connect-button'),connecting?'连接中…':connected?'重连':'连接');text($('welcome-connect'),connecting?'正在连接…':'连接 Agent');
     $('send-button').disabled = pending || !connected || !hasModels || working || !$('prompt').value.trim();
-    $('interrupt-button').hidden = !working&&!submitting;
+    $('interrupt-button').hidden = (!working || !viewingActive)&&!submitting;
     $('interrupt-button').disabled = controlRequests.has('/api/interrupt') || !online || state?.current_session?.status === 'stopping';
     $('model-select').disabled = pending || working || !connected || !models().length;
     $('effort-select').disabled = pending || working || !connected || !$('model-select').value || !$('effort-select').value&&$('effort-select').options.length < 2;
     for (const id of ['new-session','workspace-button']) $(id).disabled = pending || working || !online;
-    for (const id of ['add-media','attach-button','welcome-media','refresh-artifacts']) $(id).disabled = pending || !online;
+    for (const id of ['add-media','attach-button','welcome-media']) $(id).disabled = pending || working || !online;
+    $('refresh-artifacts').disabled = pending || !online;
     for (const id of ['connect-button','welcome-connect','connection-settings','connection-submit']) $(id).disabled = pending || working || state?.agent?.state === 'connecting';
-    document.querySelectorAll('.session-item').forEach(button => { button.disabled = pending || working; });
+    document.querySelectorAll('.session-item').forEach(button => { button.disabled = pending || !online || ['starting','stopping'].includes(state?.active_status); });
+    document.querySelectorAll('.session-delete').forEach(button => { button.disabled = pending || !online || button.dataset.active === 'true'; });
     document.querySelectorAll('dialog button[type="submit"],#browse-media,#browse-media-folder,#browse-workspace').forEach(button => { button.disabled = pending; });
     $('connection-submit').disabled=pending||working||state?.agent?.state==='connecting';
     $('mode-select').disabled=pending||working||!connected;
@@ -119,10 +123,10 @@
     if (!online) status = state ? '本地服务连接中断，正在重试…' : '正在读取本地服务状态…';
     else if (!connected) status = connecting ? '正在连接本机执行引擎…' : '连接执行引擎后即可开始';
     else if (!hasModels) status = '未获取到可用模型，请重新连接';
-    else if (working) status = labels[state.current_session.status] || state.current_session.status;
+    else if (working) status = viewingActive ? (labels[state.current_session.status] || state.current_session.status) : '另一任务正在执行，可查看历史；完成后可开始新任务';
     else if (pending) status = submitting?'正在提交要求…':connecting?'正在连接本机 Agent…':'正在处理请求…';
     text($('composer-status'), status);
-    text($('workspace-status'),working?(labels[state.current_session.status]||'正在执行'):state?.current_session?.turn_status==='completed'?'本轮已完成':'等待任务');
+    text($('workspace-status'),working?(viewingActive?(labels[state.current_session.status]||'正在执行'):'另一任务正在执行'):state?.current_session?.turn_status==='completed'?'本轮已完成':'等待任务');
     text($('send-label'),submitting?'正在提交':'执行任务');
     updateOmniControls();
     backendControls();
@@ -166,14 +170,14 @@
     return selected.length>0&&selected.every(({role,id})=>backendCatalog().some(item=>item.id===id&&roleAvailability(item,role).selectable));
   }
   function backendControls() {
-    const locked=pending||busy()||!online||!state?.backends;
+    const locked=pending||anyBusy()||!online||!state?.backends;
     $('backend-toggle').disabled=!state?.backends;
     document.querySelectorAll('.backend-control').forEach(control=>{control.disabled=locked||control.dataset.unavailable==='true';});
     $('backend-save').disabled=locked||!backendDraftValid();
     $('backend-cancel').disabled=pending;
     $('backend-refresh').disabled=pending||!online;
     text($('backend-save'),pendingAction==='/api/backends/configure'?'正在保存…':'保存配置');
-    text($('backend-save-note'),busy()?'当前任务进行中，结束后可调整软件配置。':!online?'本地服务连接中断，恢复后可保存。':'保存到当前任务，并作为新任务的初始配置。');
+    text($('backend-save-note'),anyBusy()?'当前任务进行中，结束后可调整软件配置。':!online?'本地服务连接中断，恢复后可保存。':'保存到当前任务，并作为新任务的初始配置。');
   }
   function openBackendPanel() {
     if(!state?.backends)return;
@@ -181,13 +185,13 @@
   }
   function cancelBackendPanel() {if(pending)return;backendOpen=false;backendDraft=null;backendError='';renderBackends();$('prompt').focus();}
   function changeBackendMode(mode) {
-    if(!backendDraft||pending||busy())return;
+    if(!backendDraft||pending||anyBusy())return;
     backendDraft.mode=mode;
     if(mode==='single'&&!backendCatalog().some(item=>item.id===backendDraft.single_backend&&item.selectable))backendDraft.single_backend=backendCatalog().find(item=>item.selectable)?.id||null;
     backendError='';renderBackends();
   }
   async function saveBackendSelection() {
-    if(pending||busy()||!online||!backendDraftValid())return null;
+    if(pending||anyBusy()||!online||!backendDraftValid())return null;
     const selection=normalizedBackendDraft();backendError='';
     return perform(async generation=>{
       try {
@@ -198,7 +202,7 @@
     },'','/api/backends/configure');
   }
   function callSingleBackend(id) {
-    if(pending||busy()||!online||!backendCatalog().some(item=>item.id===id&&item.selectable))return;
+    if(pending||anyBusy()||!online||!backendCatalog().some(item=>item.id===id&&item.selectable))return;
     backendOpen=true;backendDraft={mode:'single',roles:{},single_backend:id};backendRenderKey='';renderBackends();return saveBackendSelection();
   }
   function softwareLogo(id) {
@@ -236,7 +240,7 @@
             const availability=roleAvailability(item,role.id);
             const option=node('label','backend-option');const input=node('input','backend-control');input.id='backend-'+role.id+'-'+item.id;input.type=role.id==='editing'?'radio':'checkbox';input.name='backend-role-'+role.id;input.value=item.id;input.checked=(backendDraft.roles?.[role.id]||[]).includes(item.id);input.setAttribute('aria-label',role.label+'：'+item.name);
             input.dataset.unavailable=String(!availability.selectable&&!(input.type==='checkbox'&&input.checked));option.classList.toggle('is-unavailable',!availability.selectable);
-            input.addEventListener('change',()=>{if(pending||busy())return;if(!availability.selectable&&input.checked){input.checked=false;return;}const previous=backendDraft.roles?.[role.id]||[];backendDraft.roles={...backendDraft.roles,[role.id]:role.id==='editing'?[item.id]:input.checked?[...new Set([...previous,item.id])]:previous.filter(id=>id!==item.id)};backendError='';renderBackends();});
+            input.addEventListener('change',()=>{if(pending||anyBusy())return;if(!availability.selectable&&input.checked){input.checked=false;return;}const previous=backendDraft.roles?.[role.id]||[];backendDraft.roles={...backendDraft.roles,[role.id]:role.id==='editing'?[item.id]:input.checked?[...new Set([...previous,item.id])]:previous.filter(id=>id!==item.id)};backendError='';renderBackends();});
             option.append(input,softwareLogo(item.id),node('span','',item.short_name||item.name));option.append(node('span','backend-option-state',availability.selectable?'已接入':availability.label||'不可用'));option.title=availability.selectable?item.status_label+' · '+(item.summary||''):availability.reason||'当前不可用';choices.append(option);
           }
           if(!choices.children.length)choices.append(node('span','muted','暂无已接入软件'));row.append(choices);roles.append(row);
@@ -247,6 +251,21 @@
         for(const item of backendCatalog()){
           const article=node('article','backend-software');article.dataset.backendId=item.id;article.classList.toggle('is-unavailable',!item.selectable);const heading=node('div','backend-software-heading');const name=node('strong','',item.name);const status=node('span','backend-status',item.status_label||item.status);heading.append(softwareLogo(item.id),name,status);article.append(heading,node('p','backend-software-roles',(state.backends.roles||[]).filter(role=>item.roles?.includes(role.id)).map(role=>role.label).join(' / ')),node('p','backend-software-summary',item.summary));
           const availability=item.availability||{};const detection=node('p','backend-detection'+(item.selectable?' is-available':' is-unavailable'),(availability.label||'状态未知')+(availability.reason?' · '+availability.reason:''));detection.title=availability.path||'';article.append(detection);
+          const review=availability.requalification;
+          if(review){
+            const info=node('p','backend-requalification');info.setAttribute('role','status');
+            let message='剪映 '+(review.version||'未知版本')+' · '+(review.label||review.state);
+            if(review.reason)message+=' · '+review.reason;
+            if(review.admitted)message+=' · 已通过 '+review.admitted.length+' 项，未通过 '+Object.keys(review.refused||{}).length+' 项';
+            if(review.report)message+=' · 报告：'+review.report;
+            if(review.state==='complete'||review.state==='partial')message+=' · 仅原生静帧子集，连续视听与导出未验';
+            if(['failed','interrupted'].includes(review.state))message+=' · 不自动重试';
+            message+=' · 每项能力按各自验证结果使用';text(info,message);article.append(info);
+            const subsets=node('ul','backend-review-subsets');
+            const names={preview:'静帧预览',chroma:'色键',mask_feather:'矩形蒙版羽化',mix:'混合模式',text_alpha:'文字透明度',text_highlight:'重点词着色',corner:'角点透视',green_lightness:'绿色明度与 HSL'};
+            for(const [feature,result] of Object.entries(review.subsets||{}))subsets.append(node('li','',(names[feature]||feature)+'：'+({admitted:'通过',refused:'未通过',unverified:'未验证'}[result.status]||'未验证')+(result.reason?' · '+result.reason:'')));
+            article.append(subsets);
+          }
           if(item.limitations?.length){const details=node('details','backend-limit-details');details.append(node('summary','','能力范围与限制'));const list=node('ul','backend-limit');for(const limitation of item.limitations)list.append(node('li','',limitation));details.append(list);article.append(details);}
           const call=node('button','backend-control backend-single-action',item.single_supported?'单独调用 ↗':'暂不支持单独调用');call.type='button';call.dataset.unavailable=String(!item.selectable);call.title=item.selectable?'单独调用'+item.name:availability.reason||'当前不可用';call.setAttribute('aria-label','单独调用'+item.name);call.addEventListener('click',()=>callSingleBackend(item.id));article.append(call);catalog.append(article);
         }
@@ -257,17 +276,27 @@
   }
   function renderSessions() {
     const list = $('session-list');
-    const signature = JSON.stringify([state.sessions, state.current_session?.id]);
+    const signature = JSON.stringify([state.sessions, state.current_session?.id, state.active_session_id]);
     if (list.dataset.signature === signature) return;
     list.dataset.signature = signature; const scroll = list.scrollTop; list.replaceChildren();
     text($('session-count'), state.sessions?.length || '');
     if (!state.sessions?.length) list.append(node('p','muted list-empty','暂无制作任务。新建任务后添加素材和要求。'));
     for (const session of state.sessions || []) {
+      const row = node('div','session-row');
       const button = node('button','session-item' + (session.id === state.current_session?.id ? ' active' : ''));
       button.type = 'button'; button.title = session.title || '未命名会话';
       button.append(node('span','session-name',(session.title || '未命名会话')+' · '+(session.agent_id||'codex')));
       if (session.updated_at) { const date = new Date(typeof session.updated_at === 'number' && session.updated_at < 1e12 ? session.updated_at * 1000 : session.updated_at); if (!Number.isNaN(date.valueOf())) button.append(node('span','session-date',date.toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))); }
-      button.addEventListener('click', async()=>{if(await mutate('/api/session/select',{id:session.id}))await prepareACP();}); list.append(button);
+      button.addEventListener('click', async()=>{if(await mutate('/api/session/select',{id:session.id})&&!anyBusy())await prepareACP();});
+      const remove=node('button','session-delete','删除'); remove.type='button';
+      remove.title='删除此任务记录'; remove.setAttribute('aria-label','删除 '+(session.title||'未命名会话'));
+      remove.dataset.active=String(session.id===state.active_session_id || busyStates.has(session.status));
+      remove.disabled=remove.dataset.active==='true';
+      remove.addEventListener('click',async()=>{
+        if(!window.confirm('删除任务“'+(session.title||'未命名会话')+'”？将从列表移除并备份记录，素材和草稿文件不受影响。'))return;
+        await mutate('/api/session/delete',{id:session.id});
+      });
+      row.append(button,remove); list.append(row);
     }
     list.scrollTop = scroll;
   }
@@ -661,7 +690,7 @@
   $('backend-refresh').addEventListener('click',()=>mutate('/api/backends/refresh',{}));
   $('backend-mode-workflow').addEventListener('click',()=>changeBackendMode('workflow'));
   $('backend-mode-single').addEventListener('click',()=>changeBackendMode('single'));
-  $('backend-single-select').addEventListener('change',()=>{if(!backendDraft||pending||busy())return;backendDraft.single_backend=$('backend-single-select').value||null;backendError='';renderBackends();});
+  $('backend-single-select').addEventListener('change',()=>{if(!backendDraft||pending||anyBusy())return;backendDraft.single_backend=$('backend-single-select').value||null;backendError='';renderBackends();});
   $('backend-save').addEventListener('click',()=>saveBackendSelection());
   $('backend-panel').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();cancelBackendPanel();}});
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click',()=>button.closest('dialog').close()));

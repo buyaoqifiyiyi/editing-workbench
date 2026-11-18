@@ -36,13 +36,15 @@ def tree(root):
 
 def resource():
     import editor
+    import runtime_admission
     spec = contract()
     install = editor.jianying_install()
-    if not install or install.name != spec['runtime_version']:
-        raise ValueError('installed_chroma2_v1 requires measured Jianying ' + spec['runtime_version'])
+    runtime = runtime_admission.expected('chroma', install, spec) if install else None
+    if runtime is None:
+        raise ValueError(runtime_admission.refusal('chroma', install, 'installed_chroma2_v1'))
     if any(p.is_symlink() or p.is_junction() for p in (install, install / 'Resources')):
         raise ValueError('Chroma2 installation must not be redirected through links')
-    for relative, expected in spec['runtime_sha256'].items():
+    for relative, expected in runtime.items():
         path = install / relative
         if not path.is_file() or path.is_symlink() or sha(path) != expected:
             raise ValueError('Chroma2 runtime identity changed: ' + str(path))

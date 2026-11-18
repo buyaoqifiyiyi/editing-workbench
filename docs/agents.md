@@ -1,5 +1,7 @@
 # 多 Agent 连接（0.6）
 
+> 独立工作台历史资料。当前剪辑入口见 [Agent 剪辑引擎](../README.md)，接口见 [本机 MCP](mcp.md)。
+
 原生视听增量：指定BGM匹配镜头/卡点使用引擎`music-edit`，在专用配置就绪时由引擎直接将选定音视频发给当前选择的OpenAI兼容或Gemini原生模型，普通Agent统筹选区与执行。它不依赖ACP图像prompt；云调用只发生在显式analyze，配置缺失明确报告，不伪装完成。具体配置、有限范围、动作对拍和证据见[原生视听与音乐编排](../src/jianying_engine/runtime/references/music-edit.md)。
 
 工作台顶部“视听 API”提供协议、模型 ID、接口根地址、密码型API Key、高级请求参数、启用开关、保留/清除密钥和本机配置检查。没有内置供应商或模型默认值；旧配置保留密钥并要求重新选择模型。密钥以Windows当前用户DPAPI单独加密保存，状态不返回明文；引擎下次调用直接读取，无需重启。保存与检查不发模型请求，不表示真实API连通性或余额已通过。
@@ -78,11 +80,11 @@ DSH路径位于`%LOCALAPPDATA%\Programs\DeepSeek Harness`，桌面exe在`ELECTRO
 
 ## 资料与维护
 
-官方资料：[DeepSeek ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)、[OpenCode ACP](https://docs.opencode.ai/docs/acp/)、[Gemini ACP](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/acp-mode.md)、[Claude Agent ACP](https://github.com/agentclientprotocol/claude-agent-acp)。DSH/OpenCode使用MIT，Gemini/Claude适配器使用Apache-2.0；适配器许可证不等于模型服务授权。具体包名迁移、安装资源及OpenDesign对照见[本轮调研](C:/Users/MECHREVO/Documents/deepseek-harness/default-workspace/jianying-workspace/运行数据/多Agent-20261018/research.md)。
+官方资料：[DeepSeek ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)、[OpenCode ACP](https://docs.opencode.ai/docs/acp/)、[Gemini ACP](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/acp-mode.md)、[Claude Agent ACP](https://github.com/agentclientprotocol/claude-agent-acp)。DSH/OpenCode使用MIT，Gemini/Claude适配器使用Apache-2.0；适配器许可证不等于模型服务授权。具体包名迁移、安装资源及OpenDesign对照见本机历史验收记录。
 
-0.6验收：75项Python测试、11组前端模拟通过。DSH/OpenCode真实配置回执与空会话跨进程恢复通过，恢复时核对已确认的选择。测试Agent经真实ACP、MCP生成1秒合成草稿，成果自动发现和文档预览通过，无模型调用。证据见[功能打通目录](C:/Users/MECHREVO/Documents/deepseek-harness/default-workspace/jianying-workspace/运行数据/功能打通-20261018)。真实模型长任务、Gemini/Claude、新增界面的实机视觉与最终剪映导出未验。
+0.6验收：75项Python测试、11组前端模拟通过。DSH/OpenCode真实配置回执与空会话跨进程恢复通过，恢复时核对已确认的选择。测试Agent经真实ACP、MCP生成1秒合成草稿，成果自动发现和文档预览通过，无模型调用。证据见本机历史验收记录。真实模型长任务、Gemini/Claude、新增界面的实机视觉与最终剪映导出未验。
 
-0.4历史验收为59项Python测试、8组前端模拟；当时完成三Agent连接和OpenCode/DSH原生连接界面检查、102个资源的wheel一致性检查，不包含0.6新增功能。冻结证据见[多Agent目录](C:/Users/MECHREVO/Documents/deepseek-harness/default-workspace/jianying-workspace/运行数据/多Agent-20261018)。
+0.4历史验收为59项Python测试、8组前端模拟；当时完成三Agent连接和OpenCode/DSH原生连接界面检查、102个资源的wheel一致性检查，不包含0.6新增功能。冻结证据见本机历史验收记录。
 
 
 

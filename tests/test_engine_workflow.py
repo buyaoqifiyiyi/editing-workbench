@@ -2,6 +2,8 @@
 import asyncio
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -37,6 +39,8 @@ class EngineWorkflow(unittest.IsolatedAsyncioTestCase):
             subtitle.write_text('1\n00:00:00,100 --> 00:00:00,400\n人工校正字幕\n第二行\n\n2\n00:00:00,600 --> 00:00:00,900\n第二个镜头\n', encoding='utf-8-sig')
             original_subtitle = subtitle.read_bytes()
             original = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.enterContext(patch.dict(os.environ, {
+                'JIANYING_RUNTIME_ADMISSIONS': str(root / 'unused-admissions.json')}))
             service = Workbench(root / 'state', work)
             app = create_app(service, 'token', 8765)
             fixture = Path(__file__).with_name('fixtures') / 'acp_engine_fixture.py'
@@ -105,13 +109,40 @@ class EngineWorkflow(unittest.IsolatedAsyncioTestCase):
                     denoise_report = json.loads((work / 'output/denoise/denoise-report.json').read_text(encoding='utf-8'))
                     self.assertEqual(denoise_report['status'], 'passed')
                     self.assertEqual(denoise_report['denoised']['frames'], 48000)
-                    import native_mask_feather
-                    mask = content['materials']['common_mask'][0]
-                    self.assertEqual(Path(mask['path']), work / 'output/draft' / native_mask_feather.RELATIVE)
-                    self.assertEqual(mask['config']['feather'], .2)
-                    native_mask_feather.verify_directory(work / 'output/draft')
+                    self.assertFalse(content['materials'].get('common_mask'))
             finally:
                 await service.close()
+
+
+class NativeMaskAdmission(unittest.TestCase):
+    def test_unadmitted_install_still_refuses_mask_without_writing_admissions(self):
+        with tempfile.TemporaryDirectory(prefix='mask-admission-') as folder:
+            root = Path(folder)
+            install = root / '99.0.0.1'
+            (install / 'Resources/Font/SystemFont').mkdir(parents=True)
+            source = root / 'shot.png'
+            Image.new('RGB', (320, 240), '#639b46').save(source)
+            plan = root / 'plan.json'
+            plan.write_text(json.dumps({
+                'schema_version': 1, 'name': 'unadmitted-mask', 'mode': 'script',
+                'canvas': {'width': 320, 'height': 240, 'fps': 30},
+                'clips': [{'path': str(source), 'start': 0, 'duration': 1,
+                           'mask': {'name': '矩形', 'experimental': True, 'size': .6,
+                                    'rect_width': .45, 'feather': 20, 'rendering': 'red_coverage_v1'}}]
+            }), encoding='utf-8')
+            original = plan.read_bytes()
+            admissions = root / 'absent-admissions.json'
+            result = subprocess.run(api.command_for('validate', ['--plan', str(plan)]),
+                                    env=dict(os.environ, JIANYING_INSTALL=str(install),
+                                             JIANYING_RUNTIME_ADMISSIONS=str(admissions),
+                                             PYTHONDONTWRITEBYTECODE='1'),
+                                    capture_output=True, text=True, encoding='utf-8', timeout=30)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            error = json.loads(result.stdout)['error']
+            self.assertIn('red_coverage_v1 requires measured Jianying', error)
+            self.assertIn('99.0.0.1 is not admitted', error)
+            self.assertEqual(plan.read_bytes(), original)
+            self.assertFalse(admissions.exists())
 
 
 if __name__ == '__main__':

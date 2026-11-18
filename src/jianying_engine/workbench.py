@@ -24,12 +24,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse, FileResponse
 from starlette.routing import Route
 
-from .api import command_for, paths
+from .api import command_for, paths, read_guide, search_knowledge
 from .codex_bridge import CodexBridge, CodexRpcError
 from .agent_catalog import AgentCatalog
 from . import artifacts
 from . import software_backends
 from .software_detection import detect_backends
+from .workbench_requalification import Requalification, reviewed_availability
 from .runtime.scripts import omni_config
 
 WEB = Path(__file__).with_name('web')
@@ -43,6 +44,46 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def classify_task(text):
+    """Assign local-only heuristic tags; never changes or forwards the original message."""
+    value = text.casefold()
+    tags = []
+    editing_terms = ('剪辑工作台', '剪映', '剪辑项目', '剪辑', '重剪', '成片', '混剪', '短片', 'ova')
+    if any(term in value for term in editing_terms):
+        tags.append('剪辑工作台')
+
+    read_only = any(term in value for term in (
+        '只读', '等待我给出下一步', '等待下一步', '不自动开始', '先阅读并核实',
+        '给我看看', '看看当前', '查看当前', '简要说明已掌握', '项目框架', '框架导览'))
+    maintenance = any(term in value for term in (
+        '维护', '修改正式源码', '改代码', '修改代码', '重构', '新增功能', '增加本地检索',
+        '接入 api', '接入 mcp', '单元测试', '回归测试', '接口测试', '测试源码'))
+    troubleshooting = any(term in value for term in (
+        '排查', '故障', '报错', '错误', '异常', '修复失败', '失败用例', '不工作', '不生效', 'bug'))
+    media_analysis = any(term in value for term in (
+        '素材分析', '分析素材', '分析视频', '分析片段', '参考视频', '教程分析', '抽帧'))
+    creative_feedback = any(term in value for term in (
+        '太平', '平淡', '看不出剧情', '剧情不清', '重复画面', '主要是拼接', '不满意'))
+    creation_request = any(term in value for term in (
+        '帮我剪', '请重剪', '开始重剪', '直接剪', '重新剪辑', '制作成片', '剪一版', '开始剪辑'))
+
+    if read_only:
+        tags.append('只读核查')
+    if maintenance:
+        tags.append('引擎维护')
+    if troubleshooting:
+        tags.append('故障排查')
+    if media_analysis:
+        tags.append('素材分析')
+    if creative_feedback:
+        tags.append('创作反馈')
+    if creation_request and not read_only:
+        tags.append('创作执行')
+    if not tags:
+        tags.append('只读分析' if any(term in value for term in ('分析', '评估', '审查', '比较', '调研', '方案', '看看')) else '其他')
+    return tags
+
+
 class Workbench:
     def __init__(self, state_dir, workspace, bridge_factory=CodexBridge):
         self.directory = Path(state_dir).resolve()
@@ -54,6 +95,7 @@ class Workbench:
         self.backend_default = software_backends.default_selection()
         self.ui_theme = 'dark'
         self.backend_detection, self.backend_checked_at = None, 0
+        self.requalification = Requalification()
         self.catalog = AgentCatalog(self.directory)
         self.agent = {'id': self.catalog.selected, 'state': 'disconnected', 'models': [], 'version': '', 'cli_path': '', 'error': None}
         self.bridge_factory, self.bridge = bridge_factory, None
@@ -117,9 +159,11 @@ class Workbench:
         if agent.get('protocol') == 'codex' and agent.get('state') == 'connected':
             agent.update(self.codex_selection())
         return {'agent': agent, 'agents': self.catalog.entries, 'workspace': self.workspace, 'media': self.media,
-                'sessions': [{'id': s['id'], 'title': s['title'], 'updated_at': s['updated_at'], 'agent_id': s.get('agent_id', 'codex')} for s in sorted(self.sessions, key=lambda s: s['updated_at'], reverse=True)],
+                'sessions': [{'id': s['id'], 'title': s['title'], 'updated_at': s['updated_at'], 'agent_id': s.get('agent_id', 'codex'), 'status': s.get('status')} for s in sorted(self.sessions, key=lambda s: s['updated_at'], reverse=True)],
                 'current_session': self.current(), 'ui_theme': self.ui_theme,
-                'approvals': [{k: v for k, v in a.items() if not k.startswith('_')} for a in self.approvals.values()],
+                'active_session_id': self.active_id,
+                'active_status': self.active().get('status') if self.active() else None,
+                'approvals': [{k: v for k, v in a.items() if not k.startswith('_')} for a in self.approvals.values()] if self.current_id == self.active_id else [],
                 'artifacts': self.artifacts, 'error': self.load_error,
                 'backends': self.backend_state(), 'omni': omni_config.status()}
 
@@ -165,7 +209,10 @@ class Workbench:
         if refresh or self.backend_detection is None or time.monotonic() - self.backend_checked_at >= 10:
             self.backend_detection = detect_backends()
             self.backend_checked_at = time.monotonic()
-        return software_backends.catalog(self.backend_detection)
+        detected = copy.deepcopy(self.backend_detection)
+        review = self.requalification.observe(detected['jianying'], busy=any(s.get('status') in BUSY for s in self.sessions))
+        detected['jianying'] = reviewed_availability(detected['jianying'], review)
+        return software_backends.catalog(detected)
 
     def backend_state(self):
         catalog = self.backend_catalog()
@@ -224,7 +271,8 @@ class Workbench:
         return session
 
     def select(self, session_id):
-        self.require_idle()
+        if self.active() and self.active().get('status') in ('starting', 'stopping'):
+            raise ValueError('任务正在启动或停止，请稍候再切换。')
         session = next((s for s in self.sessions if s['id'] == session_id), None)
         if session is None:
             raise ValueError('会话不存在。')
@@ -232,6 +280,33 @@ class Workbench:
         self.artifacts = artifacts.categorize(self.workspace, session.get('artifacts', []))
         session['artifacts'] = self.artifacts
         self.save()
+
+    def delete_session(self, session_id):
+        session = next((s for s in self.sessions if s['id'] == session_id), None)
+        if session is None:
+            raise ValueError('会话不存在。')
+        if session_id == self.active_id or session.get('status') in BUSY:
+            raise ValueError('正在执行的会话不能删除，请先停止或等待完成。')
+        archive = self.directory / 'deleted-sessions'
+        archive.mkdir(parents=True, exist_ok=True)
+        with (archive / (uuid.uuid4().hex + '.json')).open('x', encoding='utf-8') as output:
+            json.dump(session, output, ensure_ascii=False, indent=1)
+        previous = (list(self.sessions), self.current_id, self.workspace, self.media, self.artifacts)
+        try:
+            self.sessions.remove(session)
+            if self.current_id == session_id:
+                replacement = self.active() or next(iter(self.sessions), None)
+                if replacement:
+                    self.current_id = replacement['id']
+                    self.workspace = replacement['workspace']
+                    self.media = list(replacement.get('media', []))
+                    self.artifacts = artifacts.categorize(self.workspace, replacement.get('artifacts', []))
+                else:
+                    self.current_id, self.media, self.artifacts = None, [], []
+            self.save()
+        except Exception:
+            self.sessions, self.current_id, self.workspace, self.media, self.artifacts = previous
+            raise
 
     def set_workspace(self, path):
         self.require_idle()
@@ -339,24 +414,29 @@ class Workbench:
                 '特效软件的可编辑参数保留在各自原生工程；回填主剪辑的渲染素材不能冒充原生图层或已验收的任意往返。'
                 '最终完整主观视听由用户验收；原生导入、保存重开、实际导出按证据分别报告，不能称全自动已完成。'
                 '仅允许通过引擎music-edit调用用户明确配置的原生视听服务；协议、模型和地址以当前配置为准，先doctor核对配置，'
-                '只发送本任务需要的明确素材选区。其他模型服务或新增付费服务不在授权内。' + self.feedback_instructions())
+                '仅发送本任务已获授权的明确素材选区；服务已配置不等于素材外发或新增付费已获授权。其他模型服务不在授权内。'
+                '原角色图+原视频的Mesh流程先本机抽有限视频候选帧，由你查看原视频并选时间点/表情；prepare-character保留source图和Mesh遮罩，plan-variants按每条ImageGen请求固定为原图+单个遮罩+相关已选帧并锁定SHA。'
+                'ImageGen结果必须经Mesh遮罩外像素校验、rig和pose review通过后才pack/render。不要上传整段视频或无关帧；不要将角色图整张重绘，也不要把通用表情说成已匹配视频。' + self.feedback_instructions())
 
     @staticmethod
     def feedback_instructions():
         return ('工作台只负责本轮剪辑、特效、调色或声音制作任务；不要执行维护、整理记忆或读写Obsidian。'
                 '创作判断按planning贯穿选段、声画组织、镜头连接、技法选择与短段回看；未读该指南时先读取，局部修改只复查受影响部分。'
-                '技术流/丰富表现任务按planning第5–6步先检索已有方法，落实段落起始、变化、停留和接管，再用连续原生预览复核；'
+                '每版按planning的“每版同时设计剧情与剪辑”一起决定内容推进和视听表达，制作中核对，交付时分别验收；'
+                '新建、整体重剪或重做表现前主动查找并实际拆看同款视频，把有证据的做法结合素材、用户要求和本轮后端自主选择；无法看或听时如实标明。'
+                '本轮附有当前指南规则与本地知识检索线索，先阅读适用原文，让知识影响具体选段、切点、节奏、构图和声画决定；局部任务只处理受影响部分。'
+                '表现设计落实段落起始、变化、停留和接管，用当前已准入的预览核实；'
                 '新建剪映计划为人工微调优先复用不同时段的普通叠层：显式layer_order的生成计划build前运行layout-tracks并审查映射；'
                 '保留主轨、已有职责轨、复合/转场等受保护轨及遮挡顺序；不适合人工定位或无安全复用时沿原计划。不要把已保存用户工程直接重排。'
                 '复用用户已确认的相关反馈，不用效果数量、静帧或结构检查替代连续画面表现，不能先铺满再零散贴包装。'
                 '用户指定BGM并要求自动配镜头或卡点时，读取reference/music-edit，先music-edit doctor；'
                 '配置就绪则prepare选区、analyze实际音视频、用beats检测BGM候选，再compile动作对拍计划并交所选后端执行。'
-                '允许使用该明确配置的视听服务；不得自行换模型。配置缺失时报告视听模型尚未就绪，不用均匀切镜冒充内容匹配或精准卡点。'
+                '仅在本任务授权覆盖所选媒体和费用时使用该配置的视听服务；不得自行换模型。配置缺失时报告视听模型尚未就绪，不用均匀切镜冒充内容匹配或精准卡点。'
                 '当前任务已授权且视听API就绪时，候选交付前对带声音连续成片prepare并music-edit review，按时间码核实问题后修订；'
                 '素材analyze不算成片审片，结构/静帧/解码检查不能替代，模型意见不覆盖用户偏好；调用失败须报告且不自动付费重试。'
-                '用户已授权剪辑全程免审批，直接执行本任务内的素材分析、计划、构建和验证；'
-                '不要请求权限确认或调用用户提问工具。创作细节自行选择合适方案；'
-                '确实无法完成的部分简短报告，不停在确认窗口。此授权不扩大剪辑职责。'
+                '对用户已授权范围内的素材分析、计划、构建和验证直接执行，创作细节自行选择，不重复请求已给出的授权；'
+                '未授权的素材外发或新增付费不能凭免审批执行，先完成不依赖授权的工作；确有必要时说明具体素材、用途和费用后询问用户。'
+                '确实无法完成的部分简短报告；此授权不扩大剪辑职责。'
                 '如需交接记录，由工作台后台保存，不作为剪辑步骤或要求用户确认。'
                 '用户更关心任务进度：开始用一句话说明目标，使用可用的计划工具更新真实阶段；'
                 '只在阶段变化、阻碍或需要用户决定时简短播报，不逐条讲述工具调用与内部分析。'
@@ -501,6 +581,42 @@ class Workbench:
                 self._sync_session_info(session, save_settings=not session.get('_restore_settings'))
                 self.save()
 
+    def decision_context(self, session, text):
+        """Attach the current shared decision rule and local knowledge leads each turn."""
+        guide = read_guide('planning')
+        heading = '## 每版同时设计剧情与剪辑'
+        _, separator, section = guide.partition(heading)
+        rule = heading + section.split('\n## ', 1)[0] if separator else guide
+        techniques = read_guide('reference/creative-knowledge-techniques')
+        technique_heading = '## 主动展开候选'
+        _, technique_separator, technique_section = techniques.partition(technique_heading)
+        candidates = (technique_heading + technique_section.split('\n## ', 1)[0]
+                      if technique_separator else techniques)
+        previous = next((message['text'] for message in reversed(session['messages'])
+                         if message['role'] == 'user'), '')
+        selection = self.backend_selection(session)
+        excluded_guides = set()
+        if selection is not None:
+            selected = ({selection['single_backend']} if selection['mode'] == 'single' else
+                        {item for values in selection['roles'].values() for item in values})
+            catalog = software_backends.catalog()
+            backend_guides = {guide for entry in catalog for guide in entry['guides']}
+            selected_guides = {guide for entry in catalog if entry['id'] in selected for guide in entry['guides']}
+            excluded_guides = backend_guides - selected_guides
+        queries = [text[:128] + '\n' + previous[:127],
+                   '剧情 人物目标 信息变化', '镜头连接 动作反应 节奏 声画']
+        leads, seen = [], set()
+        for query in queries:
+            for item in search_knowledge(query, limit=2)['results']:
+                key = (item['guide'], item['line'])
+                if item['guide'] not in excluded_guides and key not in seen:
+                    seen.add(key)
+                    leads.append(f"- {item['guide']}:{item['line']} [{item['section']}] {item['excerpt']}")
+        return ('\n\n本轮决策依据（先按用户任务范围适用；不新增制作、外发或付费授权）：\n'
+                + rule.strip() + '\n\n剪辑方法候选（按任务适用，不代表后端已准入）：\n'
+                + candidates.strip() + '\n\n本地知识检索线索（读取适用原文后再作决定，不是素材分析或质量结论）：\n'
+                + ('\n'.join(leads) or '本轮未命中；按planning及知识索引继续定位适用方法。'))
+
     async def send(self, text, model=None, effort=None):
         async with self.actions:
             self.require_idle()
@@ -544,14 +660,18 @@ class Workbench:
             pending_message = None
             try:
                 await self._bind_session(session)
-                pending_message = {'id': uuid.uuid4().hex, 'role': 'user', 'text': text.strip()}
+                original_text = text.strip()
+                decision = self.decision_context(session, original_text)
+                pending_message = {'id': uuid.uuid4().hex, 'role': 'user', 'text': original_text,
+                                   'task_tags': classify_task(original_text)}
                 session['messages'].append(pending_message)
                 session['_message_start'] = len(session['messages'])
                 if len(session['messages']) == 1:
-                    session['title'] = text.strip().replace('\n', ' ')[:26]
+                    session['title'] = original_text.replace('\n', ' ')[:26]
                 self.save()
                 prompt = ('工作台反馈约定：' + self.feedback_instructions() + self.backend_prompt(session)
-                          + '\n\n用户要求：\n' + text.strip() + self._media_prompt())
+                          + decision
+                          + '\n\n用户要求：\n' + original_text + self._media_prompt())
                 result = await self.bridge.start_turn(session['thread_id'], prompt, model=model or None, effort=effort or None)
                 self._sync_session_info(session)
                 if session['status'] in {'starting', 'running', 'awaiting_approval'}:
@@ -575,6 +695,8 @@ class Workbench:
         session = self.active()
         if not session or not self.bridge:
             return
+        if self.current_id != self.active_id:
+            raise ValueError('请切回正在执行的任务后再停止。')
         if not self.turn_id:
             session['_cancel_requested'] = True
             session['status'] = 'stopping'
@@ -783,6 +905,7 @@ class Workbench:
     async def close(self):
         async with self.close_lock:
             self.closing = True
+            await asyncio.to_thread(self.requalification.close)
             self.generation += 1
             if self.active() and self.active()['status'] in BUSY:
                 self.active().update(status='error', error='工作台已关闭执行连接，当前任务已中断。')
@@ -904,7 +1027,8 @@ def create_app(service, token, port, open_url=None, *, desktop=None, activate_to
                 service.new_session()
             elif action == 'session/select':
                 service.select(data['id'])
-                await service.refresh_artifacts_async()
+            elif action == 'session/delete':
+                service.delete_session(data['id'])
             elif action == 'send':
                 await service.send(data.get('text'), data.get('model'), data.get('effort'))
             elif action == 'session/prepare':

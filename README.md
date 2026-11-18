@@ -1,4 +1,8 @@
-# 剪辑工作台
+# Agent 剪辑引擎
+
+在 Codex、DSH 或其他已配置本机引擎的 Agent 对话里，使用 **Agent 剪辑**（`$editing-workbench`），提供素材路径、目标和要用的剪辑软件。Agent 读取创作指南、检索已学方法，直接通过 [MCP](docs/mcp.md) 或命令行执行，把计划、草稿和验收结果交付在项目目录。
+
+续接老项目时提供原项目路径，Agent 从版本计划、素材引用和草稿恢复项目上下文。独立桌面与网页登录口已退役，旧会话状态仍在 `%LOCALAPPDATA%\JianyingEngine\workbench`。[历史工作台资料](docs/desktop.md)用于查阅旧版。
 
 AE新增明确轮廓的可编辑前景遮罩接口：`clips[].foreground_mask`用3–32个源像素顶点组成严格凸多边形，支持0–100源像素羽化与布尔反转；复制源层继承变换/运动，静音置于文字前方。有遮罩时源层透明度须恒为1，自动人物分割/跟踪仍未准入。保存前与重开后逐项回读层序、源时钟、音频和遮罩参数，实际原生效果按包外验收记录分别确认。字段与边界见[AE前景多边形遮罩](src/jianying_engine/runtime/references/adobe-workflow.md#可编辑前景多边形遮罩)。
 
@@ -8,60 +12,40 @@ AE文字层新增可编辑位置、缩放与透明度线性动画，跨镜头按
 
 指定BGM的声画匹配新增`music-edit`：明确源选区准备、可配置的OpenAI兼容或Gemini原生音视频分析、音乐分段和镜头动作对拍、30fps剪映/Resolve计划编译与既有校验。协议、模型和端点由用户配置；仅显式`analyze`调用所选服务并产生API用量，未配置时不调用。模型创作与卡点质量需要真实素材验证，不能由接线测试代替。入口和完整边界见[原生视听与音乐编排](src/jianying_engine/runtime/references/music-edit.md)。
 
-工作台以制作任务组织界面：素材监看、任务单、阶段进度与成果集中在制作区，历史交互放入执行记录；软件配置为独立模块。界面继续使用原本机引擎与会话数据，不迁移已有项目或把记录清空。
+剪映与达芬奇持续作为适配后端。Agent 可按本轮要求组合或单独调用软件，续接时从工程确认当前宿主。[剪映模块](adapters/skills/editing-workbench/modules/jianying/GUIDE.md)和[达芬奇模块](adapters/skills/editing-workbench/modules/resolve/GUIDE.md)分别调用原接口；剪映未完成适配继续沿用原主表与缺口台账。安装专属的剪映资源、兼容环境与配置仍位于 Skill 的 `backends/jianying/`。
 
-工作台支持在“软件后端”面板按剪辑、特效与合成、调色、音频搭配软件，也可单独调用一个后端。配置随会话保存，保存配置不启动软件或模型任务；旧会话保持原工程软件，新会话沿用保存的初值。具体使用和数据保留见[多软件配置](docs/agents.md#多软件配置与剪映数据保留)。Agent统一Skill为`editing-workbench`（剪辑工作台）；现有引擎命令、剪映原始数据与资源路径继续兼容。
+创作判断统一由[决策指南](src/jianying_engine/runtime/guides/planning.md)贯穿选段、声画组织、镜头连接、技法选择与修订。Agent 先读该指南，动漫/游戏情绪混剪与 MV 按[镜头与音乐方法](src/jianying_engine/runtime/references/styles/anime-mix.md#镜头与音乐如何共同推进)展开；具体操作仍受当前后端准入约束。流程可达与成片审美分别验收，后者需同素材短段和真实观看反馈。
 
-软件面板自动检测本机安装与基础接入条件，未安装、版本不兼容或未开放适配的选项置灰并显示原因；最多每10秒随轮询更新，可手动重新检测。保存和发送前再次核对，卸载软件不会删除旧会话选择或自动切换后端。安装检测不代表授权、宿主连接及实际任务验收。
+[剪辑创作知识库](src/jianying_engine/runtime/references/creative-knowledge.md)整合剧情、镜头、声音、模板、工具与来源边界；可用 `jianying-engine knowledge "具体问题"` 或新鲜MCP的 `search_knowledge` 检索打包指南，再通过 `guide` / `read_guide` 阅读原文。检索只在本地进行，不访问项目媒体或网络；词语检索可能漏召回，不代表创作质量已提升。
 
-软件按产品功能放入各分类，并单独维护执行准入：达芬奇、PR展示剪辑/特效/调色/音频；AE列特效与合成；剪映仅列剪辑。当前达芬奇仅剪辑已接入，调色等分类灰显“尚未适配”；PR各项暂不可用。界面分类不会开放未验证能力，也不删除剪映原有内部参数接口。
+参考片分析保留FFmpeg默认入口，另可显式选择PySceneDetect候选切点；`practice-compare`将两段明确选区及单侧可选声音生成带来源哈希的并排审片。安装前提、参数和实际视听边界见[参考片分析与实操对照](src/jianying_engine/runtime/references/creative-knowledge-workflows.md#参考片分析与实操对照)。这些本地工具不自动理解画面、比较同源或评判审美。
 
-剪映与达芬奇都是工作台内部持续维护的后端。用户选择剪映可新建或续接项目，未完成适配继续沿用原主表与缺口台账。统一Skill内的[剪映模块](adapters/skills/editing-workbench/modules/jianying/GUIDE.md)和[达芬奇模块](adapters/skills/editing-workbench/modules/resolve/GUIDE.md)分别调用原接口；安装专属的剪映资源、原环境与配置已实体整合到editing-workbench/backends/jianying，Skills顶层不再保留独立jianying-editor。项目素材/工程和正式引擎源码不移动，环境启动器与配置读取按内部新路径保持一致。
+Agent 按[共同决策规则](src/jianying_engine/runtime/guides/planning.md#每版同时设计剧情与剪辑)检索当前剧情和剪辑问题，在每版实际片段中落实内容推进与视听表达，并分别汇报交付和验证结果。
 
-创作判断统一由[决策指南](src/jianying_engine/runtime/guides/planning.md)贯穿选段、声画组织、镜头连接、技法选择与修订。工作台所有后端先进入该指南，动漫/游戏情绪混剪与MV按[镜头与音乐方法](src/jianying_engine/runtime/references/styles/anime-mix.md#镜头与音乐如何共同推进)展开；具体操作仍受当前后端准入约束。流程可达与成片审美分别验收，后者需同素材短段和真实观看反馈。
+软件适配范围为剪映、PR、AE、达芬奇。达芬奇的剪辑范围见[达芬奇指南](src/jianying_engine/runtime/references/resolve-workflow.md)，AE支持[独立制作](src/jianying_engine/runtime/references/adobe-workflow.md#独立ae调用)。PR按当前适配状态处理。降噪、转写等音频功能可独立调用。
 
-软件适配范围仅剪映、PR、AE、达芬奇。首次新会话初值为达芬奇剪辑＋AE特效，可由用户重新搭配。达芬奇当前接入顺序剪切、原声/配乐及静态变换，见[达芬奇范围](src/jianying_engine/runtime/references/resolve-workflow.md)；AE可[独立制作](src/jianying_engine/runtime/references/adobe-workflow.md#独立ae调用)。PR计划继续适配，当前未开放选择。降噪、转写等音频功能保留为工作台内部工具。软件配置不扩大各后端能力，也不代表任意软件间工程或特效可无损互通。
-
-旧镜头交接工具与验收资料保留用于历史兼容，见[镜头交接](src/jianying_engine/runtime/references/shot-exchange.md)。Blender、Kdenlive不在当前软件适配计划中，不在目录、选择器或自动检测中展示；已有作品不自动迁移。
-
-成果面板按项目交付清单识别正式交付，完整草稿按一项展示；计划等项目资料、抽帧/预览/日志等过程文件单独折叠，徽标只计正式交付，不删除原文件。项目根`workbench-delivery.json`登记最终草稿目录或文件，格式见[连接说明](docs/agents.md#成果与本机引用)。
-
-旧Codex会话被其他进程占用时，工作台会保留历史并在当前工作台会话中分支继续；不接管占用者。恢复失败不会将未提交的要求追加成已发送消息。
-
-工作台按用户授权采用全程免审批模式：Codex新建、恢复、分支及每回合均使用never审批策略与本机完全访问，剪辑任务无需反复确认；其他已知协议请求在后台一次性处理。此配置仅作用工作台自有Agent进程，不修改Codex桌面或全局配置。仍按真实计划展示阶段进度，执行流水默认折叠；Agent只负责剪辑，Obsidian交接由后台单独写入。见[连接说明](docs/agents.md#权限与中断)。
+旧工程中的交接资料与成果清单可继续用作定位依据。见[镜头交接](src/jianying_engine/runtime/references/shot-exchange.md)和[旧成果清单格式](docs/agents.md#成果与本机引用)。
 
 0.6.3吸收兼容的本地字体资源思路：`captions[].font_path`支持静态TTF/OTF，构建时解析字体并复制到草稿`Resources/local-fonts/`，publish重绑定，迁移同步字体路径。已在Windows剪映11.6完成参数回读、离线发布、删除原字体后的后台原生静帧；UI保存重开和导出仍未验证。
-
-0.6.2修复删除最后一项素材后的空列表渲染报错；打开工作台后自动连接上次成功选择的Agent，连接失败显示原因并保留手动重连，不自动发送任务或反复重试。
-
-0.6.1修复素材选择后无可见反馈：添加成功自动展开素材面板并选中新项，输入区持续显示素材名称/数量；重复选择提示已存在，取消和错误均给出反馈。文件夹仍只登记路径，不预先展开或上传内容。
-
-0.6已接通Agent会话设置与恢复，成果完成后自动发现并可在工作台预览。使用[Agent接入说明](docs/agents.md)和[桌面说明](docs/desktop.md)查看实际支持范围。
-
-0.5.1素材入口按本机引用工作：文件夹只登记绝对路径，Agent按需列目录和读取，不预先展开全部文件；单个文件可预览。取消原64项素材数量限制，多项文件引用分批显示。
-
-源码实际位置：`C:\Users\MECHREVO\Desktop\剪辑工作台源码`。本机独立环境以 editable 方式关联此目录，日后修改直接在这里进行。旧工作区的 `engine/` 是指向这里的 Junction 兼容入口，不是第二份源码。
-
-维护任务清单、备份与验收证据仍在 `C:\Users\MECHREVO\Documents\deepseek-harness\default-workspace\jianying-workspace` 的 `任务清单.md`、`Skill维护层` 与 `运行数据`。维护前读取任务清单并备份，修改后按影响验证并更新该处台账。项目素材和账号数据不放进源码目录。
-
-工作台0.5更新为OpenDesign式白底、大输入区和亮色强调界面；输入框内可切换Agent，右上可展开素材与成果面板。
 
 能力与执行留在本机，外部 Agent 负责理解需求、规划和调用。无需模型也能运行素材探测、计划校验、按计划生成草稿等固定功能；转写、分离与跟踪使用可选本地依赖。程序不自带模型、素材、项目、账号或凭据。
 
 ## 安装与命令
 
-当前已验证 Windows + Python 3.12。先在包目录之外创建独立虚拟环境，再从本项目安装：
+使用 Windows 和 64 位 Python 3.12。把 `ffmpeg` 和 `ffprobe` 加入 PATH。需要原生工程时，按所选后端指南准备对应软件。以下命令安装引擎与 MCP，并验证规划知识可读取。
 
 ```powershell
+git clone https://github.com/buyaoqifiyiyi/editing-workbench.git
+Set-Location editing-workbench
 $engineVenv = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv'
-python -m venv $engineVenv
+py -3.12 -m venv $engineVenv
 $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
-& $enginePython -m pip install '.[all]'
+& $enginePython -m pip install '.[mcp]'
 & $enginePython -m jianying_engine doctor
-& $enginePython -m jianying_engine --help
+& $enginePython -m jianying_engine knowledge '声音桥与镜头连接'
 ```
 
-基础安装不含音频推理、节拍分析、跟踪、MCP 或工作台；可选择 `[audio]`、`[rhythm]`、`[tracking]`、`[mcp]`、`[workbench]`、`[desktop]` 或 `[all]`。`[rhythm]`提供离线librosa节拍候选，`[all]`同时包含该依赖和桌面窗口；只需要桌面界面可选`[desktop]`。OpenCV 包只安装一种，模型单独保存在项目/模型目录并显式传入。维护源码采用 editable 安装并显式选择所需extras；发行使用 wheel，不复制虚拟环境。
+Agent 可按需选择 `[audio]`、`[rhythm]`、`[tracking]`、`[exchange]`、`[mcp]` 或 `[all]`。`[all]` 包含这些引擎依赖，`[rhythm]` 提供离线 librosa 节拍候选。旧工作台的 `[workbench]` 和 `[desktop]` 仅供显式恢复旧版。OpenCV 包只安装一种，模型单独保存在项目或模型目录并显式传入。维护源码使用 editable 安装，发行使用 wheel。
 
 ```powershell
 & $enginePython -m jianying_engine validate --plan plan.json
@@ -78,23 +62,13 @@ $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 
 激活该虚拟环境后也可直接用 `jianying-engine`。未激活时使用上面的绝对解释器，不要求修改全局 PATH。
 
-## 外部 Agent
+## Agent 调用
 
-[多Agent连接](docs/agents.md)：Codex保留专用app-server，DSH/OpenCode/Gemini/Claude适配器与自定义入口使用ACP。当前本机找到Codex、DSH与隔离安装的OpenCode。0.6根据ACP真实会话回执展示和设置模型、推理强度与工作模式，并恢复已确认选择；未声明的配置使用Agent自身设置。Gemini/Claude仍未安装、未验证，各Agent独立登录。
+将 [editing-workbench Skill 目录](adapters/skills/editing-workbench) 整个复制到宿主的 Skills 目录，保留其 `SKILL.md`、`agents/` 与 `modules/` 结构。例如 Codex 可使用 `$HOME\.agents\skills\editing-workbench`，DSH 取其已配置的 Skills 目录。升级已有副本时先备份，再更新仓库里提供的文件，保留本机已有的后端资源。宿主支持 MCP 时按 [MCP 接入](docs/mcp.md) 注册 `jianying-engine`；宿主有终端权限时也可用 Skill 中的 CLI 路径。
 
-[Windows桌面版](docs/desktop.md)继续使用.NET启动器和pywebview/WebView2，桌面与开始菜单快捷方式已部署，工作区为`D:\剪辑项目\工作台项目`；[网页入口](docs/workbench.md)保留。左下「连接设置」可选择、扫描或指定Agent入口，不需要更换剪辑执行引擎。
+安装完成后可直接让 Agent 使用 `$editing-workbench`，给出素材路径、交付目标和所选宿主。换电脑时，能力准入按该设备的安装版本重新检查。
 
-```powershell
-& $enginePython -m jianying_engine workbench --desktop --workspace 'D:\剪辑项目\工作台项目'
-# 若只使用网页，先退出桌面服务，再选择下列替代命令：
-# & $enginePython -m jianying_engine workbench --workspace 'D:\剪辑项目\工作台项目' --open
-```
-
-上面两种启动方式二选一，工作目录须已存在；同一状态目录不能同时运行网页与桌面实例。会话、`agents.json`与日志外置于`%LOCALAPPDATA%\JianyingEngine\workbench`。网页关标签不停止后台；桌面关窗按忙时确认/闲置退出处理，重复启动唤醒已有桌面窗口。会话绑定Agent和启动命令指纹，不跨Agent重放；各协议权限与恢复边界见连接说明。
-
-0.6验收：75项Python测试、11组前端控制器模拟通过；DSH/OpenCode真实配置与空会话跨进程恢复通过。确定性测试Agent通过真实ACP和MCP完成计划校验、1秒合成草稿生成、成果自动发现和文档预览，无模型调用。该测试不证明真实模型剪辑、剪映UI保存重开、完整视听或导出；本轮新增界面未完成实机视觉验收。
-
-支持命令行调用与可选 stdio MCP；见 [MCP 接入](docs/mcp.md)。MCP是本机调用接口，不监听HTTP、不在本机运行大模型；仅显式`music-edit analyze`按专用配置发送已选音视频给当前选择的模型。外部云Agent接收到的文本/画面也可能由该客户端发送给模型，调用方需控制发送范围。
+支持命令行调用与可选 stdio MCP；见 [MCP 接入](docs/mcp.md)。MCP是本机调用接口，不监听HTTP、不在本机运行大模型；显式`music-edit analyze`与`music-edit review`均按专用配置发送已选音视频给当前选择的模型，并可能产生用量。外部云Agent接收到的文本/画面也可能由该客户端发送给模型，调用方需控制发送范围。
 
 规划、剪辑与维护知识在 `jianying-engine guide` 中按需读取。知识指导 Agent；可执行约束由引擎强制。UI 保存重开、完整视听和导出仍按项目各自验收。
 
@@ -102,7 +76,7 @@ $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 
 `src/jianying_engine/runtime` 是执行代码与必要资源的唯一源码。旧 Skill 路径保留兼容入口，不再分别维护三套执行文件。运行数据、模型、日志、凭据与逐项目准入记录放在包外。
 
-核心依赖与剪映版本边界沿用既有检查。新包装不会使剪映私有 token 接口、原生新抠像或未准入效果自动可用。当前项目为私有本地工具，未另行授予公开分发许可证；第三方依赖遵循各自许可证。
+剪映版本与原生能力边界以[能力主表](src/jianying_engine/runtime/references/capabilities.md)为准。源码供现有授权范围内的部署与使用，第三方依赖遵循各自许可证。
 
 
 

@@ -9,6 +9,131 @@ import wave
 from PIL import Image
 import beat_apply
 import editor
+import beats
+import file_hash
+import native_beat
+
+
+def check_marks(root):
+    """Synthetic reports, real loader/validator; only installed-host identity is mocked."""
+    root.mkdir(parents=True, exist_ok=False)
+    checks = []
+    for width, height, seconds, audio_seconds, source_in, start, duration in (
+            (320, 180, 4, 4, 0, 0, 4), (320, 180, 4, 4, .5, 1, 2.5),
+            (640, 360, 10, 12, 2, 1, 8)):
+        case = root / str(len(checks))
+        case.mkdir()
+        video, audio = case / 'video.mp4', case / 'audio.wav'
+        editor.run([editor.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+                    '-f', 'lavfi', '-i', f'color=s={width}x{height}:r=30:d={seconds}',
+                    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)])
+        with wave.open(str(audio), 'wb') as handle:
+            handle.setparams((1, 2, 44100, 0, 'NONE', 'not compressed'))
+            handle.writeframes(bytes(audio_seconds * 44100 * 2))
+        base = {'schema_version': 1, 'name': 'native beat mapping', 'mode': 'script',
+                'canvas': dict(width=width, height=height, fps=30),
+                'clips': [dict(path=str(video), start=0, source_in=0, duration=seconds, volume=0)],
+                'audio': [dict(path=str(audio), track='music', start=start,
+                               source_in=source_in, duration=duration)]}
+        source = case / 'plan.json'
+        editor.write_json(source, base)
+        before = source.read_bytes()
+        report_dir = case / 'candidates'
+        report_dir.mkdir()
+        # Deliberately nonzero analysis start, independent of audio timeline start.
+        data = dict(schema_version=1, source=dict(path=str(audio), sha256=file_hash.sha256(audio)),
+                    selection=dict(start_us=250000, sample_rate=beats.RATE,
+                                   sample_count=(audio_seconds - 1) * beats.RATE),
+                    beat_samples=list(range(0, (audio_seconds - 1) * beats.RATE, beats.HOP * 20)),
+                    tempo_bpm=120., algorithm=dict(name=beats.ALGORITHM, librosa=beats.LIBROSA,
+                        numba=beats.NUMBA, implementation_sha256=beats.implementation_sha()),
+                    params=dict(hop_length=beats.HOP, start_bpm=120., tightness=100., trim=True, units='frames'))
+        def write_report(value):
+            editor.write_json(report_dir / 'beats.json', value)
+            editor.write_json(report_dir / 'beat-report.json', dict(schema_version=1, status='succeeded',
+                beats_file='beats.json', beats_sha256=file_hash.sha256(report_dir / 'beats.json'),
+                source_sha256=value['source']['sha256'], implementation_sha256=beats.implementation_sha(),
+                dependencies=dict(librosa=beats.LIBROSA, numba=beats.NUMBA, numpy='synthetic',
+                                  scipy='synthetic', llvmlite='synthetic'), boundaries=[], auditory_review='unverified'))
+        write_report(data)
+        args = Args(plan=source, beats=report_dir, every=4, out=case / 'marks.json', mark_audio=True)
+        with patch.object(native_beat, 'runtime'):
+            report = beat_apply.apply(args)
+            normalized, _, _ = editor.validate_plan(source)
+            result, _, _ = editor.validate_plan(args.out)
+        expected = copy.deepcopy(normalized)
+        expected['audio'][0]['beat_marks'] = result['audio'][0]['beat_marks']
+        expected['notes'] = result['notes']
+        assert result == expected and source.read_bytes() == before
+        from fractions import Fraction
+        points = [round(Fraction(250000) + Fraction(s * 1000000, beats.RATE))
+                  for s in data['beat_samples']
+                  if source_in * 1000000 <= Fraction(250000) + Fraction(s * 1000000, beats.RATE)
+                  < (source_in + duration) * 1000000][3::4]
+        assert report['beat_marks_us'] == points
+        assert any(p % 100000 for p in points)  # no frame snapping
+        checks.append('scene source clock, every-N, nonzero analysis offset and unchanged timing ' + str(width) + '/' + str(source_in))
+        original_output = args.out.read_bytes()
+        def refuse(label, value=None, plan=None, every=4, target=None):
+            write_report(data if value is None else value)
+            editor.write_json(source, base if plan is None else plan)
+            target = target or case / 'refused.json'
+            saved = target.read_bytes() if target.exists() else None
+            with patch.object(native_beat, 'runtime'):
+                try:
+                    beat_apply.apply(Args(plan=source, beats=report_dir, every=every, out=target, mark_audio=True))
+                except (ValueError, TypeError, OSError):
+                    checks.append(label)
+                else:
+                    raise AssertionError('Expected refusal: ' + label)
+            assert (target.read_bytes() if target.exists() else None) == saved
+        refuse('existing output', target=args.out)
+        refuse('source output conflict', target=source)
+        assert args.out.read_bytes() == original_output
+        for n in (0, 17, True, 1.5):
+            refuse('invalid interval', every=n)
+        empty = copy.deepcopy(data); empty.update(beat_samples=[], tempo_bpm=0)
+        refuse('empty candidates', value=empty)
+        few = copy.deepcopy(data); few['beat_samples'] = [0]
+        refuse('insufficient after every-N/selection', value=few)
+        refuse('over scene cap is refused, never truncated', every=1)
+        for points_bad in ([0, 0], [256, 0], [True], [1], [data['selection']['sample_count']]):
+            bad = copy.deepcopy(data); bad['beat_samples'] = points_bad
+            refuse('invalid sample order/type/range/hop', value=bad)
+        for field, value in [('algorithm', dict(name='forged')), ('source', dict(path=str(video), sha256=file_hash.sha256(video)))]:
+            bad = copy.deepcopy(data); bad[field] = value
+            refuse('report identity ' + field, value=bad)
+        bad = copy.deepcopy(data); bad['source']['sha256'] = '0' * 64
+        refuse('stale source SHA', value=bad)
+        for change in (dict(beat_marks=[source_in + .5]), dict(speed=2), dict(volume=.5), dict(track='voice')):
+            q = copy.deepcopy(base); q['audio'][0].update(change)
+            refuse('existing marks or native audio gate', plan=q)
+        q = copy.deepcopy(base); q['canvas']['fps'] = 25
+        refuse('native scene gate', plan=q)
+        write_report(data); editor.write_json(source, base)
+        edge = copy.deepcopy(data)
+        edge['selection']['start_us'] = native_beat.micros(source_in)
+        edge['beat_samples'] = [0]
+        write_report(edge)
+        with patch.object(native_beat, 'runtime'):
+            edge_result = beat_apply.apply(Args(plan=source, beats=report_dir, every=1,
+                out=case / 'inclusive-low.json', mark_audio=True))
+        assert edge_result['beat_marks_us'] == [native_beat.micros(source_in)]
+        checks.append('source-in endpoint included without subtracting source-in or adding timeline start')
+        edge['selection']['start_us'] = native_beat.micros(source_in + duration)
+        refuse('source-out endpoint excluded', value=edge, every=1)
+        write_report(data)
+        with patch.object(native_beat, 'runtime', side_effect=ValueError('mock incompatible runtime')):
+            try:
+                beat_apply.apply(Args(plan=source, beats=report_dir, every=4, out=case / 'runtime.json', mark_audio=True))
+            except ValueError as exc:
+                assert 'mock incompatible runtime' in str(exc)
+            else:
+                raise AssertionError('Runtime gate bypassed')
+        assert not (case / 'runtime.json').exists()
+        checks.append('runtime gate propagated without output')
+        assert source.read_bytes() == before
+    return checks
 
 
 def check(root):
@@ -146,8 +271,9 @@ def check(root):
     assert segments['music'][0]['source_timerange'] == {'start': 250000, 'duration': 2000000}
     checks.append('formal build and offline publish preserve native clip/music microsecond boundaries')
     assert source.read_bytes() == original
+    checks.extend(check_marks(root / 'native-marks'))
     report = {'status': 'passed', 'check_count': len(checks), 'checks': checks,
-              'candidate_source': 'controlled mocked load_result; real detection tested separately',
+              'candidate_source': 'legacy: mocked load_result; marks: synthetic reports with real load_result; detection not run',
               'input_plan_unchanged': True, 'listening_UI_save_reopen_export': 'unverified'}
     editor.write_json(root / 'verification.json', report)
     return report

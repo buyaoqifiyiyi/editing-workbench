@@ -41,11 +41,12 @@ def tree(root):
 
 def check_runtime():
     import editor
-    spec = contract()
+    import runtime_admission
     install = editor.jianying_install()
-    if not install or install.name != spec['runtime_version']:
-        raise ValueError('red_coverage_v1 requires the measured Jianying ' + spec['runtime_version'])
-    for relative, expected in spec['runtime_sha256'].items():
+    runtime = runtime_admission.expected('mask_feather', install, contract()) if install else None
+    if runtime is None:
+        raise ValueError(runtime_admission.refusal('mask_feather', install, 'red_coverage_v1'))
+    for relative, expected in runtime.items():
         path = install / relative
         if not path.is_file() or sha(path) != expected:
             raise ValueError('Mask runtime identity changed: ' + str(path))

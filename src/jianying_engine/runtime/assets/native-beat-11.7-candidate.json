@@ -1,0 +1,57 @@
+{
+  "status": "limited",
+  "runtime_version": "11.7.0.14652",
+  "runtime_sha256": {
+    "JianyingPro.exe": "cdab9efbaf163b02fde35a005354f51d48feaf5fcd69fab1a165d09c3b74f196",
+    "Resources/canvas_agent/app/static/js/async/7631.a2b5bc81.js": "3384706a00c2a6dd640c57b6030ac8faef21351b2f16cc822541347f452ab8a8",
+    "Resources/canvas_agent/app/static/js/async/4466.b7fbdc48.js": "cb24dc2c0b23ced48ceb7769292e761771098d3199a7d5eefd64a0156103a885",
+    "videoeditor_addon.node": "a4595b2434d531993417d35218a7b1acf85d6fc68e88838dc1e81aa6b8f91cab",
+    "agent_runtime_addon.node": "ea5b6dbb39a908e4b73b9c73cc1aabd895c7b2bbb0a441201b0ef91794934cfd",
+    "vm_sdk/vm_sdk.dll": "432f4f99222c456d891115f370d2ed1b9655943924ce0a02711ae8179f7d55e7",
+    "Resources/canvas_agent/runtime/videoeditor-service.mjs": "3466a65786a0c977602f84ec5643a71f88d3996d76c4b2cc1f621eed846694b4",
+    "Resources/canvas_agent/runtime/agent-runtime-addon-preload.mjs": "d3c8fd517a8251facf5fe40928699cf133e075c2793eb28e4290303339c5f06b",
+    "vebun.exe": "ea04220141e98c244afd6c2619b8affd7dbf7e423b7805ebcfac5bc4ce548ee6"
+  },
+  "evidence": "2026-11-01 synthetic native beat studies; 11.7 UI displayed markers and retained edits after save/reopen in the measured scenes. Formal CLI build/publish validated with synthetic fixtures; user media and broader combinations remain unverified.",
+  "scenes": [
+    {
+      "canvas": {
+        "width": 320,
+        "height": 180,
+        "fps": 30
+      },
+      "video_seconds": 4,
+      "audio_seconds": 4,
+      "audio_ranges_seconds": [
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0.5,
+          1,
+          2.5
+        ]
+      ],
+      "max_marks": 3
+    },
+    {
+      "canvas": {
+        "width": 640,
+        "height": 360,
+        "fps": 30
+      },
+      "video_seconds": 10,
+      "audio_seconds": 12,
+      "audio_ranges_seconds": [
+        [
+          2,
+          1,
+          8
+        ]
+      ],
+      "max_marks": 16
+    }
+  ]
+}

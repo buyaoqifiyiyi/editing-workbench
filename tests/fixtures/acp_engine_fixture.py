@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -10,6 +11,12 @@ from mcp import Client, StdioServerParameters
 sys.stdin.reconfigure(encoding='utf-8')
 sys.stdout.reconfigure(encoding='utf-8')
 session = None
+
+
+def error_message(error):
+    if isinstance(error, BaseExceptionGroup):
+        return '\n'.join(error_message(item) for item in error.exceptions)
+    return f'{type(error).__name__}: {error}'
 
 
 def send(message):
@@ -36,7 +43,12 @@ async def execute(prompt):
     engine = next(item for item in session['mcpServers'] if item['name'] == 'jianying-engine')
     params = StdioServerParameters(command=engine['command'],
                                   args=[*engine['args'], '--state-dir', str(cwd / '.job-state')],
-                                  env={item['name']: item['value'] for item in engine['env']})
+                                  env={**{item['name']: item['value'] for item in engine['env']},
+                                       # MCP's default environment filters these; test the current checkout.
+                                       'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src'),
+                                       'PYTHONDONTWRITEBYTECODE': '1',
+                                       **{key: os.environ[key] for key in
+                                          ('JIANYING_INSTALL', 'JIANYING_RUNTIME_ADMISSIONS') if key in os.environ}})
     async with Client(params) as client:
         discovered = await client.call_tool('describe_operations', {})
         assert 'build' in discovered.structured_content['operations']
@@ -68,7 +80,9 @@ async def execute(prompt):
                     if status['finished'] is not None:
                         break
                     await asyncio.sleep(.02)
-            assert (status['state'], status['returncode']) == ('succeeded', 0), status
+            if (status['state'], status['returncode']) != ('succeeded', 0):
+                raise AssertionError(f"{operation} failed ({status['returncode']}): "
+                                     f"{status.get('stdout_tail', '')} {status.get('stderr_tail', '')}")
             if operation == 'reverse':
                 data = json.loads(plan.read_text(encoding='utf-8'))
                 report = json.loads((output / 'reverse/reverse-report.json').read_text(encoding='utf-8'))
@@ -106,11 +120,8 @@ async def execute(prompt):
                     clip['volume'] = 0
                 data['audio'] = [{'path': report['output_media'], 'start': 0, 'source_in': 0, 'duration': 1, 'volume': 1}]
                 plan.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
-            if operation == 'tracking-apply':
-                data = json.loads(tracked_plan.read_text(encoding='utf-8'))
-                data['clips'][0]['mask'] = {'name': '矩形', 'experimental': True, 'size': .6, 'rect_width': .45,
-                                           'feather': 20, 'rendering': 'red_coverage_v1'}
-                tracked_plan.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+            # Native mask subsets have version-gated checks in mask_feather_self_check;
+            # this protocol workflow deliberately uses only host-independent operations.
             if operation == 'captions' and word_plan.exists():
                 data = json.loads(word_plan.read_text(encoding='utf-8'))
                 for cue in data['captions']:
@@ -140,7 +151,7 @@ for line in sys.stdin:
             asyncio.run(execute(data['prompt']))
             result = {'stopReason': 'end_turn'}
         except Exception as error:
-            send({'id': identity, 'error': {'code': -32603, 'message': str(error)}})
+            send({'id': identity, 'error': {'code': -32603, 'message': error_message(error)}})
             continue
     else:
         send({'id': identity, 'error': {'code': -32601, 'message': 'Test peer method not supported'}})

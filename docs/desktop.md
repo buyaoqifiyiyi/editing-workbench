@@ -1,5 +1,7 @@
 # 剪辑工作台桌面安装版 0.6
 
+> 独立桌面版历史资料。当前剪辑入口见 [Agent 剪辑引擎](../README.md)。需要恢复旧版时使用 `[all,desktop]` 安装组合。
+
 2026-10-26 桌面视觉更新为现代影像工作区：中性墨黑/冷白双主题、细边界与珊瑚橙操作强调，预览和任务单并列主次，模块导航置顶，资源面板可收起。按钮、模块、资源标签、媒体与弹窗使用短过渡；减动效偏好下直接显示终态。两主题的正文、次级信息、占位和禁用文字分别使用实色语义色。主题写入包外状态，跨桌面重启恢复。源图像保留适合窗口/100%与真实尺寸，素材缩略图懒加载；软件配置保留职责矩阵和实际准入。
 
 视听API设置采用紧凑双列字段、固定标题/操作栏，仅内容区滚动。保存与测试各有独立请求状态，不阻塞工作台轮询；未保存修改先提示保存。测试按钮只使用已保存配置，发送一次最小文本请求并显示明确成功/失败、延迟、HTTP状态和用量，测试结果只在当前服务进程中缓存，修改配置即失效。密钥不回显，关闭窗口时清空输入；文本连接成功不代表视听理解质量。
@@ -18,7 +20,7 @@
 
 ## 当前安装位置
 
-源码已移至 `C:\Users\MECHREVO\Desktop\剪辑工作台源码`；旧工作区的 `engine/` 仅作 Junction 兼容入口。当前虚拟环境关联桌面源码，应用及快捷方式继续使用原安装位置。移动源码不会移动项目、模型、会话或账号。
+历史桌面环境通过 editable 安装关联源码目录。启动器与快捷方式位于本机安装位置。
 
 2026-10-18 已核对安装文件与快捷方式目标：
 
@@ -27,8 +29,8 @@
 | `%LOCALAPPDATA%\Programs\JianyingWorkbench\剪辑工作台.exe` | .NET Windows启动器 |
 | Windows桌面「剪辑工作台」 | 启动上述程序 |
 | 开始菜单「剪辑工作台」 | 启动上述程序 |
-| `D:\剪辑项目\启动剪辑工作台.lnk` | 同一桌面程序的项目入口 |
-| `D:\剪辑项目\工作台项目` | 三个快捷方式传入的工作区 |
+| `C:\EditingProjects\启动剪辑工作台.lnk` | 同一桌面程序的项目入口 |
+| `C:\EditingProjects\工作台项目` | 三个快捷方式传入的工作区 |
 
 双击任一快捷方式进入桌面窗口。若已有会话保存过其他工作目录，进入后仍应核对界面中的实际工作区。直接双击exe而未传`--workspace`时，默认使用当前用户文档目录下的「剪辑工作台」。
 
@@ -41,10 +43,10 @@
 ```powershell
 $enginePython = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe'
 & $enginePython -m pip install '.[desktop]'
-& $enginePython -m jianying_engine workbench --desktop --workspace 'D:\剪辑项目\工作台项目'
+& $enginePython -m jianying_engine workbench --desktop --workspace 'C:\EditingProjects\工作台项目'
 ```
 
-`[all]`包含音频、跟踪、MCP、网页工作台及桌面窗口；新环境完整安装可用`'.[all]'`。发行时安装对应wheel及所需extras，不拷贝旧虚拟环境、登录目录或模型。构建启动器使用`desktop/build.ps1 -Install -Workspace 'D:\剪辑项目\工作台项目'`，要求本机.NET Framework C#编译器与引擎环境可用；项目入口快捷方式由部署步骤维护。
+恢复含原生窗口的旧工作台可安装 `'.[all,desktop]'`。发行时安装对应wheel及所需extras，不拷贝旧虚拟环境、登录目录或模型。构建启动器使用`desktop/build.ps1 -Install -Workspace 'C:\EditingProjects\工作台项目'`，要求本机.NET Framework C#编译器与引擎环境可用；项目入口快捷方式由部署步骤维护。
 
 服务仍仅监听本机回环地址。桌面模式要求EdgeChromium，不自动降级旧浏览器内核。窗口只加载本机工作台地址，不向任意网页暴露Python桥接能力。
 
@@ -57,7 +59,7 @@ $enginePython = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.
 - 重复启动同一状态目录的桌面实例时，唤醒已有窗口，不另建会话或第二套后台。
 - 网页模式与桌面模式共用状态目录时，先正常退出已有模式，再切换；不能让两个实例同时占用同一状态。已有网页实例不会被桌面启动器强行接管或停止。
 
-旧网页命令仍可用：`python -m jianying_engine workbench --workspace 'D:\剪辑项目\工作台项目' --open`，须使用引擎解释器。**关闭网页标签不会退出网页后台；关闭原生窗口则按上述桌面生命周期处理。** 网页后台的身份核对与停止方法见[工作台停止说明](workbench.md#停止与升级)。
+旧网页命令仍可用：`python -m jianying_engine workbench --workspace 'C:\EditingProjects\工作台项目' --open`，须使用引擎解释器。**关闭网页标签不会退出网页后台；关闭原生窗口则按上述桌面生命周期处理。** 网页后台的身份核对与停止方法见[工作台停止说明](workbench.md#停止与升级)。
 
 ## 外置状态与故障
 

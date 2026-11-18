@@ -75,11 +75,19 @@ def prepare_audio(value, source_in, gain, duration):
     measured_duration = float(audios[0].get('duration') or probe.get('format', {}).get('duration', 0))
     if not math.isfinite(measured_duration) or measured_duration <= 0:
         raise ValueError('audio source duration could not be measured')
+    try:
+        ticks = int(audios[0]['duration_ts'])
+        time_base = Fraction(audios[0]['time_base'])
+        exact_duration = ticks * time_base if ticks > 0 and time_base > 0 else None
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        exact_duration = None
+    if exact_duration is None:
+        exact_duration = Fraction(str(measured_duration))
     duration_value = float(duration)
     if not math.isfinite(duration_value) or not 0 < duration_value <= native_preview.MAX_SEQUENCE_SECONDS:
         raise ValueError('audio selection duration must be positive and at most 20 seconds')
     source_out = Fraction(str(source_in)) + Fraction(str(duration))
-    if source_out > Fraction(str(measured_duration)):
+    if source_out > exact_duration:
         raise ValueError('audio selection exceeds the measured source duration')
     if file_hash.sha256(path) != identity:
         raise ValueError('Source audio changed while measuring its range')
@@ -323,7 +331,7 @@ def render_sequence(install, draft, output, start, duration, fps=30, audio=None,
                 prepared['sequence']['draft_fps'])),
             'clock_tolerance_us': preview_report['sequence']['clock_tolerance_us'],
             'max_abs_clock_error_us': max_clock_error,
-            'clock_method': 'nearest microsecond of exact project-frame boundary',
+            'clock_method': 'nearest microsecond of exact project-frame center',
             'supervisor_timeout_seconds': preview_report['sequence']['supervisor_timeout_seconds'],
         },
         'source_identity': {

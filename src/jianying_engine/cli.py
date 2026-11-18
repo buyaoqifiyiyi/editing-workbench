@@ -1,10 +1,11 @@
 """Stable local command entry; the legacy execution contract stays in dedicated child processes."""
+import argparse
 import json
 import subprocess
 import sys
 
 from . import __version__
-from .api import command_for, operations, paths, read_guide
+from .api import command_for, operations, paths, read_guide, search_knowledge
 
 
 def main(argv=None):
@@ -14,7 +15,7 @@ def main(argv=None):
     if not args or args[0] in ('-h', '--help'):
         print('jianying-engine <operation> [arguments]\nUse <operation> --help for its exact arguments.\n')
         print('\n'.join(f'  {name:22} {description}' for name, description in operations().items()))
-        print('\n  paths                  Show the active runtime and guide paths.\n  guide <name>           Read planning/editing/maintenance/capabilities/plan-format/migration.\n  mcp                    Start the optional stdio MCP adapter.\n  workbench              Start the local browser workbench; --open opens its window.')
+        print('\n  paths                  Show the active runtime and guide paths.\n  guide <name>           Read a registered guide.\n  knowledge <query>      Search bundled editing knowledge.\n  mcp                    Start the optional stdio MCP adapter.')
         return 0
     if args == ['--version']:
         print(__version__)
@@ -27,6 +28,14 @@ def main(argv=None):
             if len(args) != 2:
                 raise ValueError('Use: jianying-engine guide <name>')
             print(read_guide(args[1]))
+            return 0
+        if args[0] == 'knowledge':
+            parser = argparse.ArgumentParser(prog='jianying-engine knowledge',
+                description='Search local bundled editing guides; no media or network access.')
+            parser.add_argument('query')
+            parser.add_argument('--limit', type=int, default=5)
+            options = parser.parse_args(args[1:])
+            print(json.dumps(search_knowledge(options.query, options.limit), ensure_ascii=False, indent=2))
             return 0
         if args[0] == 'mcp':
             return subprocess.call([sys.executable, '-m', 'jianying_engine.mcp_server', *args[1:]])

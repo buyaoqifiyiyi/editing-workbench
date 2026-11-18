@@ -8,12 +8,11 @@ import file_hash
 
 def runtime(install=None):
     import editor
-    spec = json.loads((Path(__file__).resolve().parents[1] / 'assets/text-highlights-v1.json').read_text(encoding='utf-8'))
+    import runtime_admission
     install = Path(install) if install is not None else editor.jianying_install()
-    if not install or install.name != spec['runtime_version']:
-        raise ValueError('Text highlights require measured Jianying ' + spec['runtime_version'])
-    files = dict(spec['runtime_sha256'])
-    files[spec['font_relative']] = spec['font_sha256']
+    files = runtime_admission.expected('text_highlight', install) if install else None
+    if files is None:
+        raise ValueError(runtime_admission.refusal('text_highlight', install, 'Text highlights'))
     for relative, digest in files.items():
         if not file_hash.matches(install / relative, digest):
             raise ValueError('Text highlight runtime/font identity changed: ' + relative)

@@ -171,15 +171,15 @@ def check(root):
     assert gap_us > tolerance
     ideal_error = max(
         abs(Fraction(round(value * 1_000_000))
-            - Fraction((sequence['start_frame'] + index) * 1_000_000, 30))
+            - Fraction((2 * (sequence['start_frame'] + index) + 1) * 1_000_000, 60))
         for index, value in enumerate(times)
     )
     assert ideal_error <= 1
-    checks.append('30fps sequence uses exact project-frame boundaries, 1us tolerance and proportional timeout')
+    checks.append('30fps sequence samples project-frame centers, 1us tolerance and proportional timeout')
 
     fractional, fractional_times = native_preview.sequence_timing(30, 1 / 30, 7 / 30, 30)
     assert fractional['start_frame'] == 1 and fractional['duration_frames'] == 7
-    assert len(fractional_times) == 7 and round(fractional_times[0] * 1_000_000) == 33333
+    assert len(fractional_times) == 7 and round(fractional_times[0] * 1_000_000) == 50000
     checks.append('CLI-compatible floating whole-frame fractions normalize to the exact project grid')
 
     edge, edge_times = native_preview.sequence_timing(30, 0, 7 / 30, 30)
@@ -300,7 +300,7 @@ def check(root):
             'tolerance_us': tolerance,
             'adjacent_frame_gap_us': gap_us,
             'max_abs_project_grid_error_us': float(ideal_error),
-            'method': 'exact project-frame boundary rounded to nearest microsecond',
+            'method': 'exact project-frame center rounded to nearest microsecond',
         },
         'outputs': {
             'silent_review': silent['path'],

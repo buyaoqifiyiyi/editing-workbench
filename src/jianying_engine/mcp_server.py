@@ -27,7 +27,7 @@ def create_server(state_dir=None):
     server = MCPServer('jianying-engine', lifespan=lifespan,
                        instructions='Local editing engine. Start returns a job ID, not completion. Poll job_status. '
                                     'Only succeeded means exit code 0; inspect engine output for evidence boundaries. '
-                                    'Only music-edit analyze calls the explicitly configured multimodal service/model and sends selected media; '
+                                    'The music-edit analyze and review subcommands call the configured multimodal service/model and send selected media; '
                                     'other operations do not call models. Jobs do not survive this server session.')
 
     @server.tool(structured_output=True)
@@ -45,6 +45,14 @@ def create_server(state_dir=None):
             return {'name': name, 'text': text[:131072], 'truncated': len(text) > 131072}
         except (ValueError, OSError) as exc:
             return {'name': name, 'error': str(exc)}
+
+    @server.tool(structured_output=True)
+    async def search_knowledge(query: str, limit: StrictInt = 5) -> dict[str, Any]:
+        """Search only bundled editing guides; no arbitrary paths, media or network."""
+        try:
+            return await asyncio.to_thread(api.search_knowledge, query, limit)
+        except (ValueError, OSError) as exc:
+            return {'query': query, 'results': [], 'error': str(exc)}
 
     @server.tool(structured_output=True)
     async def start_job(operation: str, arguments: list[str], timeout_seconds: float = 1800) -> dict[str, Any]:

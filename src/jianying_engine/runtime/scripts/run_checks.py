@@ -16,6 +16,11 @@ import editor
 SCRIPTS = Path(__file__).resolve().parent
 # name -> (script, media/args builder key, needs native Jianying user data, needs Windows)
 CHECKS = {
+    'practice_compare': ('practice_compare_self_check.py', 'out', False, False),
+    'mesh_avatar': ('mesh_avatar_self_check.py', 'out', False, False),
+    'mesh_avatar_project': ('mesh_avatar_project_self_check.py', 'out', False, False),
+    'native_primary_wheel': ('native_primary_wheel_self_check.py', 'out', False, False),
+    'native_beat': ('native_beat_self_check.py', 'out', False, False),
     'preview_sequence': ('preview_sequence_self_check.py', 'out', False, False),
     'music_edit': ('music_edit_self_check.py', 'out', False, False),
     'resolve_workflow': ('resolve_workflow_self_check.py', 'out', False, False),
@@ -45,6 +50,7 @@ CHECKS = {
     'layout_tracks': ('layout_tracks_self_check.py', 'out', False, False),
     'alpha_video': ('alpha_video_self_check.py', 'out_install', False, True),
     'draft_library': ('draft_library_self_check.py', 'out', False, False),
+    'runtime_admission': ('runtime_admission_self_check.py', 'out', False, False),
     'native_preview': ('native_preview_self_check.py', 'install', False, True),
     'draft_state': ('draft_state_self_check.py', 'out', False, False),
     'refresh_registration': ('refresh_registration_self_check.py', 'out', False, False),

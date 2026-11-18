@@ -25,19 +25,17 @@ CORNER_PIN_INFO = {'lower_left_x': -1.0, 'lower_left_y': 1.0,
 
 def corner_runtime(install=None, runtime=None):
     import editor
+    import runtime_admission
     install = Path(install) if install is not None else editor.jianying_install()
-    assets = Path(__file__).resolve().parents[1] / 'assets'
-    spec = json.loads((assets / 'native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))
-    font = json.loads((assets / 'text-alpha-v1.json').read_text(encoding='utf-8'))
-    if not install or install.name != spec['version']:
-        raise ValueError('Additional corner motion requires measured Jianying ' + spec['version'])
-    files = dict(spec['files']); files[spec['runtime']['file']] = spec['runtime']['sha256']
-    files[font['font_relative']] = font['font_sha256']
+    bun = json.loads((runtime_admission.ASSETS / 'native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))['runtime']['file']
+    files = runtime_admission.expected('corner', install) if install else None
+    if files is None:
+        raise ValueError(runtime_admission.refusal('corner', install, 'Additional corner motion'))
     for relative, digest in files.items():
         if not file_hash.matches(install / relative, digest):
             raise ValueError('Corner motion runtime/font identity changed: ' + relative)
-    actual = Path(runtime) if runtime is not None else install / spec['runtime']['file']
-    if not file_hash.matches(actual, spec['runtime']['sha256']):
+    actual = Path(runtime) if runtime is not None else install / bun
+    if not file_hash.matches(actual, files[bun]):
         raise ValueError('Corner motion Bun identity changed: ' + str(actual))
 
 
@@ -86,15 +84,17 @@ def uid():
 
 def green_lightness_runtime(install=None, runtime=None):
     import editor
+    import runtime_admission
     install = Path(install) if install is not None else editor.jianying_install()
-    spec = json.loads((Path(__file__).resolve().parents[1] / 'assets/native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))
-    if not install or install.name != spec['version']:
-        raise ValueError('Green lightness requires measured Jianying ' + spec['version'])
-    for relative, digest in spec['files'].items():
+    bun = json.loads((runtime_admission.ASSETS / 'native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))['runtime']['file']
+    files = runtime_admission.expected('green_lightness', install) if install else None
+    if files is None:
+        raise ValueError(runtime_admission.refusal('green_lightness', install, 'Green lightness'))
+    for relative, digest in files.items():
         if not file_hash.matches(install / relative, digest):
             raise ValueError('Green lightness runtime identity changed: ' + relative)
-    actual = Path(runtime) if runtime is not None else install / spec['runtime']['file']
-    if not file_hash.matches(actual, spec['runtime']['sha256']):
+    actual = Path(runtime) if runtime is not None else install / bun
+    if not file_hash.matches(actual, files[bun]):
         raise ValueError('Green lightness Bun identity changed: ' + str(actual))
 
 
@@ -387,6 +387,8 @@ def apply_extensions(content, plan, user_data, measure_loudness=None):
     for item in plan['clips']:
         if not item.get('grading'):
             continue
+        if 'primary_wheel' in item['grading']:
+            continue
         segment = segments[item['track'], round(item['start'] * 1_000_000)]
         additions = color_materials(item['grading'], materials[segment['material_id']], user_data)
         for kind, material in additions.items():
@@ -454,6 +456,8 @@ def verify_extensions(content, plan, user_data, measure_loudness=None):
         counts['blur_keyframes'] += 1
     for item in plan['clips']:
         if not item.get('grading'):
+            continue
+        if 'primary_wheel' in item['grading']:
             continue
         segment = segments[item['track'], round(item['start'] * 1_000_000)]
         source = materials[segment['material_id']]

@@ -1,6 +1,6 @@
 # 剪辑引擎维护兼容入口
 
-明确维护请求才使用本入口。软件目录和角色选择属于工作台配置，共用现有CLI/MCP；新增选项须准确标明接入范围，不能用UI选中代替能力准入。剪映和达芬奇都是工作台内部持续适配的后端，剪映的未完成项继续沿用原能力表、缺口台账和验收资料，不因对外统一名称而独立归档或停止维护。通过 `jianying-engine` MCP 的 `read_guide("maintenance")` 读取维护指南，或执行：
+明确维护请求才使用本入口。Agent 通过现有 CLI/MCP 调用引擎，软件及其职责按当前任务和能力准入选择。剪映和达芬奇继续作为正式后端，剪映的未完成项沿用原能力表、缺口台账和验收资料。通过 `jianying-engine` MCP 的 `read_guide("maintenance")` 读取维护指南，或执行：
 
 ```powershell
 $enginePython = if ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe' }

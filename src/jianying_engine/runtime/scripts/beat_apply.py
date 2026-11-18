@@ -1,4 +1,4 @@
-"""Explicit candidate-beat cuts into a new plan; never changes the input or builds a draft."""
+"""Candidate-beat cuts or explicit native audio marks in a new validated plan."""
 import argparse
 import copy
 import json
@@ -8,6 +8,49 @@ from fractions import Fraction
 from pathlib import Path
 import tempfile
 import editor
+
+
+def mark_audio(args, plan, before, source_plan, out, every):
+    import beats
+    import native_beat
+    if len(plan['audio']) != 1:
+        raise ValueError('Native beat mapping requires exactly one music item')
+    music = plan['audio'][0]
+    if 'beat_marks' in music:
+        raise ValueError('Native beat mapping will not replace existing beat_marks')
+    result = beats.load_result(Path(args.beats).resolve())
+    if Path(music['path']).resolve() != Path(result['source']['path']).resolve():
+        raise ValueError('Beat report source must be the exact plan music source')
+    selection = result['selection']
+    rate = selection['sample_rate']
+    low = native_beat.micros(music['source_in'])
+    high = low + native_beat.micros(music['duration'])
+    coverage_low = Fraction(selection['start_us'])
+    coverage_high = coverage_low + Fraction(selection['sample_count'] * 1_000_000, rate)
+    candidates = []
+    for sample in result['beat_samples']:
+        point = coverage_low + Fraction(sample * 1_000_000, rate)
+        if low <= point < high:
+            value = round(point)
+            if not (low <= value < high and coverage_low <= value < coverage_high):
+                raise ValueError('Quantized mark falls outside music selection or analyzed coverage')
+            candidates.append(value)
+    if any(a >= b for a, b in zip(candidates, candidates[1:])):
+        raise ValueError('Native beat microsecond quantization produced duplicate or reversed marks')
+    chosen = candidates[every - 1::every]
+    limit = native_beat.scene(plan)['max_marks']
+    if not 1 <= len(chosen) <= limit:
+        raise ValueError(f'Native beat mapping requires 1..{limit} selected marks; no truncation or invented beats')
+    output = copy.deepcopy(plan)
+    output['audio'][0]['beat_marks'] = [value / 1_000_000 for value in chosen]
+    output['notes'].append('离线节拍候选映射为受限原生拍点计划；音频对齐与人工听感未验，未构建草稿或执行原生软件。')
+    warnings = write_plan(output, out, source_plan, before)
+    return {'status': 'candidate_plan_created', 'mode': 'mark_audio', 'plan': str(out),
+            'source_plan': str(source_plan), 'beats': str(Path(args.beats).resolve()),
+            'every': every, 'eligible_candidates': len(candidates), 'beat_marks_us': chosen,
+            'input_plan_unchanged': True, 'warnings': warnings,
+            'limitations': ['Audio alignment and human listening unverified',
+                            'Plan only; no draft build, native UI save/reopen or export performed']}
 
 
 def apply(args):
@@ -26,6 +69,8 @@ def apply(args):
         raise ValueError('Beat output parent directory must already exist')
     before = source_plan.read_bytes()
     plan, _, _ = editor.validate_plan(source_plan)
+    if getattr(args, 'mark_audio', False):
+        return mark_audio(args, plan, before, source_plan, out, every)
     if len(plan['clips']) < 2 or any(plan.get(k) for k in
             ('captions', 'effects', 'filters', 'composites', 'jianying_tasks', 'missing_assets')):
         raise ValueError('Beat application requires at least two plain primary clips and no captions/effects/composites/tasks/missing assets')
@@ -80,6 +125,18 @@ def apply(args):
         clip['duration'] = (boundaries[index + 1] - boundaries[index]) / 1_000_000
     output['audio'][0]['duration'] = boundaries[-1] / 1_000_000
     output['notes'].append('按离线节拍候选生成；未经试听，不代表精准音乐拍点或剪映官方原生 beat marker。')
+    warnings = write_plan(output, out, source_plan, before)
+    return {'status': 'candidate_plan_created', 'plan': str(out), 'source_plan': str(source_plan),
+            'beats': str(Path(args.beats).resolve()), 'every': every, 'eligible_candidates': len(candidates),
+            'selected_candidate_us': [round(Fraction(numerator, rate)) for numerator in chosen],
+            'frame_numbers': frame_numbers, 'boundaries_us': boundaries,
+            'duration_us': boundaries[-1], 'original_music_duration_us': original_duration,
+            'input_plan_unchanged': True, 'warnings': warnings,
+            'limitations': ['Offline candidate timing only; listening and editorial quality unverified',
+                            'No official native beat markers, draft build, UI save/reopen or export performed']}
+
+
+def write_plan(output, out, source_plan, before):
     # Validate beside the final file so its already-absolute media paths retain their meaning.
     temporary = None
     try:
@@ -103,14 +160,7 @@ def apply(args):
         if created:
             out.unlink(missing_ok=True)
         raise
-    return {'status': 'candidate_plan_created', 'plan': str(out), 'source_plan': str(source_plan),
-            'beats': str(Path(args.beats).resolve()), 'every': every, 'eligible_candidates': len(candidates),
-            'selected_candidate_us': [round(Fraction(numerator, rate)) for numerator in chosen],
-            'frame_numbers': frame_numbers, 'boundaries_us': boundaries,
-            'duration_us': boundaries[-1], 'original_music_duration_us': original_duration,
-            'input_plan_unchanged': True, 'warnings': warnings,
-            'limitations': ['Offline candidate timing only; listening and editorial quality unverified',
-                            'No official native beat markers, draft build, UI save/reopen or export performed']}
+    return warnings
 
 
 def main(argv=None):
@@ -118,6 +168,8 @@ def main(argv=None):
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--beats', type=Path, required=True)
     parser.add_argument('--every', type=int, default=4)
+    parser.add_argument('--mark-audio', action='store_true',
+                        help='Map existing candidates to limited native source-clock audio beat_marks; do not cut clips')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:

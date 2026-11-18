@@ -1,4 +1,4 @@
-# 剪辑工作台创作规划入口
+# Agent 剪辑创作规划入口
 
 本入口只负责读取独立引擎的 `planning` 指南，不保存第二份分流规则。有 `jianying-engine` MCP 时调用 `read_guide("planning")`；否则执行：
 

@@ -1,25 +1,42 @@
 # 本机 MCP 接口
 
-使用官方 Python SDK `mcp==2.3.0`，仅运行 stdio，不监听 HTTP、不读取 Agent 凭据。新增`music-edit analyze`仅通过用户专用配置调用所选OpenAI兼容或Gemini原生模型，并发送明确选区的实际音视频，产生API用量；其他操作不调用模型。见[原生视听配置与边界](../src/jianying_engine/runtime/references/music-edit.md)。启动方式：
+使用官方 Python SDK `mcp==2.3.0`，仅运行 stdio，不监听 HTTP、不读取 Agent 凭据。`music-edit analyze`和`music-edit review`均通过用户专用配置调用所选OpenAI兼容或Gemini原生模型，发送明确选区的实际音视频并产生API用量；其他操作不调用模型。见[原生视听配置与边界](../src/jianying_engine/runtime/references/music-edit.md)。启动方式：
 
 ```powershell
-& '<引擎Python绝对路径>' -m jianying_engine.mcp_server --state-dir 'D:\剪辑项目\引擎任务'
+$enginePython = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe'
+& $enginePython -m jianying_engine.mcp_server
 ```
 
-Agent 的 MCP 配置使用同一解释器作为 `command`，将 `-m`、`jianying_engine.mcp_server`、`--state-dir` 与目录分别作为 `args` 数组元素；不要拼成 shell 命令。MCP本身无需API key；仅启用视听分析时须配置对应服务。目录省略时使用 `%LOCALAPPDATA%\JianyingEngine\jobs`，也可设置 `JIANYING_ENGINE_STATE_DIR`。状态目录须在包与 Skill 目录之外。
+在 Agent 宿主中注册一个 stdio 服务 `jianying-engine`。命令填实际 Python 绝对路径，参数作为数组传入。支持 `mcpServers` 的宿主可以使用以下配置，把示例路径换成上方 `$enginePython` 的值。
 
-## 六个工具
+```json
+{
+  "mcpServers": {
+    "jianying-engine": {
+      "command": "C:/Users/you/AppData/Local/JianyingEngine/venv/Scripts/python.exe",
+      "args": ["-m", "jianying_engine.mcp_server"]
+    }
+  }
+}
+```
+
+MCP 本身无需 API key。任务记录默认在 `%LOCALAPPDATA%\JianyingEngine\jobs`；需自定义时在参数数组末尾追加 `"--state-dir"` 和状态目录，或设置 `JIANYING_ENGINE_STATE_DIR`。状态目录须在引擎包与 Skill 目录之外。由宿主启动服务即可。
+
+## 七个工具
 
 | 工具 | 用途 |
 |---|---|
 | `describe_operations()` | 返回核心 API 的白名单操作 |
 | `read_guide(name)` | 读取核心 API 中具名打包指南；最多返回128Ki字符，明确标记截断，不接受任意路径 |
+| `search_knowledge(query, limit=5)` | 在打包的剪辑指南中本地检索章节、行号和摘录；不读取任意路径、项目媒体或网络 |
 | `start_job(operation, arguments, timeout_seconds=1800)` | 使用参数 token 数组启动任务，返回 job_id；不代表完成 |
 | `job_status(job_id)` | 查询状态、退出码、日志摘要与日志文件位置 |
 | `read_job_output(job_id, stream='stdout', offset=0, limit=32768)` | 分页读取终态任务的受限日志，Agent无需文件系统访问 |
 | `cancel_job(job_id)` | 终止该任务自己的子进程树，等待收割后返回 |
 
 每个任务先经过核心 `command_for` 白名单校验；不存在任意 shell/Python 执行接口。`arguments` 的具体选项沿用操作对应的 CLI；外接 Agent 应传绝对素材、计划及输出路径，避免依赖宿主启动目录。工具启动返回 `rejected` 时没有任务 ID；非法 ID 返回 `unknown`。
+
+`reference` 支持显式 `--detector pyscenedetect`（缺依赖时明确失败，默认FFmpeg不变）；`practice-compare` 接受两段视频的本地路径、窗口、目标、修改变量和明确单侧音频选项，生成独立并排审片及哈希报告。均通过 `start_job` 启动并轮询；运行边界见[参考片分析与实操对照](../src/jianying_engine/runtime/references/creative-knowledge-workflows.md#参考片分析与实操对照)。
 
 运行中状态是 `running`；取消和超时收尾期间可能为 `cancelling` / `timing_out`。终态为 `succeeded`、`failed`、`cancelled` 或 `timed_out`，同时有 `finished` 时间和实际 `returncode`。`succeeded` 仅表示进程退出码为 0，仍须查看操作报告的验证范围，不能当成播放、UI 或导出验收。
 

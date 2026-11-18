@@ -486,6 +486,25 @@ async function main() {
   const missingCard=element('backend-catalog').children.find(item=>item.dataset.backendId==='jianying');
   assert.match(missingCard.children.find(item=>item.className.includes('backend-detection')).textContent,/未安装.*软件已卸载/);
   console.log('PASS installed software: disabled choices and single action, dynamic uninstall, preserved saved choices and explicit removal');
+  for(const reviewState of ['needed','running','partial','complete','failed','interrupted']){
+    installedJianying.availability.requalification={state:reviewState,label:'复核 '+reviewState,reason:'fixture review warning',version:'11.7.fixture',admitted:['preview'],refused:{mix:'fixture'},report:'<report-fixture>.json',subsets:{preview:{status:'admitted'},mix:{status:'refused',reason:'fixture refusal'},chroma:{status:'unverified'}}};
+    await context.test.poll();context.test.renderBackends();
+    const card=element('backend-catalog').children.find(card=>card.textContent.includes('11.7.fixture'));
+    assert(card,'Review result must be visible in the software card');
+    assert.match(card.textContent,/复核 (needed|running|partial|complete|failed|interrupted)/);
+    assert.match(card.textContent,/fixture review warning/);
+    assert.match(card.textContent,/静帧预览：通过.*混合模式：未通过 · fixture refusal.*色键：未验证/);
+    assert.match(card.textContent,/每项能力按各自验证结果使用/);
+    assert.match(card.children.find(item=>item.className.includes('backend-detection')).textContent,/未安装.*软件已卸载/,'Review warning must not overwrite the original installation warning');
+    assert.equal(roleInput('editing','jianying').disabled,true,'Even a complete review cannot enable a missing installation');
+    assert.match(card.textContent,/已通过 1 项，未通过 1 项/);
+    assert.match(card.textContent,/<report-fixture>.json/,'Report path is literal text');
+    if(['partial','complete'].includes(reviewState))assert.match(card.textContent,/仅原生静帧子集，连续视听与导出未验/);
+    if(['failed','interrupted'].includes(reviewState))assert.match(card.textContent,/不自动重试/);
+  }
+  delete installedJianying.availability.requalification;
+  console.log('PASS requalification: pending/running/partial/complete/failed/interrupted warnings, subset results, preserved installation warning and native guard limits');
+
   context.test.openBackendPanel();context.test.changeBackendMode('workflow');
   backend.current_session={id:'legacy-session',status:'idle'};backend.backends.selection=null;await context.test.poll();context.test.renderBackends();
   assert.equal(element('backend-summary').textContent,'沿用会话工程');assert.equal(element('backend-panel').hidden,true,'Changing session drops unsaved software draft');
@@ -630,6 +649,6 @@ async function main() {
   assert.equal(element('omni-check').textContent,'测试连接');
   assert.equal(element('omni-check').disabled,false);
   console.log('PASS omni close safety: late async result is isolated from a newly opened changed form');
-  console.log('RESULT: 33 assertion groups passed. No network, paid turn, model, or browser rendering executed.');
+  console.log('RESULT: 34 assertion groups passed. No network, paid turn, model, or browser rendering executed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,5 +1,6 @@
 // Owned read-only preview worker using the shipped N-API and termination contract.
 const fs=require('fs'),path=require('path'),{pathToFileURL}=require('url');
+const {observe}=require('./native_preview_stability.cjs');
 const config=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const record={pid:process.pid,success:false,steps:[],frames:[]};
 const output=path.dirname(process.argv[2]);
@@ -29,7 +30,7 @@ async function main(){
    const targetUs=Math.round(config.times[index]*1e6);
    if(!(await invoke('seek',{positionUs:targetUs,seekMode:'done'})).accepted)throw Error('Seek rejected');
    if(!(await invoke('refreshCurrentFrame',{actionId:0,force:true})).accepted)throw Error('Refresh rejected');
-   let captured=false,previousPixels=null,stableReads=0;
+   let captured=false,frameState={};
    for(let attempt=0;attempt<25;attempt++){
     await new Promise(resolve=>setTimeout(resolve,100));
     const packet=Buffer.from(await addon.readFrame(sessionId,320,180));
@@ -39,15 +40,13 @@ async function main(){
     const stride=packet.readUInt32LE(16),timestampUs=Number(packet.readBigUInt64LE(24));
     if(stride!==1280||packet.length!==40+stride*180)throw Error('Invalid frame packet size');
     // A seek acknowledgement is insufficient: reject a stale frame from the previous position.
-    if(Math.abs(timestampUs-targetUs)>config.toleranceUs){previousPixels=null;stableReads=0;continue;}
-    // Timestamp alignment alone can precede composition refresh; require three identical RGBA reads.
+    if(Math.abs(timestampUs-targetUs)>config.toleranceUs){frameState={};continue;}
+    // Still frames additionally need a measured quiet interval; sequences retain the existing sampling policy.
     const pixels=packet.subarray(40);
-    if(previousPixels&&pixels.equals(previousPixels))stableReads++;else stableReads=1;
-    previousPixels=Buffer.from(pixels);
-    if(stableReads<3)continue;
+    if(!observe(frameState,pixels,performance.now(),config.sequence?0:750))continue;
     const file=`frame-${index}.vef`;fs.writeFileSync(path.join(output,file),packet);
     record.frames.push({file,targetUs,timestampUs,sequence:packet.readBigUInt64LE(32).toString()});
-    save('frame',{index,timestampUs,stableReads});captured=true;break;
+    save('frame',{index,timestampUs,stableReads:frameState.reads});captured=true;break;
    }
    if(!captured)throw Error('Requested position produced no current preview frame');
   }

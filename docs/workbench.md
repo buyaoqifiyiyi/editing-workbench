@@ -1,10 +1,12 @@
 # 本地剪辑工作台：网页入口与共用操作
 
+> 独立网页版历史资料。当前剪辑入口见 [Agent 剪辑引擎](../README.md)。需要恢复旧版时使用 `[all,workbench]` 安装组合。
+
 当前界面采用制作工作区、独立软件配置和执行记录三个模块。制作区包含素材监看、任务单和资源面板；项目任务沿用现有会话记录，原素材/工程和历史不迁移。软件按产品功能展示，每个功能分别校验安装与适配状态，未开放项灰显；具体见[多软件配置](agents.md#多软件配置与剪映数据保留)。
 
 当前新项目默认达芬奇主剪辑＋AE局部加工。Agent通过统一 `resolve-workflow` 操作生成DRP与视频，参数和边界见[达芬奇指南](../src/jianying_engine/runtime/references/resolve-workflow.md)。已有工程不会自动迁移；达芬奇已有用户工程打开时执行器会停止保护现场。成果面板支持DRP交付和视频预览，最终完整视听仍由用户验收。
 
-0.4工作台通过所选本机Agent理解需求并调用剪辑引擎：Codex使用专用app-server，其余目录采用ACP，安装与验证范围见[Agent连接说明](agents.md)。0.2网页入口和0.3引入的[Windows原生窗口](desktop.md)共用界面与执行契约。`D:\剪辑项目\启动剪辑工作台.lnk`以及桌面、开始菜单快捷方式均为桌面程序入口；本文保留网页命令及共用操作。
+0.4工作台通过所选本机Agent理解需求并调用剪辑引擎：Codex使用专用app-server，其余目录采用ACP，安装与验证范围见[Agent连接说明](agents.md)。0.2网页入口和0.3引入的[Windows原生窗口](desktop.md)共用界面与执行契约。`C:\EditingProjects\启动剪辑工作台.lnk`以及桌面、开始菜单快捷方式均为桌面程序入口；本文保留网页命令及共用操作。
 
 ## 启动与使用
 
@@ -12,7 +14,7 @@
 
 ```powershell
 $enginePython = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe'
-$workDirectory = 'D:\剪辑项目\工作台项目'
+$workDirectory = 'C:\EditingProjects\工作台项目'
 New-Item -ItemType Directory -Path $workDirectory -Force | Out-Null
 & $enginePython -m jianying_engine workbench --workspace $workDirectory --open
 ```
@@ -20,7 +22,7 @@ New-Item -ItemType Directory -Path $workDirectory -Force | Out-Null
 激活引擎环境后，可直接运行：
 
 ```powershell
-python -m jianying_engine workbench --workspace 'D:\剪辑项目\工作台项目' --open
+python -m jianying_engine workbench --workspace 'C:\EditingProjects\工作台项目' --open
 ```
 
 服务只监听本机`127.0.0.1`，默认自动选择端口。网页模式重复启动可复用网页服务；桌面模式重复启动唤醒已有原生窗口。两种模式不能同时占用同一状态目录，切换前先正常退出已有服务。已保存会话可能恢复原工作目录，进入页面后核对当前目录。

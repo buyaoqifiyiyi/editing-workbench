@@ -20,6 +20,8 @@ import native_text_highlight
 import native_text_alpha
 import native_advanced
 import native_hsl_channels
+import native_beat
+import native_primary_wheel
 
 
 SEQUENCE_FPS = (15, 30)
@@ -54,6 +56,11 @@ def draft_clock(content):
 def _frame_time_us(frame_index, fps):
     """Round a positive project-frame boundary to the nearest microsecond."""
     return (frame_index * 1_000_000 + fps // 2) // fps
+
+
+def _frame_center_time_us(frame_index, fps):
+    """Seek inside a project frame, avoiding ambiguous decode at its boundary."""
+    return ((2 * frame_index + 1) * 1_000_000 + fps) // (2 * fps)
 
 
 def sequence_timing(draft_fps, start, duration, fps):
@@ -92,7 +99,7 @@ def sequence_timing(draft_fps, start, duration, fps):
     if not 1 <= frame_count <= MAX_SEQUENCE_FRAMES:
         raise ValueError(f'sequence preview requires 1-{MAX_SEQUENCE_FRAMES} sampled frames')
     times_us = [
-        _frame_time_us(start_frame + index * frame_step, draft_fps)
+        _frame_center_time_us(start_frame + index * frame_step, draft_fps)
         for index in range(frame_count)
     ]
     if _frame_time_us(start_frame + duration_frames, draft_fps) > 2**53 - 1:
@@ -144,13 +151,18 @@ def validate_sequence(sequence, times, draft_duration_us, draft_fps):
 
 
 def preview_manifest(install):
-    """Select the manifest whose recorded version matches the install directory."""
+    """Select the manifest whose recorded version matches the install directory, or one derived for a
+    build that requalify admitted against a bundled manifest."""
+    import runtime_admission
     candidates = {path.stem[len('native-preview-'):]: path for path in
                   (editor.SKILL_ROOT / 'assets').glob('native-preview-*.json')}
     manifest_path = candidates.get(install.name)
     if manifest_path is None:
+        derived = runtime_admission.preview_manifest(install)
+        if derived is not None:
+            return derived
         raise ValueError('No native preview manifest for install directory ' + str(install)
-                         + '; re-verify the shipped modules and add one')
+                         + '; after a Jianying update run: jianying-engine requalify --candidate <new install>')
     manifest = editor.read_json(manifest_path)
     if manifest.get('version') != install.name:
         raise ValueError('Native preview manifest version does not match ' + str(install))
@@ -161,22 +173,28 @@ def preview(install, draft, output, times, runtime=None, sequence=None):
     install, draft, output = install.resolve(), draft.resolve(), output.resolve()
     editor.require_plaintext_draft(draft, 'to render a native preview from this draft')
     manifest = preview_manifest(install)
+    if sequence is not None and manifest.get('admitted_from'):
+        raise ValueError('Continuous native preview is not yet qualified on this Jianying version; still frames only')
     identities = {}
     for name, expected in manifest['files'].items():
         file = install / name
         if not file.is_file() or digest(file) != expected:
             raise ValueError('Unverified or missing native preview runtime: ' + str(file))
         identities[name] = expected
-    runtime = (runtime or install / 'bun.exe')
-    if not runtime.is_file():  # Jianying 11.6 ships its Bun runtime as vebun.exe
-        runtime = install / 'vebun.exe'
+    if runtime is None:
+        runtime = install / 'bun.exe'
+        if not runtime.is_file():  # Jianying 11.6 ships its Bun runtime as vebun.exe
+            runtime = install / 'vebun.exe'
+    else:
+        runtime = Path(runtime)
     runtime = runtime.resolve()
     if not runtime.is_file():
         raise ValueError('Native preview runtime executable is missing')
-    if sequence is not None:
+    if sequence is not None or manifest.get('admitted_from'):
         expected_runtime = manifest.get('runtime', {}).get('sha256')
         if not expected_runtime or digest(runtime) != expected_runtime:
-            raise ValueError('Unverified native sequence runtime executable')
+            raise ValueError('Unverified native sequence runtime executable' if sequence is not None
+                             else 'Unverified native preview runtime executable')
         identities[str(runtime)] = expected_runtime
     content = editor.read_json(draft)  # This interface accepts plaintext generated drafts only.
     if not isinstance(content, dict):
@@ -190,6 +208,8 @@ def preview(install, draft, output, times, runtime=None, sequence=None):
     native_advanced.corner_preview_check(content, draft.parent, install, runtime)
     native_advanced.green_lightness_preview_check(content, draft.parent, install, runtime)
     native_hsl_channels.preview_check(content, draft.parent, install, runtime)
+    native_beat.preview_check(content, draft.parent, install)
+    native_primary_wheel.preview_check(content, draft.parent, install)
     raw_duration, duration, fps = draft_clock(content)
     if sequence is None:
         if not 1 <= len(times) <= 8 or any(
@@ -249,7 +269,7 @@ def preview(install, draft, output, times, runtime=None, sequence=None):
             if len(frame_steps) != len(frames):
                 raise ValueError('Sequence checkpoint does not contain every stable frame')
             for index, (frame, step) in enumerate(zip(frames, frame_steps)):
-                target_us = _frame_time_us(
+                target_us = _frame_center_time_us(
                     sequence_spec['start_frame'] + index * sequence_spec['frame_step'],
                     sequence_spec['draft_fps'],
                 )
@@ -274,14 +294,14 @@ def preview(install, draft, output, times, runtime=None, sequence=None):
                     or len(packet) != 230440 or abs(timestamp - round(times[index] * 1e6)) > config['toleranceUs']):
                     raise ValueError('Invalid or stale output packet')
                 if sequence_spec is not None:
-                    target_us = _frame_time_us(
+                    target_us = _frame_center_time_us(
                         sequence_spec['start_frame'] + index * sequence_spec['frame_step'],
                         sequence_spec['draft_fps'],
                     )
                     if frame.get('timestampUs') != timestamp:
                         raise ValueError('Sequence packet and checkpoint timestamps differ')
                     previous_target = (
-                        _frame_time_us(
+                        _frame_center_time_us(
                             sequence_spec['start_frame'] + (index - 1) * sequence_spec['frame_step'],
                             sequence_spec['draft_fps'],
                         ) if index else None

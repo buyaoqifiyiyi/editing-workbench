@@ -5,7 +5,7 @@
 ## 自动执行的维护流程
 
 1. 从已安装引擎确定runtime目录；脚本和原生资源相对runtime读取，Python使用引擎所在的外部虚拟环境，不在runtime内创建.venv。旧Skill路径只作兼容入口。迁移首用及环境报错时运行doctor，读取ready、publication_ready、migration_instructions、advanced_schema_version_match。
-2. doctor自动使用新设备LOCALAPPDATA定位剪映用户数据，读取currentCustomDraftPath；工具依次取明确环境变量、PATH、Skill相对tools/bin，并实际执行-version。旧盘符不可用、显式工具失效、依赖缺失等给出对应设置方法，不切到猜测的目录。不要照搬原电脑的C:/Users/MECHREVO或D盘路径。
+2. doctor自动使用新设备LOCALAPPDATA定位剪映用户数据，读取currentCustomDraftPath；工具依次取明确环境变量、PATH、Skill相对tools/bin，并实际执行-version。旧盘符不可用、显式工具失效、依赖缺失等给出对应设置方法，不切到猜测的目录。不要照搬原电脑的用户目录或盘符。
 3. 若用户已经说明“旧项目根搬到新项目根”且目标可核实，直接将该对应关系交给migrate.py，无需再次确认普通路径转换。相对素材路径按源计划目录解析；明确根映射按最长路径组件匹配，Windows大小写不敏感。目录重名/文件重名不用于自动猜测。
 4. 默认只诊断；需要落盘时用--out另存新计划。转换schema_version=1计划内clips/audio的素材路径，以及captions[].font_path的本地字体依赖；保留其他配置和源文件。缺素材或字体不写新计划；已有输出拒绝覆盖。随后validate、build并回读新草稿。路径全部存在不证明素材内容相同，素材来源sidecar须一起保留，build继续核对来源哈希。
 5. 若路径映射不明确，列出每个缺失素材的旧路径和预期位置，向使用者索取准确的新素材根目录。只询问无法推断的信息；不能根据同名文件自动替换。若版本不同，分别说明基础生成与高级结构的兼容缺口，另行测试后才能声明迁移通过。

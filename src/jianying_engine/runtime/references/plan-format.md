@@ -94,7 +94,7 @@ CLI 校验未知字段、非法数值、缺失素材、越界截取、同轨重�
 
 ### 调色
 
-`grading` 只接受以下键，至少含一种 HSL 或曲线：
+`grading` 接受以下已测键；主色轮子集必须单独使用：
 
 ```json
 {"grading":{"red_hsl":{"hue":-35,"saturation":15,"lightness":-10},
@@ -105,6 +105,7 @@ CLI 校验未知字段、非法数值、缺失素材、越界截取、同轨重�
 
 - `red_hsl`：`{hue,saturation,lightness}` 各 −100 至 100，省略分量为 0，仅红色通道。
 - `blue_hsl`、`green_hsl`：单一分量对象，如 `{"saturation":-60}`、`{"hue":-30}`；允许的分量与取值见 [调色](capabilities.md#grading)。
+- `primary_wheel`：只接受单个已测组合 `{"lift":{"red":0.5}}`、`{"gamma":{"green":-0.5}}` 或 `{"gain":{"blue":0.5}}`，三种组合各可将数值设为0作为中性；需单张640×360、可完整解码、无透明/颜色配置/EXIF的静态RGB PNG、单段2秒、30fps，不能与其他调色或效果组合。绑定剪映11.7安装及主色轮资源，UI编辑和保存重开未验。示例：`{"grading":{"primary_wheel":{"lift":{"red":0.5}}}}`。
 - `luma_curve`：三个归一化锚点 `[[0,0],[x,y],[1,1]]`，中点 0<x<1、0≤y≤1；控制柄按相邻点三分之一构建折线，不是任意贝塞尔接口。
 - `rgb_curves`：非空对象，只接受 red/green/blue 的任意非空子集，各通道同三点规则。未请求的 RGB 通道与未请求的 L 曲线写入恒等两点；同一 color_curves 材料保存 L/R/G/B，select_channel=0。
 - `local_circle`：`{width,height,feather}`，静态、居中、无旋转；尺寸为原素材像素，羽化 0–100；必须与 HSL 或曲线配合，不能与视频 mask 共存。写了它，同片段曲线/HSL 的**作用范围就限于这个区域，区域外保持原样**；不写则这些调节作用于全画面。羽化不是「边缘略软」：实测羽化 60 会把调节摊到近乎整帧且中心强度只剩约 35%，常用值是 0。区域几何随源尺寸归一化（1280×720 画布填 560×440 与 640×360 画布填 280×220 同形），`transform_x/transform_y` 会带着区域一起平移，旋转未在区域轮廓上生效。实测见 [调色](capabilities.md#grading)。
@@ -159,6 +160,7 @@ value 为 0–100。时间相对效果片段，不加视频源入点或时间轴
 
 音频轨只用不含视频流的音频文件。配音来自视频时，先在授权任务目录中用 FFmpeg 提取音频副本，保留源文件。选择性保留招式名、碰撞等原声时，同样用 audio 片段记录来源与源范围，独立于 music 轨，并静音视频内的同一路声音，避免重复播放。
 
+- `beat_marks`：可选、严格递增的音频源时基秒数数组，例如 `[0.5,1.25,2.5]`。生成剪映原生可编辑音频拍点；这是调用方明确给出的时间，不代表已自动识别音乐节奏。当前仅限实测的剪映11.7与三组固定场景，素材、时间范围和数量等完整边界见[原生音频拍点](capabilities.md#native-beat)；其他场景拒绝。
 - `keyframes`：`[{"time":0,"value":0.5},{"time":1,"value":0.12}]`。value 与 volume 相同，是线性增益 0–10，不是 dB；换算用 `10 ** (dB / 20)`，插值发生在增益上。首点 0，时间严格递增且小于片段 duration；局部时间与 `source_in + time * speed` 换算后的微秒都必须唯一。支持固定 speed。BGM 局部避让也可拆连续源段分别设 volume。见 [音量关键帧](capabilities.md#audio-keyframes)。
 - `denoise`：`{"model_path":"当前安装的原生模型绝对路径"}`。Agent 定位当前本机模型并核实字节身份，用户不需填写技术路径；省略不启用。见 [实时降噪](capabilities.md#denoise)。
 - `loudness`：`{"target_lufs":-23}`；省略不启用。见 [受限响度](capabilities.md#loudness)。

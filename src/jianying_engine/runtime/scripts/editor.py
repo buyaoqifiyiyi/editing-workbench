@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,8 @@ import native_matting_cache
 import native_mask_feather
 import native_chroma
 import native_mix_mode
+import native_beat
+import native_primary_wheel
 import native_text_highlight
 import native_hsl_channels
 import native_text_alpha
@@ -111,11 +114,15 @@ _LOUDNESS = {}
 
 def measure_loudness(item):
     """Measure the selected source range; discard PCM, native player applies the gain."""
-    stat = Path(item['path']).stat()
-    key = (str(Path(item['path']).resolve()), stat.st_size, stat.st_mtime_ns,
-           us(item['source_in']), us(item['duration']), item['loudness']['target_lufs'])
+    path = Path(item['path']).resolve()
+    source_sha256 = file_hash.sha256(path)
+    key = (str(path), source_sha256, us(item['source_in']), us(item['duration']),
+           item['loudness']['target_lufs'])
     if key not in _LOUDNESS:
-        _LOUDNESS[key] = _measure_loudness(item)
+        measured = _measure_loudness(item)
+        if file_hash.sha256(path) != source_sha256:
+            raise ValueError('Audio source changed during loudness measurement')
+        _LOUDNESS[key] = measured
     return dict(_LOUDNESS[key])
 
 
@@ -330,6 +337,8 @@ def effect_cache_dir(user_data):
 
 def validate_grading(item, info):
     grade = item['grading']
+    if isinstance(grade, dict) and 'primary_wheel' in grade:
+        return
     if native_hsl_channels.requested(grade):
         native_hsl_channels.validate(item, info)
         return
@@ -445,7 +454,12 @@ def native_font(name, allow_vip=True, user_data=None):
 
 
 def jianying_install():
-    """Directory of the installed Jianying build: the uninstall registry entry first, then a recorded preview manifest."""
+    """Directory of the installed Jianying build: JIANYING_INSTALL when set (a background update can move the
+    registry to a build that is not running yet), else the uninstall registry entry, then a recorded preview manifest."""
+    pinned = os.environ.get('JIANYING_INSTALL')
+    if pinned:
+        path = Path(os.path.expandvars(pinned)).expanduser()
+        return path if (path / 'Resources' / 'Font' / 'SystemFont').is_dir() else None
     candidates = []
     if os.name == 'nt':
         try:
@@ -472,13 +486,14 @@ def default_text_font():
     """The entry Jianying itself writes for text that names no font; None when this machine has no install.
 
     Jianying renders text without this path as placeholder glyphs, so the default is written explicitly
-    instead of left for the app to repair on save.
+    instead of left for the app to repair on save. Cached per install (the install can be pinned per call).
     """
-    if not DEFAULT_FONT_CACHE:
-        install = jianying_install()
+    install = jianying_install()
+    key = str(install) if install else ''
+    if key not in DEFAULT_FONT_CACHE:
         font = (install / 'Resources' / 'Font' / 'SystemFont' / 'zh-hans.ttf') if install else None
-        DEFAULT_FONT_CACHE['font'] = {'path': font.resolve().as_posix()} if font and font.is_file() else None
-    return DEFAULT_FONT_CACHE['font']
+        DEFAULT_FONT_CACHE[key] = {'path': font.resolve().as_posix()} if font and font.is_file() else None
+    return DEFAULT_FONT_CACHE[key]
 
 
 def text_segment(item, target, backend):
@@ -542,7 +557,8 @@ def probe(path):
     info = {'path': str(path), 'kind': kind, 'duration': 0 if kind == 'image' else duration,
             'has_audio': bool(audios)}
     if audios:
-        info.update(sample_rate=int(audios[0].get('sample_rate', 0)), channels=audios[0].get('channels', 0))
+        info.update(sample_rate=int(audios[0].get('sample_rate', 0)), channels=audios[0].get('channels', 0),
+                    audio_codec=audios[0].get('codec_name', ''))
     if videos:
         v = videos[0]
         numerator, denominator = v.get('avg_frame_rate', '0/1').split('/')
@@ -861,11 +877,49 @@ def analyze_reference(args):
     if args.start >= info['duration']:
         raise ValueError('Analysis start is past the end of the reference')
     span = min(args.duration, info['duration'] - args.start)
-    result = run([tool('ffmpeg'), '-hide_banner', '-nostdin', '-ss', args.start,
-                  '-i', info['path'], '-t', span, '-an',
-                  '-vf', rf'select=gt(scene\,{args.threshold}),showinfo', '-f', 'null', '-'], timeout=600)
-    cuts = sorted(set(round(args.start + float(x), 6)
-                      for x in re.findall(r'pts_time:([0-9.eE+-]+)', result.stderr)))
+    detector = getattr(args, 'detector', 'ffmpeg')
+    content_threshold = getattr(args, 'content_threshold', 27.0)
+    min_scene_seconds = getattr(args, 'min_scene_seconds', 0.3)
+    if detector == 'pyscenedetect':
+        number(content_threshold, 'content threshold', 0.01, 255)
+        number(min_scene_seconds, 'minimum scene seconds', 0.01, 30)
+        local_app_data = os.environ.get('LOCALAPPDATA')
+        private_package = (Path(local_app_data) / 'JianyingEngine' / 'optional' / 'pyscenedetect-0.7.2'
+                           if local_app_data else None)
+        if private_package and private_package.is_dir():
+            sys.path.insert(0, str(private_package))
+        try:
+            from scenedetect import open_video, SceneManager
+            from scenedetect.detectors import ContentDetector
+        except ImportError as exc:
+            raise ImportError('PySceneDetect 0.7.2 and one OpenCV distribution are required for --detector pyscenedetect; see reference guide') from exc
+        scene_version = importlib.metadata.version('scenedetect')
+        if scene_version != '0.7.2':
+            raise ValueError(f'PySceneDetect 0.7.2 is required, found {scene_version}')
+        video = open_video(info['path'])
+        video.seek(float(args.start))
+        manager = SceneManager()
+        manager.add_detector(ContentDetector(threshold=content_threshold, min_scene_len=float(min_scene_seconds)))
+        processed = manager.detect_scenes(video, duration=float(span))
+        if processed <= 0:
+            raise ValueError('PySceneDetect could not decode frames in the selected window')
+        raw_cuts = [float(item.seconds) for item in manager.get_cut_list(show_warning=False)]
+        cuts = sorted(set(round(t, 6) for t in raw_cuts
+                          if args.start < t < args.start + span))
+        detector_details = {'name': 'pyscenedetect-content', 'version': scene_version,
+                            'threshold': content_threshold, 'min_scene_seconds': min_scene_seconds,
+                            'decoded_frames': processed,
+                            'timing_note': 'OpenCV seek/frame clock; VFR and exact frames require separate verification'}
+    elif detector == 'ffmpeg':
+        result = run([tool('ffmpeg'), '-hide_banner', '-nostdin', '-ss', args.start,
+                      '-i', info['path'], '-t', span, '-an',
+                      '-vf', rf'select=gt(scene\,{args.threshold}),showinfo', '-f', 'null', '-'], timeout=600)
+        cuts = sorted(set(round(args.start + float(x), 6)
+                          for x in re.findall(r'pts_time:([0-9.eE+-]+)', result.stderr)
+                          if 0 <= float(x) < span))
+        detector_details = {'name': 'ffmpeg-scene', 'threshold': args.threshold}
+    else:
+        raise ValueError('Unknown reference detector')
     end_sample = max(args.start, args.start + span - max(0.1, 1 / (info['fps'] or 30)))
     # Bounded sampling: candidate cuts are hypotheses, never a verified shot list.
     uniform = [args.start + (end_sample - args.start) * i / (args.max_frames - 1)
@@ -886,9 +940,18 @@ def analyze_reference(args):
         run([tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
              '-ss', args.start, '-i', info['path'], '-t', span, '-vn', '-ac', '1',
              '-ar', '16000', '-c:a', 'pcm_s16le', str(audio_path)], timeout=600)
+    interior_cuts = [t for t in cuts if args.start < t < args.start + span]
+    boundaries = [args.start, *interior_cuts, args.start + span]
+    shots = [{'start': round(a, 6), 'end': round(b, 6), 'duration': round(b - a, 6)}
+             for a, b in zip(boundaries, boundaries[1:])]
     report = {'source': info, 'window_start': args.start, 'window_duration': span,
               'entire_video_analyzed': args.start == 0 and span >= info['duration'],
               'scene_threshold': args.threshold, 'cut_candidates': cuts, 'frames': frames,
+              'detector': detector_details, 'shot_candidates': shots,
+              'shot_summary': {'count': len(shots),
+                               'median_duration': round(statistics.median(s['duration'] for s in shots), 6),
+                               'cuts_per_minute': round(len(interior_cuts) * 60 / span, 6),
+                               'meaning': 'window-boundary segments and visual cut candidates, not editorial or style judgments'},
               'audio': str(audio_path) if audio_path else None, 'audio_time_origin': args.start,
               'semantic_analysis': 'not_performed', 'transcription': 'not_performed',
               'ocr': 'not_performed', 'beat_analysis': 'not_performed'}
@@ -1271,13 +1334,15 @@ def validate_plan(path, user_data=None, mask_resource_root=None):
         if not all(isinstance(x, str) for x in plan[key]):
             raise ValueError(f'{key} entries must be strings')
     probes, tracks, track_types = {}, {}, {}
+    native_beat.validate(plan)
+    native_primary_wheel.validate(plan)
     common = {'path', 'start', 'duration', 'source_in', 'speed', 'volume', 'track', 'reason'}
     for group, track_type, default_track in (('clips', 'video', 'video'), ('audio', 'audio', 'voice'), ('captions', 'text', 'captions')):
         for index, item in enumerate(plan[group]):
             label = f'{group}[{index}]'
             allowed = (common | {'fit', 'transform', 'keyframes', 'motion_easing', 'speed_curve', 'transition', 'effects', 'filters', 'animations',
                                  'mix_mode', 'chroma', 'background', 'mask', 'grading', 'matting_cache'} if group == 'clips' else
-                       common | {'fade_in', 'fade_out', 'keyframes', 'denoise', 'loudness'} if group == 'audio' else
+                       common | {'fade_in', 'fade_out', 'keyframes', 'denoise', 'loudness', 'beat_marks'} if group == 'audio' else
                        {'text', 'start', 'duration', 'track', 'size', 'color', 'x', 'y', 'bold', 'border', 'animations',
                         'style', 'transform', 'keyframes', 'motion_easing', 'text_curve', 'font', 'font_path', 'glow',
                         'highlights'})
@@ -1557,6 +1622,8 @@ def validate_plan(path, user_data=None, mask_resource_root=None):
                 raise ValueError('Invalid or conflicting native effect/filter track name')
             track_types[track] = track_type
             tracks.setdefault(track, []).append(item)
+    native_beat.validate_media(plan, probes)
+    native_primary_wheel.validate_media(plan, probes)
     native_features = validate_native(plan, mask_resource_root)
     for item in plan['clips']:
         if native_chroma.requested(item):
@@ -1935,6 +2002,13 @@ def delivery(plan, path, warnings):
             f'- {t["operation"]}：轨道 {t["track"]}，{t["start"]:.3f}–{t["start"]+t["duration"]:.3f} 秒。{t["instructions"]}'
             for t in plan['jianying_tasks']]
     for clip in plan['clips']:
+        primary = clip.get('grading', {}).get('primary_wheel')
+        if primary:
+            axis, selection = next(iter(primary.items()))
+            channel, value = next(iter(selection.items()))
+            lines += ['', '## 主色轮受限子集', '',
+                      f'- {axis}/{channel}：{value}；11.7 静态 RGB PNG，使用安装内 v1 色轮资源。',
+                      '- 仅已测单轴及固定值；界面参数编辑、保存重开和连续视听仍需确认。']
         if native_hsl_channels.requested(clip.get('grading')):
             name=next(iter(clip['grading']));spec=clip['grading'][name]
             titles={'saturation':'饱和度','lightness':'明度','hue':'色相'}
@@ -1975,7 +2049,7 @@ def native_delivery(plan):
              '原始素材保持引用；没有外部预渲染、没有用生成的视频替换效果。', '']
     for group in ('clips', 'captions', 'audio', 'effects', 'filters'):
         for item in plan[group]:
-            settings = ({key: item[key] for key in ('animations', 'effects', 'filters', 'mix_mode', 'chroma', 'mask', 'grading', 'matting_cache', 'background', 'style', 'transform', 'keyframes', 'motion_easing', 'speed_curve', 'text_curve', 'font', 'font_path', 'glow', 'highlights', 'volume', 'fade_in', 'fade_out', 'denoise', 'loudness')
+            settings = ({key: item[key] for key in ('animations', 'effects', 'filters', 'mix_mode', 'chroma', 'mask', 'grading', 'matting_cache', 'background', 'style', 'transform', 'keyframes', 'motion_easing', 'speed_curve', 'text_curve', 'font', 'font_path', 'glow', 'highlights', 'volume', 'fade_in', 'fade_out', 'denoise', 'loudness', 'beat_marks')
                          if key in item} if group in ('clips', 'captions', 'audio') else
                         {key: item[key] for key in ('name', 'kind', 'params', 'intensity', 'keyframes') if key in item})
             if settings:
@@ -2165,6 +2239,8 @@ def verify_structure(content, plan, physical_root=None, final_root=None):
     if 'layer_order' in plan or plan.get('composites'):
         if content.get('free_render_index_mode_on') is not True or content.get('render_index_track_mode_on') is not False:
             raise ValueError('Explicit layer order requires free render index mode')
+    beat_count = native_beat.verify(content, plan)
+    primary_wheel_count = native_primary_wheel.verify(content, plan)
     outer_tracks = len(content['tracks'])
     perspective_count = native_advanced.verify_perspectives(content, plan)
     if plan.get('composites'):
@@ -2200,6 +2276,10 @@ def verify_structure(content, plan, physical_root=None, final_root=None):
     native['new_matting_computation']=False
     native['installed_chroma2'] = native_chroma.verify(content, plan)
     native['installed_chroma2_integration'] = 'limited' if native['installed_chroma2'] else 'not_requested'
+    native['beat_marks'] = beat_count
+    native['beat_marks_integration'] = 'limited' if beat_count else 'not_requested'
+    native['primary_wheel'] = primary_wheel_count
+    native['primary_wheel_integration'] = 'limited' if primary_wheel_count else 'not_requested'
     native['installed_mix'] = native_mix_mode.verify(content, plan)
     native['installed_mix_integration'] = 'limited' if native['installed_mix'] else 'not_requested'
     native['text_global_alpha'] = native_text_alpha.verify(content, plan)
@@ -2336,10 +2416,12 @@ def build_draft(args):
         native_matting_cache.apply(content,plan)
         native_chroma.bind(content,plan)
         native_mix_mode.bind(content,plan)
+        native_beat.apply(content,plan)
         native_advanced.apply_masks(content, plan,
             None)
         native_mask_feather.prepare(content, plan, project, destination)
         native_advanced.apply_extensions(content, plan, None, measure_loudness)
+        native_primary_wheel.apply(content, plan)
         native_advanced.apply_composites(content, plan)
         media_library = register_media_library(content, (project, destination))
         has_animations = any(item.get('animations') for item in plan['clips'] + plan['captions'])
@@ -2464,6 +2546,12 @@ def main():
     p.add_argument('--start', type=float, default=0)
     p.add_argument('--duration', type=float, default=120)
     p.add_argument('--threshold', type=float, default=0.3)
+    p.add_argument('--detector', choices=('ffmpeg', 'pyscenedetect'), default='ffmpeg',
+                   help='Candidate detector; default ffmpeg preserves existing behavior')
+    p.add_argument('--content-threshold', type=float, default=27.0,
+                   help='PySceneDetect ContentDetector threshold (0.01-255), not FFmpeg scene threshold')
+    p.add_argument('--min-scene-seconds', type=float, default=0.3,
+                   help='PySceneDetect minimum scene length in seconds')
     p.add_argument('--max-frames', type=int, choices=range(2, 97), default=32)
     p = commands.add_parser('validate', help='Validate media paths and timeline; write nothing')
     p.add_argument('--plan', required=True)

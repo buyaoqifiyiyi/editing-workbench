@@ -45,7 +45,11 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 #session-count { font-variant-numeric:tabular-nums; }
 .session-list { flex:1; min-height:0; overflow:auto; padding:0 0 12px; }
 .list-empty { margin:0; padding:12px 8px; color:var(--muted); line-height:1.8; }
-.session-item { position:relative; display:block; width:100%; padding:11px 12px; margin-bottom:4px; border:1px solid transparent; border-radius:8px; text-align:left; }
+.session-row { position:relative; }
+.session-item { position:relative; display:block; width:100%; padding:11px 54px 11px 12px; margin-bottom:4px; border:1px solid transparent; border-radius:8px; text-align:left; }
+.session-delete { position:absolute; right:8px; top:10px; padding:5px 6px; color:var(--muted); font-size:11px; border-radius:5px; }
+.session-delete:hover:not(:disabled),.session-delete:focus-visible { color:var(--error-ink); background:var(--raised); }
+.session-delete:disabled { opacity:.4; }
 .session-item:hover:not(:disabled) { background:var(--raised); }
 .session-item.active { background:var(--raised); border-color:var(--line); }
 .session-item.active::before { content:''; position:absolute; left:0; top:15px; width:3px; height:14px; background:var(--accent); border-radius:0 2px 2px 0; }

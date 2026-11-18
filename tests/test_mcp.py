@@ -39,7 +39,7 @@ class StdioTest(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(client.protocol_version)
                 tools = await client.list_tools()
                 self.assertEqual({t.name for t in tools.tools},
-                                 {'describe_operations', 'read_guide', 'start_job', 'job_status', 'read_job_output', 'cancel_job'})
+                                 {'describe_operations', 'read_guide', 'search_knowledge', 'start_job', 'job_status', 'read_job_output', 'cancel_job'})
                 discovered = await client.call_tool('describe_operations', {})
                 self.assertFalse(discovered.is_error)
                 self.assertIn('doctor', str(discovered.structured_content['operations']))

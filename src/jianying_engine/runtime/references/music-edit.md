@@ -4,23 +4,23 @@
 
 ## 配置与授权
 
-在工作台顶部点击“视听 API”，选择接口协议、填写服务端模型 ID、接口根地址和API Key，勾选启用并保存。当前支持：
+通过本机专用配置提供协议、服务端模型 ID 和接口根地址。当前支持：
 
 - `openai-compatible`：使用 `{base_url}/chat/completions`，媒体放在音视频内容块中；适用于提供该媒体格式的兼容服务。
 - `gemini`：使用 Gemini 原生 `{base_url}/models/{model}:generateContent`，媒体通过 `inlineData` 传入；密钥放入请求头，不进入 URL。
 
-两种协议都使用结构化 JSON 返回。模型 ID 没有内置默认值；切换服务时必须核对所选模型确实支持音频和视频输入。高级请求参数按当前协议进入请求体或 `generationConfig`，不能覆盖模型、媒体内容、认证和返回格式。密钥栏留空保留已有密钥，勾选“清除已保存的密钥”可移除本机保存项；页面重开时不回显。保存只验证本机配置；“测试连接”使用已保存配置发送一次最小文本请求，显示成功/失败、延迟和服务返回的用量。测试不上传素材、不自动重试；文本测试成功不代表音视频理解、余额查询或剪辑质量已经通过。
+两种协议都使用结构化 JSON 返回。模型 ID 没有内置默认值；切换服务时必须核对所选模型确实支持音频和视频输入。高级请求参数按当前协议进入请求体或 `generationConfig`，不能覆盖模型、媒体内容、认证和返回格式。
 
-Qwen3.8-Omni-Flash的官方JSON Mode示例使用高级参数 `{"reasoning_effort":"none"}` 关闭思考模式；需要该模式时由用户配置保留，通用引擎不按模型名称强行添加参数。修改配置后先保存，再测试。
+Qwen3.8-Omni-Flash的官方JSON Mode示例使用高级参数 `{"reasoning_effort":"none"}` 关闭思考模式；需要该模式时由用户配置保留，通用引擎不按模型名称强行添加参数。
 
-专用配置为`%LOCALAPPDATA%/JianyingEngine/omni.json`，可由`JIANYING_OMNI_CONFIG`或CLI全局`--config`指定包外文件。普通配置只存enabled、protocol、model、base_url、api_key_env和request_options。页面填写的密钥单独经Windows当前用户DPAPI加密，保存到同目录`omni.key`，不进入会话、普通配置或状态回显；引擎在实际调用时解密。API根地址与密钥区域须由用户自己的控制台确认。仍兼容进程环境变量密钥；两者同时存在时优先使用已保存密钥。旧三字段配置会保留加密密钥，但不推断模型，页面提示重新选择协议和模型。不读取其他Agent凭据，不将密钥放任务单、计划、CLI参数或日志。
+专用配置为 `%LOCALAPPDATA%/JianyingEngine/omni.json`，可由 `JIANYING_OMNI_CONFIG` 或 CLI 全局 `--config` 指定包外文件。普通配置只存 enabled、protocol、model、base_url、api_key_env 和 request_options。旧工作台保存的 `omni.key` 由 Windows 当前用户 DPAPI 加密，引擎仍可直接读取。新配置可使用进程环境变量密钥；两者同时存在时优先使用已保存密钥。旧格式缺协议和模型时须在专用配置补齐。API 根地址与密钥区域须由用户自己的控制台确认。密钥留在专用环境或加密文件中。
 
 ```powershell
 & '<引擎Python>' -m jianying_engine music-edit configure --protocol openai-compatible --model '<兼容服务的模型 ID>' --base-url '<服务的兼容 API 根地址>' --api-key-env MULTIMODAL_API_KEY
 & '<引擎Python>' -m jianying_engine music-edit doctor
 ```
 
-doctor只报告配置/密钥可读性，不联网、不验证余额或模型权益。配置默认不存在；CLI configure显式启用，不覆盖已有配置；页面保存可更新端点、启用状态及加密密钥。页面保存后引擎子进程直接读取，无需修改环境变量或重启；仅修改环境变量时，工作台及其Agent/引擎子进程需在正常退出后重新启动才能继承；不要强退其他任务。未就绪时报告缺少配置，不重复请求密钥、不假称已听过BGM。调用`analyze`会将选定媒体发送给配置的服务并产生API用量；其他步骤不调用模型。通过排他创建analysis-attempt.json占用本包的唯一付费调用，防并发重复发送；HTTP失败或超时不自动重试，也不在同一包重复调用。失败后保留attempt与能取得的usage，确认状态后另建版本；不记录响应错误正文和密钥。只使用用户已明确配置的服务，不扩展到其他付费模型。
+用 `doctor` 检查本机配置和密钥可读性。`configure` 用于创建新配置；已有文件时由用户按需更新其专用配置。环境变量密钥须对执行引擎的进程可见。未就绪时报告具体缺项。调用 `analyze` 会将选定媒体发送给配置的服务并产生 API 用量。通过排他创建 analysis-attempt.json 占用本包的唯一付费调用，防并发重复发送；HTTP 失败或超时不自动重试，也不在同一包重复调用。失败后保留 attempt 与能取得的 usage，确认状态后另建版本；不记录响应错误正文和密钥。只使用用户已明确配置的服务。
 
 ## 从指定BGM到计划
 

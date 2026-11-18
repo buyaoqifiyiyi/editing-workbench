@@ -1,6 +1,6 @@
 # 达芬奇主剪辑＋AE局部加工
 
-工作台当轮选择达芬奇时，主时间轴或单独剪辑任务使用本接口；本页不决定其他会话的软件。复用Agent、素材分析、会话、任务调度与成果面板；`resolve-workflow`是CLI/MCP共用白名单入口，不依赖PR，也不自动迁移剪映作品。组合中使用AE时，其原生图层留在AEP，回填的是渲染素材，使用下文有界镜头返回流程。
+本轮选择达芬奇处理主时间轴或单独剪辑任务时，Agent 直接调用 CLI/MCP 共用的 `resolve-workflow`。组合中使用 AE 时，原生图层留在 AEP，按下文有界镜头返回流程回填渲染素材。
 
 选段与制作前先读[创作决策层](../guides/planning.md)，动漫/游戏情绪混剪与MV再读[镜头与音乐如何共同推进](styles/anime-mix.md#镜头与音乐如何共同推进)。制作与修订持续判断声画、连接和技法，再按本页子集落地；创作意图写在项目说明中，严格Resolve计划不接收额外notes或审美字段。复杂表现受本页准入约束，不能把其他宿主的技法说明当作已可执行能力。
 
@@ -78,6 +78,6 @@ jianying-engine resolve-workflow return-ae --bundle <已成功AE交接目录> --
 
 成功状态是`technically_completed`，且`execution.json`中`native_project_verified`与`native_render_verified`为true。`prepared_not_executed`不是工程已生成；渲染队列Complete仍需父进程解码验证。失败留`native-result.json`、`execution.json`和日志。
 
-只把`project.drp`、`output.mp4`、最终字幕`captions.srt`、需要交付的AEP及最终说明登记到项目根`workbench-delivery.json`；规范化计划、回执、日志和抽帧不是正式成果。DRP在成果面板按原生工程展示，可打开所在目录，在达芬奇项目管理器导入。
+向用户给出 `project.drp`、`output.mp4`、最终字幕 `captions.srt`、需要交付的 AEP 和说明的实际路径。续接时可用旧项目根的 `workbench-delivery.json` 定位已有成果。DRP 在达芬奇项目管理器导入。
 
 技术检查不证明所有画面、音频内容正确；切点、构图、左右声道、混音与色彩要另做项目见证检查，最终完整主观视听由用户验收。长片、高负载、崩溃恢复和AE高级镜头回填分别验收，不把首阶段成功写成完整无人值守或所有剪辑功能已迁移。

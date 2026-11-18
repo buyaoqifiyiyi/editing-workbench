@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx2
 
-from jianying_engine.workbench import Workbench, create_app
+from jianying_engine.workbench import Workbench, classify_task, create_app
 from jianying_engine import software_backends
 
 
@@ -80,6 +80,56 @@ class WorkbenchTests(unittest.IsolatedAsyncioTestCase):
 
     async def notify(self, method, params):
         await self.service.on_event({'kind': 'notification', 'method': method, 'params': params})
+
+    async def test_view_other_session_during_run_preserves_active_events_and_stop_target(self):
+        await self.post('connect')
+        active=self.service.new_session()
+        other=self.service.new_session()
+        self.service.select(active['id'])
+        await self.post('send', {'text':'制作'})
+        result=await self.post('session/select', {'id':other['id']})
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json()['active_session_id'],active['id'])
+        self.assertEqual(result.json()['active_status'],'running')
+        self.assertEqual(result.json()['current_session']['id'],other['id'])
+        denied=await self.post('interrupt')
+        self.assertEqual(denied.status_code,400)
+        self.assertNotIn('interrupt',self.service.bridge.calls)
+        await self.notify('item/agentMessage/delta', {'threadId':'test-thread','itemId':'active-msg','delta':'制作中'})
+        self.assertEqual(active['messages'][-1]['text'],'制作中')
+        self.assertFalse(any(m.get('text')=='制作中' for m in other['messages']))
+        await self.post('session/select', {'id':active['id']})
+        await self.post('interrupt')
+        self.assertIn('interrupt',self.service.bridge.calls)
+
+    async def test_completion_after_switch_updates_original_session(self):
+        await self.post('connect')
+        active=self.service.new_session()
+        other=self.service.new_session()
+        self.service.select(active['id'])
+        await self.post('send', {'text':'制作'})
+        await self.post('session/select', {'id':other['id']})
+        await self.notify('turn/completed', {'threadId':'test-thread','turn':{'id':'test-turn','status':'completed'}})
+        self.assertEqual(active['turn_status'],'completed')
+        self.assertEqual(active['status'],'idle')
+        self.assertEqual(self.service.current()['id'],other['id'])
+        self.assertIsNone(self.service.active())
+
+    async def test_delete_history_backs_up_and_refuses_active(self):
+        await self.post('connect')
+        active=self.service.new_session()
+        other=self.service.new_session()
+        other['messages'].append({'id':'m','role':'user','text':'保留备份'})
+        self.service.select(active['id'])
+        await self.post('send', {'text':'制作'})
+        result=await self.post('session/delete', {'id':active['id']})
+        self.assertEqual(result.status_code,400)
+        result=await self.post('session/delete', {'id':other['id']})
+        self.assertEqual(result.status_code,200)
+        saved=list((self.service.directory/'deleted-sessions').glob('*.json'))
+        self.assertEqual(len(saved),1)
+        self.assertEqual(json.loads(saved[0].read_text(encoding='utf-8'))['messages'][0]['text'],'保留备份')
+        self.assertEqual(self.service.active()['id'],active['id'])
 
     async def test_readonly_connect_never_starts_a_turn(self):
         home = await self.client.get('/')
@@ -211,12 +261,18 @@ class WorkbenchTests(unittest.IsolatedAsyncioTestCase):
         instructions = self.service.bridge.instructions
         self.assertIn('planning', instructions)
         self.assertIn('reference/styles/anime-mix', instructions)
+        self.assertNotIn('不要请求权限确认或调用用户提问工具', instructions)
+        self.assertIn('未授权的素材外发或新增付费', instructions)
         self.assertNotIn('backend=resolve', instructions)
         for text in ('字幕、关键帧、调色和复杂特效不得静默忽略', '不修改引擎'):
             self.assertIn(text, instructions)
         first_turn = next(call for call in self.service.bridge.calls if isinstance(call, tuple) and call[0] == 'turn')
         self.assertIn('planning', first_turn[1])
+        self.assertIn('未授权的素材外发或新增付费', first_turn[1])
         self.assertIn('backend=resolve', first_turn[1])
+        self.assertIn('## 每版同时设计剧情与剪辑', first_turn[1])
+        self.assertIn('本地知识检索线索', first_turn[1])
+        self.assertIn('第一版可以粗糙', first_turn[1])
         await self.notify('turn/completed', {'threadId': 'test-thread', 'turn': {'id': 'test-turn', 'status': 'completed'}})
         response = await self.post('send', {'text': '只修改已认可结尾的字幕'})
         self.assertEqual(response.status_code, 200, response.text)
@@ -224,8 +280,85 @@ class WorkbenchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(turns), 2)
         self.assertEqual(self.service.bridge.calls.count('thread'), 1)
         self.assertIn('planning', turns[-1][1])
+        self.assertIn('未授权的素材外发或新增付费', turns[-1][1])
         self.assertIn('局部修改只复查受影响部分', turns[-1][1])
         self.assertIn('只修改已认可结尾的字幕', turns[-1][1])
+        self.assertIn('## 每版同时设计剧情与剪辑', turns[-1][1])
+        self.assertIn('用户认可剧情但否定剪辑时', turns[-1][1])
+
+    async def test_decision_context_uses_current_rules_and_real_local_sources(self):
+        from jianying_engine.api import read_guide
+        text = '只读分析，剧情认可但剪辑像拼接'
+        context = self.service.decision_context({'messages': []}, text)
+        self.assertIn('只读分析和方向建议仍以分析或建议为终点', context)
+        self.assertIn('已发现关键表达缺失时先修改', context)
+        self.assertIn('剪辑前先看同款作品', context)
+        self.assertIn('只看到标题、封面、文字或字幕时', context)
+        self.assertIn('参考查找不授权上传用户素材', context)
+        self.assertIn('## 主动展开候选', context)
+        self.assertIn('动作接剪', context)
+        self.assertIn('局部复合', context)
+        self.assertIn('不能因“克制”', context)
+        self.assertIn('实际准入', context)
+        self.assertNotIn('### 1. 从连续素材确认事件', context)
+        leads = [line for line in context.splitlines() if line.startswith('- ')]
+        self.assertTrue(leads)
+        self.assertEqual(len(leads), len(set(leads)))
+        for lead in leads:
+            location, detail = lead[2:].split(' [', 1)
+            name, line = location.rsplit(':', 1)
+            excerpt = detail.split('] ', 1)[1]
+            self.assertTrue(read_guide(name).splitlines()[int(line) - 1].strip().startswith(excerpt))
+
+    async def test_continue_search_uses_previous_user_request_and_latest_guide(self):
+        from unittest.mock import patch
+        session = {'messages': [{'role': 'user', 'text': '剧情认可但剪辑像拼接'},
+                                {'role': 'assistant', 'text': '不作为检索指令'}]}
+        rule = '# 决策\n## 每版同时设计剧情与剪辑\n当前规则修订\n## 后续步骤\n其他内容'
+        technique_rule = '# 方法\n## 主动展开候选\n当前方法\n## 后续内容\n其他技巧'
+        with patch('jianying_engine.workbench.read_guide',
+                   side_effect=lambda name: rule if name == 'planning' else technique_rule), patch(
+                'jianying_engine.workbench.search_knowledge', return_value={'results': []}) as search:
+            context = self.service.decision_context(session, '继续')
+        self.assertEqual(search.call_args_list[0].args[0], '继续\n剧情认可但剪辑像拼接')
+        self.assertIn('当前规则修订', context)
+        self.assertIn('当前方法', context)
+        self.assertNotIn('其他内容', context)
+        self.assertNotIn('其他技巧', context)
+        self.assertIn('本轮未命中', context)
+        for call in search.call_args_list:
+            self.assertLessEqual(len(call.args[0]), 256)
+
+    async def test_task_tags_are_local_metadata_and_original_prompt_is_unchanged(self):
+        original = '只读分析一下当前剪辑项目的叙事问题'
+        self.assertEqual(classify_task(original), ['剪辑工作台', '只读核查'])
+        self.assertEqual(classify_task('给我看看当前项目框架'), ['只读核查'])
+        self.assertEqual(classify_task('此前测试成片叙事与剪辑太平，作为 OVA 看不出剧情'), ['剪辑工作台', '创作反馈'])
+        self.assertEqual(classify_task('运行工作台单元测试并修复失败用例'), ['引擎维护', '故障排查'])
+        self.assertEqual(classify_task('此次只授权只读核查，不自动开始重剪或修改项目'), ['剪辑工作台', '只读核查'])
+        self.assertEqual(classify_task(
+            '请接手此前的剪辑工作台与创作知识库工作，先阅读并核实交接，说明已掌握状态并等待下一步；'
+            '此次只授权交接与只读核查，不自动开始重剪、修改项目或发送素材。'),
+            ['剪辑工作台', '只读核查'])
+        await self.post('connect')
+        result = await self.post('send', {'text': original})
+        self.assertEqual(result.status_code, 200, result.text)
+        message = self.service.current()['messages'][0]
+        self.assertEqual(message['text'], original)
+        self.assertEqual(message['task_tags'], ['剪辑工作台', '只读核查'])
+        turn = next(call for call in self.service.bridge.calls if isinstance(call, tuple) and call[0] == 'turn')
+        prompt = turn[1].split('用户要求：\n', 1)[1]
+        self.assertTrue(prompt.startswith(original))
+        self.assertNotIn('task_tags', turn[1])
+        self.assertEqual([call if isinstance(call, str) else call[0]
+                          for call in self.service.bridge.calls], ['connect', 'thread', 'turn'])
+
+        rebuilt = Workbench(self.root / 'state', self.workspace, FakeBridge)
+        try:
+            self.assertEqual(rebuilt.current()['messages'][0]['task_tags'], ['剪辑工作台', '只读核查'])
+            self.assertEqual(rebuilt.current()['messages'][0]['text'], original)
+        finally:
+            await rebuilt.close()
 
     async def test_auth_origin_host_and_file_boundaries(self):
         for headers, status in [({'X-Workbench-Token': 'wrong'}, 401),
