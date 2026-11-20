@@ -4,18 +4,16 @@ import json
 import unicodedata
 from pathlib import Path
 import file_hash
+import native_protocol
 
 
 def runtime(install=None):
-    import editor
-    import runtime_admission
-    install = Path(install) if install is not None else editor.jianying_install()
-    files = runtime_admission.expected('text_highlight', install) if install else None
-    if files is None:
-        raise ValueError(runtime_admission.refusal('text_highlight', install, 'Text highlights'))
-    for relative, digest in files.items():
-        if not file_hash.matches(install / relative, digest):
-            raise ValueError('Text highlight runtime/font identity changed: ' + relative)
+    native_protocol.verify_admitted_runtime(
+        'text_highlight',
+        'Text highlights',
+        install=install,
+        file_error_prefix='Text highlight runtime/font identity changed: ',
+    )
 
 
 def validate(item, plan):
@@ -88,20 +86,17 @@ def apply(rich, item):
 
 
 def preview_check(content, root, install=None):
-    import editor
-    def multiple(value):
-        if isinstance(value, dict):
-            if value.get('type') in ('text', 'subtitle') and isinstance(value.get('content'), str):
-                rich = json.loads(value['content'])
-                if len(rich.get('styles', [])) > 1:
-                    return True
-            return any(multiple(v) for v in value.values())
-        return isinstance(value, list) and any(multiple(v) for v in value)
-    path = Path(root) / 'edit-plan.json'
-    declared = path.is_file() and any('highlights' in item for item in editor.read_json(path).get('captions', []))
-    if multiple(content) or declared:
-        runtime(install)
-        if not path.is_file():
-            raise ValueError('Native multi-style text preview requires its formal edit-plan.json')
-        plan, _, _ = editor.validate_plan(path)
-        editor.verify_structure(content, plan)
+    observed = any(
+        obj.get('type') in ('text', 'subtitle')
+        and isinstance(obj.get('content'), str)
+        and len(json.loads(obj['content']).get('styles', [])) > 1
+        for obj in native_protocol.iter_objects(content)
+    )
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=lambda p: any('highlights' in item for item in p.get('captions', [])),
+        missing_plan_error='Native multi-style text preview requires its formal edit-plan.json',
+        runtime_check=lambda: runtime(install),
+    )

@@ -17,11 +17,11 @@ import numpy as np
 
 import adobe_compile
 import editor
+import file_hash
+import runtime_common
 
 
-def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def write_new(path, text):
@@ -47,23 +47,13 @@ def ae_host_lock():
     """Serialize owned AE sessions across workers; the OS releases locks on exit."""
     if os.name != 'nt':
         raise ValueError('AE execution is currently Windows-only')
-    import msvcrt
-    directory = config_path().parent
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / 'ae-host.lock').open('a+b') as stream:
-        if stream.seek(0, os.SEEK_END) == 0:
-            stream.write(b'\0')
-            stream.flush()
-        stream.seek(0)
-        try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as exc:
-            raise ValueError('AE workflow is busy in another worker; retry after it finishes') from exc
-        try:
-            yield
-        finally:
-            stream.seek(0)
-            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+    with runtime_common.file_lock(
+        config_path().parent / 'ae-host.lock',
+        blocking=False,
+        pad_empty=True,
+        busy_message='AE workflow is busy in another worker; retry after it finishes',
+    ):
+        yield
 
 
 def applications(ae_root=None, pr_exe=None, *, require_pr=True):

@@ -15,6 +15,7 @@ import tempfile
 import time
 import wave
 from pathlib import Path
+import file_hash
 
 import numpy as np
 
@@ -77,11 +78,7 @@ def model_files(model_dir):
 
 
 def sha256(path):
-    checksum = hashlib.sha256()
-    with path.open('rb') as handle:
-        for block in iter(lambda: handle.read(8 << 20), b''):
-            checksum.update(block)
-    return checksum.hexdigest().upper()
+    return file_hash.sha256(path).upper()
 
 
 def load_model(model_dir, compute_type, threads):

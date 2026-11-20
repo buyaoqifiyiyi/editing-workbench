@@ -2,20 +2,18 @@
 import json
 from pathlib import Path
 import file_hash
+import native_protocol
 
 PROPERTY = 'KFTypeGlobalAlpha'
 
 
 def runtime(install=None):
-    import editor
-    import runtime_admission
-    install = Path(install) if install is not None else editor.jianying_install()
-    files = runtime_admission.expected('text_alpha', install) if install else None
-    if files is None:
-        raise ValueError(runtime_admission.refusal('text_alpha', install, 'Text alpha'))
-    for relative, digest in files.items():
-        if not file_hash.matches(install / relative, digest):
-            raise ValueError('Text alpha runtime/font identity changed: ' + relative)
+    native_protocol.verify_admitted_runtime(
+        'text_alpha',
+        'Text alpha',
+        install=install,
+        file_error_prefix='Text alpha runtime/font identity changed: ',
+    )
 
 
 def requested(item):
@@ -86,19 +84,19 @@ def verify(content, plan):
 
 
 def preview_check(content, root, install=None):
-    import editor
-    def contains(value):
-        if isinstance(value, dict):
-            return value.get('property_type') == PROPERTY or any(contains(v) for v in value.values())
-        return isinstance(value, list) and any(contains(v) for v in value)
-    path = Path(root) / 'edit-plan.json'
-    text_keys = any(g['property_type'] in (PROPERTY, 'KFTypeAlpha', 'KFTypeTextAlpha')
-                    for t in content.get('tracks', []) if t['type'] == 'text'
-                    for s in t['segments'] for g in s.get('common_keyframes', []))
-    declared = path.is_file() and any(requested(item) for item in editor.read_json(path).get('captions', []))
-    if contains(content) or text_keys or declared:
-        runtime(install)
-        if not path.is_file():
-            raise ValueError('Text alpha preview requires its formal edit-plan.json')
-        plan, _, _ = editor.validate_plan(path)
-        editor.verify_structure(content, plan)
+    observed = (
+        any(obj.get('property_type') == PROPERTY for obj in native_protocol.iter_objects(content))
+        or any(
+            g['property_type'] in (PROPERTY, 'KFTypeAlpha', 'KFTypeTextAlpha')
+            for t in content.get('tracks', []) if t['type'] == 'text'
+            for s in t['segments'] for g in s.get('common_keyframes', [])
+        )
+    )
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=lambda p: any(requested(item) for item in p.get('captions', [])),
+        missing_plan_error='Text alpha preview requires its formal edit-plan.json',
+        runtime_check=lambda: runtime(install),
+    )

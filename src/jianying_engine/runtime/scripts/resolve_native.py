@@ -11,12 +11,11 @@ import traceback
 # ResolvePython's isolated runtime omits the executed script's directory.
 # Admit only this hash-checked package directory, not the caller's cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import file_hash
 import resolve_compile
 
 
-def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def write_new(path, value):

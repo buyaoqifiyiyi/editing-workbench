@@ -31,7 +31,7 @@ from . import artifacts
 from . import software_backends
 from .software_detection import detect_backends
 from .workbench_requalification import Requalification, reviewed_availability
-from .runtime.scripts import omni_config
+from .runtime.scripts import omni_config, runtime_common
 
 WEB = Path(__file__).with_name('web')
 BUSY = {'starting', 'running', 'stopping', 'awaiting_approval'}
@@ -1104,20 +1104,8 @@ def _main(argv=None):
             raise ValueError('工作目录必须存在，端口必须在0到65535之间。')
         parser.error('workspace must exist and port must be in 0..65535')
     args.state_dir.mkdir(parents=True, exist_ok=True)
-    lock = (args.state_dir / 'server.lock').open('a+b')
-    lock.seek(0)
-    lock.write(b'0')
-    lock.flush()
-    lock.seek(0)
-    try:
-        if os.name == 'nt':
-            import msvcrt
-            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        lock.close()
+    lock = runtime_common.acquire_file_lock(args.state_dir / 'server.lock', blocking=False, pad_empty=True, pad_byte=b'0')
+    if lock is None:
         try:
             info = json.loads((args.state_dir / 'server.json').read_text(encoding='utf-8'))
             if args.desktop:
@@ -1186,7 +1174,7 @@ def _main(argv=None):
                     record.unlink()
             except (OSError, ValueError):
                 logging.exception('Could not clear owned server state')
-        lock.close()
+        runtime_common.release_file_lock(lock)
         if handler:
             logging.getLogger().removeHandler(handler)
             handler.close()

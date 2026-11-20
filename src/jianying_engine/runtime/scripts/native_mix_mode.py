@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from native_chroma import sha, tree, validate_media
+import native_protocol
 
 MODE = 'installed_mix_v1'
 
@@ -15,21 +16,20 @@ def requested(item):
 
 
 def resource(name, install=None):
-    import editor
-    import runtime_admission
     spec = contract()
     if name not in spec['modes']:
         raise ValueError('Only measured mix modes are admitted')
-    install = Path(install) if install is not None else editor.jianying_install()
-    runtime = runtime_admission.expected('mix', install, spec) if install else None
-    if runtime is None:
-        raise ValueError(runtime_admission.refusal('mix', install, 'installed_mix_v1'))
-    if any(p.is_symlink() or p.is_junction() for p in (install, install / 'Resources', install / 'Resources/MixMode')):
-        raise ValueError('Mix installation must not be redirected through links')
-    for relative, expected in runtime.items():
-        path = install / relative
-        if not path.is_file() or path.is_symlink() or sha(path) != expected:
-            raise ValueError('Mix runtime identity changed: ' + str(path))
+    install, _ = native_protocol.verify_admitted_runtime(
+        'mix',
+        'installed_mix_v1',
+        install=install,
+        contract=spec,
+        link_dirs=('Resources', 'Resources/MixMode'),
+        link_error='Mix installation must not be redirected through links',
+        file_error_prefix='Mix runtime identity changed: ',
+        file_error_full_path=True,
+        reject_symlink_files=True,
+    )
     index = install / 'Resources/MixMode/MixMode.json'
     if not index.is_file() or index.is_symlink() or sha(index) != spec['index_sha256']:
         raise ValueError('Mix resource mapping changed')
@@ -131,11 +131,7 @@ def verify(content, plan):
 
 
 def preview_check(content, root=None, install=None):
-    def contains(value):
-        if isinstance(value, dict):
-            return value.get('type') == 'mix_mode' or any(contains(v) for v in value.values())
-        return isinstance(value, list) and any(contains(v) for v in value)
-    if contains(content.get('materials', {}).get('drafts', [])):
+    if any(obj.get('type') == 'mix_mode' for obj in native_protocol.iter_objects(content.get('materials', {}).get('drafts', []))):
         raise ValueError('Native preview refuses unadmitted nested mix modes')
     found = False
     for slot, materials in content.get('materials', {}).items():
@@ -147,14 +143,11 @@ def preview_check(content, root=None, install=None):
                 mode = contract()['modes'].get(m.get('name'))
                 if (slot != 'effects' or not mode or m != dict(mode['material'], id=m.get('id'), path=resource(m['name'], install))):
                     raise ValueError('Native preview refuses an unadmitted mix resource')
-    import editor
-    plan_path = Path(root) / 'edit-plan.json' if root is not None else None
-    declared = plan_path is not None and plan_path.is_file() and any(requested(i) for i in editor.read_json(plan_path).get('clips', []))
-    if found or declared:
-        if plan_path is None or not plan_path.is_file():
-            raise ValueError('Native mix preview requires its formal edit-plan.json')
-        plan, _, _ = editor.validate_plan(plan_path)
-        for item in plan['clips']:
-            if requested(item):
-                resource(item['mix_mode']['name'], install)
-        editor.verify_structure(content, plan)
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=found,
+        plan_declared=lambda p: any(requested(i) for i in p.get('clips', [])),
+        missing_plan_error='Native mix preview requires its formal edit-plan.json',
+        after_validate=lambda p: [resource(i['mix_mode']['name'], install) for i in p['clips'] if requested(i)],
+    )

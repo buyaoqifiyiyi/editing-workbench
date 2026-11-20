@@ -28,9 +28,11 @@ def fingerprint():
     # Every local module that shapes generated drafts (editor imports the native_* helpers).
     # native_preview.py is excluded: only the native-preview command renders with it, never a build.
     digest = hashlib.sha256()
-    for path in [ROOT / 'scripts' / n for n in ('editor.py', 'native_advanced.py', 'native_text_glow.py',
-                                               'native_matting_cache.py', 'file_hash.py', 'templates.py', 'template_borrow.py',
-                                               'verify_templates.py')]:
+    for path in [ROOT / 'scripts' / n for n in ('editor.py', 'editor_env.py', 'editor_validate.py',
+                                               'editor_build.py', 'native_protocol.py', 'native_advanced.py',
+                                               'native_text_glow.py', 'native_matting_cache.py',
+                                               'file_hash.py', 'runtime_common.py', 'templates.py',
+                                               'template_borrow.py', 'verify_templates.py')]:
         digest.update(path.read_bytes())
     for path in sorted((ROOT / 'assets').glob('native*.json')):
         digest.update(path.name.encode())

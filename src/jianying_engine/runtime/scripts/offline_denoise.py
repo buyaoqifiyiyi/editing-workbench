@@ -11,13 +11,12 @@ import tempfile
 import wave
 
 import editor
+import file_hash
 
 MAX_SECONDS = 300
 
 
-def digest(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+digest = file_hash.sha256
 
 
 def pcm_info(path):

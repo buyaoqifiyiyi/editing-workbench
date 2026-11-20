@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import uuid
 import file_hash
+import native_protocol
 
 
 MASK_PROPERTIES = {'center_x': 'KFTypeCommonMaskPositionX',
@@ -24,19 +25,14 @@ CORNER_PIN_INFO = {'lower_left_x': -1.0, 'lower_left_y': 1.0,
 
 
 def corner_runtime(install=None, runtime=None):
-    import editor
-    import runtime_admission
-    install = Path(install) if install is not None else editor.jianying_install()
-    bun = json.loads((runtime_admission.ASSETS / 'native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))['runtime']['file']
-    files = runtime_admission.expected('corner', install) if install else None
-    if files is None:
-        raise ValueError(runtime_admission.refusal('corner', install, 'Additional corner motion'))
-    for relative, digest in files.items():
-        if not file_hash.matches(install / relative, digest):
-            raise ValueError('Corner motion runtime/font identity changed: ' + relative)
-    actual = Path(runtime) if runtime is not None else install / bun
-    if not file_hash.matches(actual, files[bun]):
-        raise ValueError('Corner motion Bun identity changed: ' + str(actual))
+    native_protocol.verify_admitted_runtime(
+        'corner',
+        'Additional corner motion',
+        install=install,
+        file_error_prefix='Corner motion runtime/font identity changed: ',
+        bun_runtime=runtime,
+        bun_error_prefix='Corner motion Bun identity changed: ',
+    )
 
 
 def other_corner_requested(spec):
@@ -64,18 +60,16 @@ def validate_other_corner(plan, spec, duration, source):
 
 
 def corner_preview_check(content, root, install, runtime=None):
-    import editor
     types = {CORNER_PIN_PROPERTIES[k] for k in OTHER_CORNERS}
-    def contains(v):
-        if isinstance(v, dict):return v.get('property_type') in types or any(contains(x) for x in v.values())
-        return isinstance(v, list) and any(contains(x) for x in v)
-    path = Path(root) / 'edit-plan.json'
-    declared = path.is_file() and any(other_corner_requested(s) for s in editor.read_json(path).get('composites', []))
-    if contains(content) or declared:
-        corner_runtime(install, runtime)
-        if not path.is_file():raise ValueError('Additional corner preview requires its formal edit-plan.json')
-        plan, _, _ = editor.validate_plan(path)
-        editor.verify_structure(content, plan)
+    observed = any(obj.get('property_type') in types for obj in native_protocol.iter_objects(content))
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=lambda p: any(other_corner_requested(s) for s in p.get('composites', [])),
+        missing_plan_error='Additional corner preview requires its formal edit-plan.json',
+        runtime_check=lambda: corner_runtime(install, runtime),
+    )
 
 
 def uid():
@@ -83,31 +77,27 @@ def uid():
 
 
 def green_lightness_runtime(install=None, runtime=None):
-    import editor
-    import runtime_admission
-    install = Path(install) if install is not None else editor.jianying_install()
-    bun = json.loads((runtime_admission.ASSETS / 'native-preview-11.6.0.14552.json').read_text(encoding='utf-8'))['runtime']['file']
-    files = runtime_admission.expected('green_lightness', install) if install else None
-    if files is None:
-        raise ValueError(runtime_admission.refusal('green_lightness', install, 'Green lightness'))
-    for relative, digest in files.items():
-        if not file_hash.matches(install / relative, digest):
-            raise ValueError('Green lightness runtime identity changed: ' + relative)
-    actual = Path(runtime) if runtime is not None else install / bun
-    if not file_hash.matches(actual, files[bun]):
-        raise ValueError('Green lightness Bun identity changed: ' + str(actual))
+    native_protocol.verify_admitted_runtime(
+        'green_lightness',
+        'Green lightness',
+        install=install,
+        file_error_prefix='Green lightness runtime identity changed: ',
+        bun_runtime=runtime,
+        bun_error_prefix='Green lightness Bun identity changed: ',
+    )
 
 
 def green_lightness_preview_check(content, root, install, runtime=None):
-    import editor
-    path = Path(root) / 'edit-plan.json'
-    declared = path.is_file() and any('lightness' in c.get('grading', {}).get('green_hsl', {}) for c in editor.read_json(path).get('clips', []))
-    observed = any(m.get('hsl_color_type') == 4 and m.get('lightness') != 0 for m in content.get('materials', {}).get('hsl', []))
-    if declared or observed:
-        green_lightness_runtime(install, runtime)
-        if not path.is_file():raise ValueError('Green lightness preview requires formal edit-plan.json')
-        plan, _, _ = editor.validate_plan(path)
-        editor.verify_structure(content, plan)
+    observed = any(m.get('hsl_color_type') == 4 and m.get('lightness') != 0
+                   for m in content.get('materials', {}).get('hsl', []))
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=lambda p: any('lightness' in c.get('grading', {}).get('green_hsl', {}) for c in p.get('clips', [])),
+        missing_plan_error='Green lightness preview requires formal edit-plan.json',
+        runtime_check=lambda: green_lightness_runtime(install, runtime),
+    )
 
 
 def denoise_material(spec):

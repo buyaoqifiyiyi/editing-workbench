@@ -15,28 +15,20 @@ import time
 
 from .api import RUNTIME, command_for
 from .jobs import _spawn, _capture
+from .runtime.scripts import file_hash, runtime_common
 
-FEATURES = {'preview', 'chroma', 'mask_feather', 'mix', 'text_alpha', 'text_highlight', 'corner', 'green_lightness'}
+FEATURES = set(runtime_common.RUNTIME_FEATURES)
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
-def digest(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+digest = file_hash.sha256
 
 
 def source_identity():
-    """Same inventory as runtime_admission.source_identity/requalify.source_snapshot.
-
-    Keep this read-only adapter explicit: importing the runtime CLI modules would
-    change the host's import path and pull in native execution helpers.
-    """
-    scripts = RUNTIME / 'scripts'
-    files = [p for p in scripts.iterdir() if p.is_file() and p.suffix in ('.py', '.cjs')]
-    files += [p for p in (RUNTIME / 'assets').glob('*.json') if p.is_file()]
-    return {p.relative_to(RUNTIME).as_posix(): digest(p) for p in sorted(files)}
+    """Same inventory as runtime_admission.source_identity/requalify.source_snapshot."""
+    return runtime_common.runtime_source_identity(RUNTIME)
 
 
 def source_digest(identity):
@@ -84,25 +76,8 @@ def reference_inventory(candidate, baseline):
 
 def execution_busy(store):
     """Check the manual/worker execution lock without keeping it or touching another process."""
-    directory = Path(store).resolve().parent
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / 'requalification-execution.lock').open('a+b') as lock:
-        lock.seek(0)
-        try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return True
-        if os.name == 'nt':
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        return False
+    lock_path = Path(store).resolve().parent / 'requalification-execution.lock'
+    return runtime_common.is_file_locked(lock_path)
 
 
 class StaleSource(ValueError):
@@ -224,16 +199,8 @@ class Requalification:
             status = dict(version=availability['version'], candidate=str(candidate), state='needed',
                           source_identity_sha256=source)
             # The lock covers all workbenches sharing this machine-local admission store.
-            lock = (self.directory / 'worker.lock').open('a+b')
-            lock.seek(0)
-            try:
-                if os.name == 'nt':
-                    import msvcrt
-                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
+            lock = runtime_common.acquire_file_lock(self.directory / 'worker.lock', blocking=False, pad_empty=False)
+            if lock is None:
                 self._publish(**dict(status, state='waiting', reason='已有工作台后台复核占用，等待其结果。'))
                 return
             # Holding worker.lock proves no workbench-owned worker is still live.
@@ -314,8 +281,7 @@ class Requalification:
             self._publish(state='failed', reason=str(exc), version=availability.get('version'),
                           candidate=str(Path(availability['path']).resolve().parent) if availability.get('path') else None)
         finally:
-            if lock is not None:
-                lock.close()
+            runtime_common.release_file_lock(lock)
 
     @staticmethod
     def _save(path, status):

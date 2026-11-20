@@ -6,11 +6,8 @@ from pathlib import Path
 def sha256(path):
     """Hash current bytes even when size and modification time are unchanged."""
     path = Path(path).resolve()
-    digest = hashlib.sha256()
     with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1 << 20), b''):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
 def matches(path, expected):

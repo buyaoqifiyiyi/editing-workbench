@@ -9,28 +9,18 @@ import math
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
+try:
+    import runtime_common
+except ModuleNotFoundError:
+    from jianying_engine.runtime.scripts import runtime_common
 
 
 def _object(value, allowed, required, label):
-    if not isinstance(value, dict):
-        raise ValueError(f'{label}: expected object')
-    if set(value) - set(allowed):
-        raise ValueError(f'{label}: unsupported fields {sorted(set(value) - set(allowed))}')
-    if set(required) - set(value):
-        raise ValueError(f'{label}: missing fields {sorted(set(required) - set(value))}')
-    return value
+    return runtime_common.check_object(value, allowed, required, label, require_text_keys=False)
 
 
 def _number(value, label, low, high):
-    try:
-        finite = not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
-    except OverflowError:
-        finite = False
-    if not finite:
-        raise ValueError(f'{label}: expected finite number')
-    if not low <= value <= high:
-        raise ValueError(f'{label}: outside [{low}, {high}]')
-    return value
+    return runtime_common.check_number(value, label, low, high, style='colon')
 
 
 def _frames(value, fps, label, positive=False):
@@ -42,20 +32,10 @@ def _frames(value, fps, label, positive=False):
 
 
 def _text(value, label, maximum):
-    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-        raise ValueError(f'{label}: expected nonempty text, max {maximum} characters')
-    if any(ord(c) < 32 and c not in '\n\t' for c in value) or any(0xD800 <= ord(c) <= 0xDFFF for c in value):
-        raise ValueError(f'{label}: unsupported control or surrogate character')
-    return value
+    return runtime_common.check_text(value, label, maximum, allow_whitespace_controls=True)
 
 
-def _pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f'duplicate JSON field: {key}')
-        result[key] = value
-    return result
+_pairs = runtime_common.unique_json_pairs
 
 
 def _position_keys(clip, fps):

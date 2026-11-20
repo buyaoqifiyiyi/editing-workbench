@@ -7,6 +7,9 @@ from pathlib import Path
 import stat
 
 
+import file_hash
+
+
 SUFFIXES = {'.otf', '.ttf'}
 VARIABLE_TABLES = {'CFF2', 'fvar', 'gvar'}
 MAX_BYTES = 100 * 1024 * 1024
@@ -18,12 +21,7 @@ def require(value, message):
         raise ValueError(message)
 
 
-def digest(path):
-    value = hashlib.sha256()
-    with Path(path).open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            value.update(block)
-    return value.hexdigest()
+digest = file_hash.sha256
 
 
 def linked(path):

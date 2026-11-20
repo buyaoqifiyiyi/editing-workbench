@@ -374,6 +374,13 @@ class RequalifyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'did not pass'):
                 NATIVE_RENDER(self.candidate, identities, self.root / 'draft', self.root / 'frames', [0.5])
 
+    def test_report_records_scoped_feature_source_identities(self):
+        self.ra.feature_source_identity = lambda feature, inventory=None: {'feature': feature, **(inventory or {})}
+        result = self.run_requalify()
+        report = json.loads(Path(result['report']).read_text(encoding='utf-8'))
+        self.assertEqual(set(report['feature_source_identities']), set(self.ra.FEATURES))
+        self.assertEqual(report['feature_source_identities']['chroma']['feature'], 'chroma')
+
 
 if __name__ == '__main__':
     unittest.main()

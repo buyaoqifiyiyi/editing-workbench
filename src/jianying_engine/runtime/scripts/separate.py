@@ -18,6 +18,7 @@ import tempfile
 import time
 import wave
 from pathlib import Path
+import file_hash
 
 import numpy as np
 
@@ -125,11 +126,7 @@ def write_wav(path, data):
 
 
 def digest(path):
-    checksum = hashlib.sha256()
-    with path.open('rb') as handle:
-        for block in iter(lambda: handle.read(1 << 20), b''):
-            checksum.update(block)
-    return checksum.hexdigest().upper()
+    return file_hash.sha256(path).upper()
 
 
 def run_separation(args):

@@ -1,6 +1,7 @@
 """Measured static HSL controls, with a bounded saturation/lightness pair."""
 import math
 from pathlib import Path
+import native_protocol
 
 CHANNELS={'orange_hsl':(2,'橙色'),'yellow_hsl':(3,'黄色'),'cyan_hsl':(5,'青色'),
           'purple_hsl':(7,'紫色'),'magenta_hsl':(8,'紫红色')}
@@ -65,11 +66,12 @@ def verify(content,plan):
             if type(s.get(k)) is not bool:raise ValueError('Additional HSL native flags must remain boolean')
 
 def preview_check(content,root,install,executable=None):
-    import editor
-    path=Path(root)/'edit-plan.json'
-    declared=path.is_file() and any(requested(c.get('grading')) for c in editor.read_json(path).get('clips',[]))
     observed=any(m.get('hsl_color_type') in (2,3,5,7,8) for m in content.get('materials',{}).get('hsl',[]))
-    if declared or observed:
-        runtime(install,executable)
-        if not path.is_file():raise ValueError('Additional HSL preview requires formal edit-plan.json')
-        plan,_,_=editor.validate_plan(path);editor.verify_structure(content,plan)
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=lambda p:any(requested(c.get('grading')) for c in p.get('clips',[])),
+        missing_plan_error='Additional HSL preview requires formal edit-plan.json',
+        runtime_check=lambda:runtime(install,executable),
+    )

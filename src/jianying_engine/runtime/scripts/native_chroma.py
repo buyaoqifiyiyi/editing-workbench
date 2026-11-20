@@ -2,6 +2,8 @@
 import hashlib
 import json
 from pathlib import Path
+import file_hash
+import native_protocol
 
 MODE = 'installed_chroma2_v1'
 
@@ -10,44 +12,25 @@ def contract():
     return json.loads((Path(__file__).resolve().parents[1] / 'assets/chroma2-v1.json').read_text(encoding='utf-8'))
 
 
-def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def tree(root):
-    root = Path(root)
-    if not root.is_dir() or root.is_symlink() or root.is_junction():
-        raise ValueError('Native resource requires a regular directory')
-    files = {}
-    def visit(directory):
-        for path in directory.iterdir():
-            if path.is_symlink() or path.is_junction():
-                raise ValueError('Native resource contains a link')
-            if path.is_dir():
-                visit(path)
-            elif path.is_file():
-                files[path.relative_to(root).as_posix()] = sha(path)
-            else:
-                raise ValueError('Unsupported native resource entry')
-    visit(root)
-    return files
+    return native_protocol.hash_tree(root)
 
 
 def resource():
-    import editor
-    import runtime_admission
     spec = contract()
-    install = editor.jianying_install()
-    runtime = runtime_admission.expected('chroma', install, spec) if install else None
-    if runtime is None:
-        raise ValueError(runtime_admission.refusal('chroma', install, 'installed_chroma2_v1'))
-    if any(p.is_symlink() or p.is_junction() for p in (install, install / 'Resources')):
-        raise ValueError('Chroma2 installation must not be redirected through links')
-    for relative, expected in runtime.items():
-        path = install / relative
-        if not path.is_file() or path.is_symlink() or sha(path) != expected:
-            raise ValueError('Chroma2 runtime identity changed: ' + str(path))
+    install, _ = native_protocol.verify_admitted_runtime(
+        'chroma',
+        'installed_chroma2_v1',
+        contract=spec,
+        link_dirs=('Resources',),
+        link_error='Chroma2 installation must not be redirected through links',
+        file_error_prefix='Chroma2 runtime identity changed: ',
+        file_error_full_path=True,
+        reject_symlink_files=True,
+    )
     path = install / spec['resource']
     if tree(path) != spec['source_files']:
         raise ValueError('Chroma2 resource identity changed or files are missing/added')
@@ -133,11 +116,7 @@ def verify(content, plan):
 
 
 def preview_check(content):
-    def contains_chroma(value):
-        if isinstance(value, dict):
-            return bool(value.get('chromas')) or any(contains_chroma(v) for v in value.values())
-        return isinstance(value, list) and any(contains_chroma(v) for v in value)
-    if contains_chroma(content.get('materials', {}).get('drafts', [])):
+    if any(obj.get('chromas') for obj in native_protocol.iter_objects(content.get('materials', {}).get('drafts', []))):
         raise ValueError('Native preview refuses unadmitted nested chroma')
     for material in content.get('materials', {}).get('chromas', []):
         if material.get('path') != resource() or material.get('version') != 'v2' or material.get('resource_id') != '':

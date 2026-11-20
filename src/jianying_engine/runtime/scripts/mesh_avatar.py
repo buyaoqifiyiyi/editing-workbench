@@ -11,6 +11,7 @@ import sys
 import tempfile
 import re
 from PIL import Image, ImageDraw
+import file_hash
 
 RANGES = {'angleX':(-30,30),'angleY':(-30,30),'angleZ':(-30,30),'breath':(0,1),
           'eyeLOpen':(0,1.25),'eyeROpen':(0,1.25),'mouthOpen':(0,1),'mouthForm':(-1,1)}
@@ -28,11 +29,7 @@ def studio_path(value):
         raise ValueError('studio requires built runtime and installed Playwright')
     return studio
 
-def digest(path):
-    h = hashlib.sha256()
-    with path.open('rb') as f:
-        for block in iter(lambda: f.read(1024*1024), b''): h.update(block)
-    return h.hexdigest()
+digest = file_hash.sha256
 
 def video_info(path):
     ffprobe=shutil.which('ffprobe')

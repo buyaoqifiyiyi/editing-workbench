@@ -21,6 +21,11 @@ import runpy
 import subprocess
 import sys
 from types import SimpleNamespace
+try:
+    import file_hash
+    import runtime_common
+except ModuleNotFoundError:
+    from jianying_engine.runtime.scripts import file_hash, runtime_common
 
 SCRIPTS = Path(__file__).resolve().parent
 TOLERANCE = 2  # max per-channel difference out of 255, the bound the admitted subsets already use
@@ -34,18 +39,12 @@ PREVIEW_CHECKS = ('native_preview', 'alpha_video')
 STRUCTURAL_CHECKS = ('native_preview', 'preview_sequence')
 
 
-def sha(path):
-    # Admission checks must not reuse a size/mtime cache across an update.
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def source_snapshot():
     """Bind the review to the exact checked-in runtime scripts and contracts used to run it."""
-    runtime = SCRIPTS.parent
-    files = [p for p in SCRIPTS.iterdir() if p.is_file() and p.suffix in ('.py', '.cjs')]
-    files += [p for p in (runtime / 'assets').glob('*.json') if p.is_file()]
-    return {p.relative_to(runtime).as_posix(): sha(p) for p in sorted(files)}
+    return runtime_common.runtime_source_identity(SCRIPTS.parent)
 
 
 def verify_source_snapshot(expected):
@@ -213,27 +212,14 @@ def write_report(path, report):
 def review_lock():
     """Serialize manual and workbench reviews that share an admission store."""
     import runtime_admission
-    directory = runtime_admission.store_path().resolve().parent
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / 'requalification-execution.lock').open('a+b') as lock:
-        lock.seek(0)
-        try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise ValueError('Another Jianying version review is already running') from exc
-        try:
-            yield
-        finally:
-            if os.name == 'nt':
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    lock_path = runtime_admission.store_path().resolve().parent / 'requalification-execution.lock'
+    with runtime_common.file_lock(
+        lock_path,
+        blocking=False,
+        pad_empty=False,
+        busy_message='Another Jianying version review is already running',
+    ):
+        yield
 
 
 def requalify(candidate, reference, out, timeout=1500, accept=()):
@@ -371,6 +357,10 @@ def _requalify(candidate, reference, out, timeout=1500, accept=()):
     verify_snapshot(reference, frozen_reference)
     verify_snapshot(candidate, frozen_candidate)
     verify_source_snapshot(frozen_source)
+    frozen_feature_sources = (
+        {f: runtime_admission.feature_source_identity(f, frozen_source) for f in runtime_admission.FEATURES}
+        if hasattr(runtime_admission, 'feature_source_identity') else None
+    )
     report = {'candidate': str(candidate), 'reference': str(reference),
               'measured': datetime.datetime.now().isoformat(timespec='seconds'), 'tolerance': TOLERANCE,
               'features': features, 'admitted': admitted, 'store': str(store) if store else None,
@@ -380,6 +370,7 @@ def _requalify(candidate, reference, out, timeout=1500, accept=()):
               'reference_identities': {f: files for f, (files, _) in frozen_reference.items()},
               'candidate_manifest_sha256': manifest_digest,
               'source_identity': frozen_source,
+              **({'feature_source_identities': frozen_feature_sources} if frozen_feature_sources is not None else {}),
               'checks': checks, 'pairs': pairs}
     write_report(report_path, report)
     verify_snapshot(reference, frozen_reference)

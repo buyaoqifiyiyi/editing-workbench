@@ -12,16 +12,8 @@ import sys
 import time
 from PIL import Image
 import editor
-import local_font
-import native_mask_feather
-import native_chroma
-import native_mix_mode
-import native_text_highlight
-import native_text_alpha
-import native_advanced
-import native_hsl_channels
-import native_beat
-import native_primary_wheel
+import file_hash
+import native_protocol
 
 
 SEQUENCE_FPS = (15, 30)
@@ -35,9 +27,7 @@ SEQUENCE_KEYS = frozenset({
 })
 
 
-def digest(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+digest = file_hash.sha256
 
 
 def draft_clock(content):
@@ -199,17 +189,7 @@ def preview(install, draft, output, times, runtime=None, sequence=None):
     content = editor.read_json(draft)  # This interface accepts plaintext generated drafts only.
     if not isinstance(content, dict):
         raise ValueError('Native preview requires a plaintext draft object')
-    local_font.preview_check(content, draft.parent)
-    native_mask_feather.preview_check(content, draft.parent)
-    native_chroma.preview_check(content)
-    native_mix_mode.preview_check(content, draft.parent, install)
-    native_text_highlight.preview_check(content, draft.parent, install)
-    native_text_alpha.preview_check(content, draft.parent, install)
-    native_advanced.corner_preview_check(content, draft.parent, install, runtime)
-    native_advanced.green_lightness_preview_check(content, draft.parent, install, runtime)
-    native_hsl_channels.preview_check(content, draft.parent, install, runtime)
-    native_beat.preview_check(content, draft.parent, install)
-    native_primary_wheel.preview_check(content, draft.parent, install)
+    native_protocol.run_preview_checks(content, draft.parent, install, runtime)
     raw_duration, duration, fps = draft_clock(content)
     if sequence is None:
         if not 1 <= len(times) <= 8 or any(

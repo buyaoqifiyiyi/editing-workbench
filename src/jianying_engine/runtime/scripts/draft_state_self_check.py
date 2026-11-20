@@ -4,10 +4,9 @@ import hashlib
 from pathlib import Path
 from types import SimpleNamespace as Args
 import editor
+import file_hash
 
-
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+digest = file_hash.sha256
 
 
 def check(root):

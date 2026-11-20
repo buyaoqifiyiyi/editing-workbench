@@ -9,6 +9,7 @@ import shutil
 import struct
 
 from .api import RUNTIME
+from .runtime.scripts import runtime_common
 
 
 _EXECUTABLES = {
@@ -18,34 +19,7 @@ _EXECUTABLES = {
 
 
 def _file_version(path):
-    if os.name != 'nt':
-        return None
-    try:
-        from ctypes import wintypes
-        library = ctypes.WinDLL('version', use_last_error=True)
-        size = library.GetFileVersionInfoSizeW
-        size.argtypes, size.restype = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD
-        count = size(str(path), None)
-        if not count:
-            return None
-        buffer = ctypes.create_string_buffer(count)
-        load = library.GetFileVersionInfoW
-        load.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID]
-        query = library.VerQueryValueW
-        query.argtypes = [wintypes.LPCVOID, wintypes.LPCWSTR,
-                          ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
-        pointer, length = ctypes.c_void_p(), wintypes.UINT()
-        if not load(str(path), 0, count, buffer) or not query(buffer, '\\', ctypes.byref(pointer), ctypes.byref(length)):
-            return None
-        if length.value < 52:
-            return None
-        fields = struct.unpack('<13I', ctypes.string_at(pointer, 52))
-        if fields[0] != 0xFEEF04BD:
-            return None
-        return '.'.join(str(value) for value in (fields[2] >> 16, fields[2] & 65535,
-                                                fields[3] >> 16, fields[3] & 65535))
-    except (OSError, ValueError):
-        return None
+    return runtime_common.pe_file_version(path)
 
 
 def _path(value):

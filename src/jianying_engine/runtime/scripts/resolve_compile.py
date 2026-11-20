@@ -9,43 +9,25 @@ import json
 import math
 from pathlib import Path
 import re
+try:
+    import runtime_common
+except ModuleNotFoundError:
+    from jianying_engine.runtime.scripts import runtime_common
 
 
 def _object(value, allowed, required, label):
-    if not isinstance(value, dict) or any(not isinstance(k, str) for k in value):
-        raise ValueError(f'{label}: expected object with text keys')
-    unknown, missing = set(value) - set(allowed), set(required) - set(value)
-    if unknown:
-        raise ValueError(f'{label}: unsupported fields {sorted(unknown)}')
-    if missing:
-        raise ValueError(f'{label}: missing fields {sorted(missing)}')
-    return value
+    return runtime_common.check_object(value, allowed, required, label, require_text_keys=True)
 
 
 def _number(value, label, low, high):
-    try:
-        finite = type(value) in (int, float) and math.isfinite(value)
-    except OverflowError:
-        finite = False
-    if not finite or not low <= value <= high:
-        raise ValueError(f'{label}: expected finite number in [{low}, {high}]')
-    return value
+    return runtime_common.check_number(value, label, low, high, style='range')
 
 
 def _text(value, label, maximum):
-    if (not isinstance(value, str) or not value.strip() or len(value) > maximum
-            or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)):
-        raise ValueError(f'{label}: expected nonempty text without control characters, max {maximum}')
-    return value
+    return runtime_common.check_text(value, label, maximum, allow_whitespace_controls=False)
 
 
-def _pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f'duplicate JSON field: {key}')
-        result[key] = value
-    return result
+_pairs = runtime_common.unique_json_pairs
 
 
 def _constant(value):

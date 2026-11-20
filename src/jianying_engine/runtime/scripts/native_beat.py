@@ -19,6 +19,7 @@ from pathlib import Path
 import uuid
 
 import file_hash
+import native_protocol
 
 CONTRACT = Path(__file__).resolve().parents[1] / 'assets/native-beat-11.7-candidate.json'
 MATERIAL = dict(type='beats', enable_ai_beats=False, gear=404, gear_count=0,
@@ -127,29 +128,22 @@ def validate_media(plan, probes):
         validate_cfr_timestamps(timestamps, spec['video_seconds'] * 30)
 
 
-def objects(value):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from objects(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from objects(child)
+objects = native_protocol.iter_objects
 
 
 def preview_check(content, root, install):
     """Admit beat materials only with their verified plan and the actual preview installation."""
-    import editor
-    plan_path = Path(root) / 'edit-plan.json'
     observed = any(obj.get('type') == 'beats' or bool(obj.get('beats')) for obj in objects(content))
-    declared = plan_path.is_file() and requested(editor.read_json(plan_path))
-    if not observed and not declared:
-        return
-    if not plan_path.is_file():
-        raise ValueError('Native beat preview requires its formal edit-plan.json')
-    runtime(install)
-    plan, _, _ = editor.validate_plan(plan_path)
-    editor.verify_structure(content, plan, Path(root), Path(root))
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=requested,
+        missing_plan_error='Native beat preview requires its formal edit-plan.json',
+        runtime_check=lambda: runtime(install),
+        runtime_first=False,
+        pass_root=True,
+    )
 
 
 def apply(content, plan):

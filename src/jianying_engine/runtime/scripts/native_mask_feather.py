@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import file_hash
+import native_protocol
 
 MODE = 'red_coverage_v1'
 RELATIVE = Path('resources/rectangle-mask-red-coverage-v1')
@@ -14,42 +16,28 @@ def contract():
     return json.loads((Path(__file__).resolve().parents[1] / 'assets/mask-red-coverage-v1.json').read_text(encoding='utf-8'))
 
 
-def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def tree(root):
     """Do not follow links or accept undeclared companion scripts."""
-    root = Path(root)
-    if not root.is_dir() or root.is_symlink() or root.is_junction():
-        raise ValueError('Mask resource must be a regular directory, not a link')
-    result = {}
-    def visit(directory):
-        for path in directory.iterdir():
-            if path.is_symlink() or path.is_junction():
-                raise ValueError('Mask resource contains a link: ' + str(path))
-            if path.is_dir():
-                visit(path)
-            elif path.is_file():
-                result[path.relative_to(root).as_posix()] = sha(path)
-            else:
-                raise ValueError('Unsupported mask resource entry: ' + str(path))
-    visit(root)
-    return result
+    return native_protocol.hash_tree(
+        root,
+        dir_error='Mask resource must be a regular directory, not a link',
+        link_error='Mask resource contains a link',
+        entry_error='Unsupported mask resource entry',
+        include_path=True,
+    )
 
 
 def check_runtime():
-    import editor
-    import runtime_admission
-    install = editor.jianying_install()
-    runtime = runtime_admission.expected('mask_feather', install, contract()) if install else None
-    if runtime is None:
-        raise ValueError(runtime_admission.refusal('mask_feather', install, 'red_coverage_v1'))
-    for relative, expected in runtime.items():
-        path = install / relative
-        if not path.is_file() or sha(path) != expected:
-            raise ValueError('Mask runtime identity changed: ' + str(path))
+    native_protocol.verify_admitted_runtime(
+        'mask_feather',
+        'red_coverage_v1',
+        contract=contract(),
+        file_error_prefix='Mask runtime identity changed: ',
+        file_error_full_path=True,
+    )
 
 
 def requested(item):

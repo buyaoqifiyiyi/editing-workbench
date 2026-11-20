@@ -4,8 +4,7 @@ import hashlib,json,re,tempfile
 import file_hash
 
 
-def sha(path):
-    return file_hash.sha256(path)
+sha = file_hash.sha256
 
 
 def binding(item, canvas, info=None):

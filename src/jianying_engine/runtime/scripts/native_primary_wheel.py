@@ -6,6 +6,7 @@ import uuid
 
 import file_hash
 import native_chroma
+import native_protocol
 
 CONTRACT = Path(__file__).resolve().parents[1] / 'assets/primary-wheel-11.7-v1.json'
 CONTROLS = {'lift': ('red', .5), 'gamma': ('green', -.5), 'gain': ('blue', .5)}
@@ -116,14 +117,7 @@ def apply(content, plan):
                  enable_hsl_curves=False, enable_adjust_mask=False)
 
 
-def objects(value):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from objects(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from objects(child)
+objects = native_protocol.iter_objects
 
 
 def verify(content, plan, install=None):
@@ -198,15 +192,15 @@ def verify(content, plan, install=None):
 
 
 def preview_check(content, root, install):
-    import editor
-    plan_path = Path(root) / 'edit-plan.json'
-    has_material = any(obj.get('primary_color_wheels') or obj.get('type') == 'primary_color_wheels'
-                       for obj in objects(content))
-    declared = plan_path.is_file() and requested(editor.read_json(plan_path))
-    if not has_material and not declared:
-        return
-    if not plan_path.is_file():
-        raise ValueError('Primary wheel preview requires its validated plan')
-    runtime(install)
-    plan, _, _ = editor.validate_plan(plan_path)
-    editor.verify_structure(content, plan, Path(root), Path(root))
+    observed = any(obj.get('primary_color_wheels') or obj.get('type') == 'primary_color_wheels'
+                   for obj in objects(content))
+    native_protocol.verify_plan_preview(
+        content,
+        root,
+        observed=observed,
+        plan_declared=requested,
+        missing_plan_error='Primary wheel preview requires its validated plan',
+        runtime_check=lambda: runtime(install),
+        runtime_first=False,
+        pass_root=True,
+    )

@@ -13,16 +13,16 @@ import time
 import uuid
 
 import editor
+import file_hash
 import resolve_compile
 import resolve_native
+import runtime_common
 
 
 NATIVE = Path(__file__).with_name('resolve_native.py')
 
 
-def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+sha = file_hash.sha256
 
 
 def regular(path):
@@ -73,54 +73,20 @@ def application_identity(apps):
 
 def executable_version(path):
     """Read the Windows PE resource without launching Resolve or its scripting API."""
-    if os.name != 'nt' or not Path(path).is_file():
-        return None
-    import ctypes
-    import struct
-    from ctypes import wintypes
-    api = ctypes.WinDLL('version', use_last_error=True)
-    size_fn = api.GetFileVersionInfoSizeW
-    size_fn.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
-    size_fn.restype = wintypes.DWORD
-    size = size_fn(str(path), None)
-    if not size:
-        return None
-    buffer = ctypes.create_string_buffer(size)
-    load = api.GetFileVersionInfoW
-    load.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID]
-    load.restype = wintypes.BOOL
-    query = api.VerQueryValueW
-    query.argtypes = [wintypes.LPCVOID, wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
-    query.restype = wintypes.BOOL
-    pointer, length = ctypes.c_void_p(), wintypes.UINT()
-    if not load(str(path), 0, size, buffer) or not query(buffer, '\\', ctypes.byref(pointer), ctypes.byref(length)) or length.value < 52:
-        return None
-    fields = struct.unpack('<13I', ctypes.string_at(pointer, 52))
-    if fields[0] != 0xFEEF04BD:
-        return None
-    return [fields[2] >> 16, fields[2] & 65535, fields[3] >> 16, fields[3] & 65535]
+    return runtime_common.pe_file_version_parts(path)
 
 
 @contextmanager
 def resolve_host_lock():
     if os.name != 'nt':
         raise ValueError('Native Resolve execution is currently Windows-only')
-    import msvcrt
-    config_path().parent.mkdir(parents=True, exist_ok=True)
-    with (config_path().parent / 'resolve-host.lock').open('a+b') as stream:
-        if stream.seek(0, os.SEEK_END) == 0:
-            stream.write(b'\0')
-            stream.flush()
-        stream.seek(0)
-        try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as exc:
-            raise ValueError('Resolve workflow busy in another worker') from exc
-        try:
-            yield
-        finally:
-            stream.seek(0)
-            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+    with runtime_common.file_lock(
+        config_path().parent / 'resolve-host.lock',
+        blocking=False,
+        pad_empty=True,
+        busy_message='Resolve workflow busy in another worker',
+    ):
+        yield
 
 
 def doctor(args):

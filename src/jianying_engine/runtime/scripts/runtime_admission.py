@@ -17,9 +17,10 @@ import tempfile
 from pathlib import Path
 
 import file_hash
+import runtime_common
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
-FEATURES = ('preview', 'chroma', 'mask_feather', 'mix', 'text_alpha', 'text_highlight', 'corner', 'green_lightness')
+FEATURES = runtime_common.RUNTIME_FEATURES
 _CANDIDATE = contextvars.ContextVar('requalify_candidate', default=None)
 
 
@@ -89,11 +90,61 @@ def gated_paths():
 
 def source_identity():
     """Hash the runtime scripts and contracts whose behavior the review recorded."""
-    runtime = ASSETS.parent
-    scripts = runtime / 'scripts'
-    files = [p for p in scripts.iterdir() if p.is_file() and p.suffix in ('.py', '.cjs')]
-    files += [p for p in ASSETS.glob('*.json') if p.is_file()]
-    return {p.relative_to(runtime).as_posix(): file_hash.sha256(p) for p in sorted(files)}
+    return runtime_common.runtime_source_identity(ASSETS.parent)
+
+
+_SHARED_FEATURE_FILES = (
+    'scripts/editor.py', 'scripts/editor_build.py', 'scripts/editor_env.py',
+    'scripts/editor_validate.py', 'scripts/file_hash.py', 'scripts/local_font.py',
+    'scripts/native_advanced.py', 'scripts/native_preview.py', 'scripts/native_preview.cjs',
+    'scripts/native_preview_stability.cjs', 'scripts/native_protocol.py',
+    'scripts/requalify.py', 'scripts/run_checks.py',
+    'scripts/runtime_admission.py', 'scripts/runtime_common.py', 'scripts/runtime_paths.py',
+    'assets/native-11.5.json', 'assets/native-extensions-11.5.json', 'assets/native-fonts-11.5.json',
+)
+_FEATURE_FILES = {
+    'preview': ('scripts/native_preview_self_check.py', 'scripts/alpha_video_self_check.py', 'scripts/migrate.py'),
+    'chroma': ('scripts/native_chroma.py', 'scripts/chroma_self_check.py', 'assets/chroma2-v1.json'),
+    'mask_feather': ('scripts/native_mask_feather.py', 'scripts/mask_feather_self_check.py', 'scripts/migrate.py',
+                     'assets/mask-red-coverage-v1.json'),
+    'mix': ('scripts/native_mix_mode.py', 'scripts/native_chroma.py', 'scripts/mix_mode_self_check.py',
+            'assets/mix-modes-v1.json'),
+    'text_alpha': ('scripts/native_text_alpha.py', 'scripts/native_text_highlight.py',
+                   'scripts/text_alpha_self_check.py', 'scripts/text_color_fade_self_check.py',
+                   'assets/text-alpha-v1.json', 'assets/text-highlights-v1.json'),
+    'text_highlight': ('scripts/native_text_highlight.py', 'scripts/native_text_alpha.py',
+                       'scripts/text_highlight_self_check.py', 'scripts/text_color_fade_self_check.py',
+                       'assets/text-highlights-v1.json', 'assets/text-alpha-v1.json'),
+    'corner': ('scripts/corner_pin_self_check.py', 'assets/text-alpha-v1.json'),
+    'green_lightness': ('scripts/native_hsl_channels.py', 'scripts/green_lightness_self_check.py',
+                        'scripts/hsl_channels_self_check.py'),
+}
+
+
+def feature_source_identity(feature, inventory=None):
+    """Hash only the scripts and contracts that affect one version-gated subset."""
+    if feature not in _FEATURE_FILES:
+        raise ValueError(f'Unknown feature: {feature}')
+    inventory = source_identity() if inventory is None else inventory
+    if not isinstance(inventory, dict):
+        return None
+    manifests = ('assets/' + p.name for p in sorted(ASSETS.glob('native-preview-*.json')))
+    required = sorted(set(_SHARED_FEATURE_FILES) | set(manifests) | set(_FEATURE_FILES[feature]))
+    if any(rel not in inventory for rel in required):
+        return None
+    return {rel: inventory[rel] for rel in required}
+
+
+def _source_matches(feature, evidence):
+    scoped = evidence.get('feature_source_identities')
+    if scoped is not None:
+        if not isinstance(scoped, dict):
+            return False
+        expected_identity = feature_source_identity(feature)
+        return (expected_identity is not None
+                and isinstance(scoped.get(feature), dict)
+                and scoped[feature] == expected_identity)
+    return evidence.get('source_identity') == source_identity()
 
 
 def candidate_identity(feature, install):
@@ -174,7 +225,7 @@ def expected(feature, install, contract=None):
                 or Path(evidence.get('candidate', '')).name != install.name
                 or evidence.get('identities', {}).get(feature) != identity
                 or evidence.get('features', {}).get(feature, {}).get('status') != 'admitted'
-                or evidence.get('source_identity') != source_identity()):
+                or not _source_matches(feature, evidence)):
             return None
         reported_absent = evidence['features'][feature].get('absent_contract_files', [])
     except (OSError, ValueError, TypeError, AttributeError):
@@ -196,6 +247,8 @@ def expected(feature, install, contract=None):
         actual, actual_absent = candidate_identity(feature, install)
         if actual != identity or sorted(actual_absent) != sorted(recorded_absent):
             return None
+    if contract is not None and feature in CONTRACTS and files != bundled(feature)[1]:
+        return files
     return dict(identity)
 
 
@@ -244,7 +297,7 @@ def admit(version, reference, identities, report, absent=None, accepted=None):
             or Path(report_data.get('reference', '')).name != reference
             or set(report_data.get('admitted', [])) != set(identities)
             or report_data.get('identities') != identities
-            or report_data.get('source_identity') != source_identity()
+            or any(not _source_matches(feature, report_data) for feature in identities)
             or any(report_data.get('features', {}).get(feature, {}).get('status') != 'admitted'
                    for feature in identities)):
         raise ValueError('Review report does not authorize these exact runtime identities')
@@ -272,40 +325,26 @@ def admit(version, reference, identities, report, absent=None, accepted=None):
         raise ValueError('Candidate identity changed before admission')
     lock_path = path.with_suffix(path.suffix + '.lock')
     # An OS-backed lock is released automatically on process exit; the lock file is only a rendezvous.
-    with open(lock_path, 'a+b') as lock:
-        if os.name == 'nt':
-            import msvcrt
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with runtime_common.file_lock(lock_path, blocking=True, pad_empty=False):
+        if (not file_hash.matches(report, report_hash) or
+                any(not file_hash.matches(candidate / rel, digest)
+                    for files in identities.values() for rel, digest in files.items())):
+            raise ValueError('Review report or candidate identity changed during admission')
+        check_substitutions()
+        data = load()
+        data.setdefault('versions', {})[version] = {'reference': reference, 'features': identities,
+                                                   'absent_contract_files': absent or {},
+                                                   'accepted_frame_differences': accepted or {}, 'report': str(report),
+                                                   'report_sha256': report_hash}
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix=path.name + '.', suffix='.tmp', delete=False) as tmp:
+            tmp_name = tmp.name
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
         try:
-            if (not file_hash.matches(report, report_hash) or
-                    any(not file_hash.matches(candidate / rel, digest)
-                        for files in identities.values() for rel, digest in files.items())):
-                raise ValueError('Review report or candidate identity changed during admission')
-            check_substitutions()
-            data = load()
-            data.setdefault('versions', {})[version] = {'reference': reference, 'features': identities,
-                                                       'absent_contract_files': absent or {},
-                                                       'accepted_frame_differences': accepted or {}, 'report': str(report),
-                                                       'report_sha256': report_hash}
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
-                                             prefix=path.name + '.', suffix='.tmp', delete=False) as tmp:
-                tmp_name = tmp.name
-                json.dump(data, tmp, ensure_ascii=False, indent=2)
-                tmp.flush()
-                os.fsync(tmp.fileno())
-            try:
-                os.replace(tmp_name, path)
-            finally:
-                if os.path.exists(tmp_name):
-                    os.unlink(tmp_name)
+            os.replace(tmp_name, path)
         finally:
-            if os.name == 'nt':
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
     return path

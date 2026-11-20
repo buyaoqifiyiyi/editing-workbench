@@ -75,6 +75,18 @@ CHECKS = {
     'matting_cache': ('matting_cache_self_check.py', 'plan:matting_plan', True, False),
     'coverage': ('coverage_self_check.py', 'out', False, False),
 }
+CACHE_REQUIREMENTS = {
+    'speed_curve': ('rectangle_mask',),
+    'native': ('common_mask', 'rectangle_mask'),
+    'font': ('font:励字志向黑简_特粗',),
+    'text_glow': ('font:励字志向黑简_特粗', 'text_glow:放射发光'),
+    'grading': ('hsl', 'color_curves', 'common_mask'),
+    'circle_mask': ('common_mask',),
+    'extensions': ('blur', 'hsl', 'color_curves', 'common_mask', 'rectangle_mask'),
+    'mask_feather': ('rectangle_mask',),
+    'hsl_channels': ('hsl',),
+    'green_lightness': ('hsl',),
+}
 
 
 class Media:
@@ -102,13 +114,20 @@ class Media:
 
 
 def recorded_install():
-    """Discover an installed build with a matching portable preview manifest."""
+    """Discover an installed build with a matching portable preview manifest or admitted preview subset."""
     manifests = sorted((editor.SKILL_ROOT / 'assets').glob('native-preview-*.json'),
                        key=lambda path: [int(part) for part in path.stem.rsplit('-', 1)[-1].split('.')],
                        reverse=True)
     installed = editor.jianying_install()
     if installed and any(p.stem == 'native-preview-' + installed.name for p in manifests):
         return installed
+    if installed:
+        import runtime_admission
+        try:
+            if runtime_admission.preview_manifest(installed):
+                return installed
+        except (ValueError, OSError):
+            pass
     for manifest in manifests:
         recorded = editor.read_json(manifest).get('install')
         if not recorded:
@@ -152,7 +171,7 @@ def arguments(kind, out, media, options):
     raise ValueError(kind)
 
 
-def skip_reason(name, spec, options, native_ready):
+def skip_reason(name, spec, options, native_ready, cached_resources=None):
     _, kind, needs_native, needs_windows = spec
     if name == 'beats':
         try:
@@ -192,6 +211,13 @@ def skip_reason(name, spec, options, native_ready):
         except ImportError:
             return ('faster-whisper is not importable in this interpreter; offline transcription stays '
                     'unverified here')
+    required_cache = CACHE_REQUIREMENTS.get(name, ())
+    if required_cache:
+        resources = editor.cached_native_resources() if cached_resources is None else cached_resources
+        missing = [key for key in required_cache if not resources.get(key)]
+        if missing:
+            return ('missing local Jianying effect/font cache (' + ', '.join(missing) +
+                    '); download the corresponding packages in Jianying or run with Cache/effect populated')
     try:
         editor.tool('ffmpeg'); editor.tool('ffprobe')
     except ValueError as exc:
@@ -229,6 +255,7 @@ def main():
         editor.native_user_data(); native_ready = True
     except (ValueError, OSError):
         native_ready = False
+    cached_resources = editor.cached_native_resources()
     holder = None
     if options.keep:
         root = options.keep.resolve()
@@ -246,7 +273,7 @@ def main():
     results = []
     for name in options.only or CHECKS:
         spec = CHECKS[name]
-        reason = skip_reason(name, spec, options, native_ready)
+        reason = skip_reason(name, spec, options, native_ready, cached_resources)
         if reason:
             results.append({'check': name, 'status': 'skipped', 'reason': reason}); continue
         started = time.monotonic()
