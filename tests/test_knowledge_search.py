@@ -1,8 +1,9 @@
 """Exercise the bundled pure open-source knowledge library through CLI and MCP interfaces."""
 from pathlib import Path
-import os
-import subprocess
 import json
+import os
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -125,6 +126,51 @@ class KnowledgeInterfaceTests(unittest.TestCase):
         for hint in hints:
             self.assertEqual(hint['guide'], 'capabilities')
             self.assertIn(f'<a id="{hint["anchor"]}"></a>', '\n'.join(cap_lines[max(0, hint['line'] - 3):hint['line']]))
+
+    def test_all_runtime_markdown_links_and_anchors_resolve(self):
+        runtime_root = root / 'src' / 'openedit_engine' / 'runtime'
+        md_files = sorted(runtime_root.rglob('*.md'))
+
+        def _slug(head):
+            s = head.strip().lower()
+            s = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', s)
+            return re.sub(r'\s+', '-', s).strip('-')
+
+        anchors = {}
+        for md in md_files:
+            ids = set()
+            text = md.read_text(encoding='utf-8')
+            ids.update(re.findall(r'<a\s+id=["\']([^"\']+)["\']', text))
+            for line in text.splitlines():
+                m = re.match(r'^#{1,6}\s+(.+?)\s*$', line)
+                if m:
+                    ids.add(_slug(m.group(1)))
+            anchors[md.resolve()] = ids
+
+        dead = []
+        for md in md_files:
+            rel = md.relative_to(runtime_root)
+            for lineno, line in enumerate(md.read_text(encoding='utf-8').splitlines(), 1):
+                for m in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', line):
+                    href = m.group(2).strip()
+                    if href.startswith(('http://', 'https://', 'mailto:', '#')):
+                        continue
+                    target_part, _, frag = href.partition('#')
+                    target = (md.parent / target_part).resolve()
+                    if not target.is_file():
+                        dead.append(f'{rel}:{lineno} -> {href} (missing file)')
+                    elif frag and frag not in anchors.get(target, set()) and _slug(frag) not in anchors.get(target, set()):
+                        dead.append(f'{rel}:{lineno} -> {href} (missing anchor)')
+        self.assertEqual(dead, [])
+
+    def test_recipes_guide_is_discoverable_with_capability_hints(self):
+        res_recipe = api.search_knowledge('标题卡 动效配方', 5)['results']
+        self.assertIn('reference/recipes', {r['guide'] for r in res_recipe})
+        hints = [h['anchor'] for r in res_recipe for h in r.get('capability_hints', [])]
+        self.assertIn('effectcraft-overlays', hints)
+
+        res_chroma = api.search_knowledge('绿幕抠像 ultra_key', 5)['results']
+        self.assertTrue({'reference/green-screen', 'reference/recipes'}.intersection(r['guide'] for r in res_chroma))
 
 
 class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):

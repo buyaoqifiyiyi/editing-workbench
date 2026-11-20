@@ -41,7 +41,7 @@
 
 ## 工具与模板如何落地
 
-下列为当前引擎公开操作名，不承诺每台机器的模型、缓存、资源或后端状态；参数以 `jianying-engine <操作> --help` 和当前能力表为准。执行属于实际任务，查看本地图表或转写不自动授权上传素材、安装或付费。
+下列为当前引擎公开操作名，不承诺每台机器的模型、缓存、资源或后端状态；参数以 `openedit <操作> --help` 和当前能力表为准。执行属于实际任务，查看本地图表或转写不自动授权上传素材、安装或付费。
 
 | 需要解决的问题 | 可用入口 | 不能据此声称 |
 |---|---|---|
@@ -51,12 +51,12 @@
 | 歌曲事件候选与时间映射 | `beats`、`beat-apply` | 每拍必切或模型已听懂音乐 |
 | 指定音视频的分析/成片审片 | `music-edit` 的 `prepare`、`analyze`、`review`；后两者按配置调用服务 | 授权可跨任务、素材分析等于成片审片、模型评语等于认可 |
 | 音量避让 | `ducking`，使用符合前提的声音输入及计划 | 自动包络等于完整混音与试听 |
-| 找/借用已验模板子集 | `templates`→`verify-templates`→`borrow-template` | 标题等于实际播放，或整套模板可迁移；先确认索引和资源存在 |
-| 执行剪映计划 | `capabilities`、`validate`、`layout-tracks`、`build` | 后端构建通过等于原生播放/导出或审美通过 |
-| 查看有限原生画面 | `native-preview`、`preview-sequence` | 静帧等于连续播放；单条外部音轨等于全工程原生混音 |
-| 同一文本、字幕或对话 | `captions` 及当前后端字幕方案 | 机器转写、词级时间或歌词来源已人工核对 |
+| 渲染可复用动效透明配方 | `render-overlay`、`overlays[].recipe`（见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |
+| 校验并构建开源时间轴工程 | `capabilities`、`validate`、`layout-tracks`、`build` | 工程构建或严格全解码通过等于完整连续视听审美通过 |
+| 查看多帧合成预览与无头导出 | `preview`、`export`、`filmcraft-exec` | 离散预览静帧等于连续播放流畅；须结合导出播放核验 |
+| 同一文本、字幕或对话 | `captions`、`graphics.newText` 与 Subtitle 烧录轨 | 机器转写、词级时间或歌词来源已人工核对 |
 
-模板是方法与参数的候选，先检查素材、源时间、图层职责和当前准入；缺少匹配模板时直接原创。用户项目、原始视频、完整工程、模型、缓存和个人偏好不打入可分发知识文件。可核对方法来源见 [来源与证据](creative-knowledge-sources.md)。
+模板与配方是方法与参数的候选，先检查素材、源时间、图层职责和当前能力边界；缺少匹配配方时直接用 `overlays[].layers` 或多轨组合原创。用户项目、原始视频、完整工程、模型、缓存和个人偏好不打入可分发知识文件。可核对方法来源见 [来源与证据](creative-knowledge-sources.md)。
 
 ## 参考片分析与实操对照
 
@@ -64,4 +64,4 @@
 
 本机已将 PySceneDetect 0.7.2 安装在 `%LOCALAPPDATA%/JianyingEngine/optional/pyscenedetect-0.7.2`，只在显式选择该检测器时加载；它使用现有 `cv2`，不下载模型或发送素材。其他环境需自行提供该版本和一个可用的 OpenCV 发行包，以及其 click、numpy、platformdirs、tqdm 依赖；缺失时明确失败，默认 FFmpeg 不受影响。上游包声明依赖 `opencv-python`，与现有 contrib/headless 分发包可能覆盖同一个 cv2；不要让 pip 自动安装第二种 OpenCV。本机采用固定版本包仅安装到独立可选目录、`--no-deps`，复用已检依赖；可选目录不被共享环境的 `pip check` 管理，不能把该检查通过当作此可选包依赖全部合规的证明。来源与BSD许可见可选包的 dist-info/licenses/LICENSE 和 [PySceneDetect](https://github.com/Breakthrough/PySceneDetect)。
 
-实际练习用原生可编辑草稿分别生成可观看的基础版及方法版（使用相同源/目标/音轨并明确修改变量）；已有两段视频时，用 `practice-compare --left 左视频 --right 右视频 --left-start 0 --right-start 0 --duration 9 --audio none --goal "要看的表达" --change "本次改变" --out 新目录` 生成对照。`--audio left|right` 明确选择一侧声音；不混两条音轨。输出并排审片及 `comparison.json`，包含输入哈希、窗口、左右侧、目标、变量和验证边界。允许两段不同输入，因此同素材、剧情和音乐一致性仍由执行者核查并记录；编码、解码和哈希不等于观看、听过或用户认可。正式剪映工程和原素材不因对照工具而改变。该流程吸收 [video-agent](https://github.com/agamm/video-agent) 对可追溯选镜与回看的思路；不复用它的其他编辑器或 Apple Silicon 转写假设。
+实际练习用可编辑 `.fcproj` 分别生成可观看的基础版及方法版（使用相同源/目标/音轨并明确修改变量）；已有两段视频时，用 `practice-compare --left 左视频 --right 右视频 --left-start 0 --right-start 0 --duration 9 --audio none --goal "要看的表达" --change "本次改变" --out 新目录` 生成对照。`--audio left|right` 明确选择一侧声音；不混两条音轨。输出并排审片及 `comparison.json`，包含输入哈希、窗口、左右侧、目标、变量和验证边界。允许两段不同输入，因此同素材、剧情和音乐一致性仍由执行者核查并记录；编码、解码和哈希不等于观看、听过或用户认可。正式 FilmCraft 工程和原素材不因对照工具而改变。该流程吸收 [video-agent](https://github.com/agamm/video-agent) 对可追溯选镜与回看的思路；不复用它的其他编辑器或 Apple Silicon 转写假设。

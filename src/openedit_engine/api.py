@@ -435,6 +435,9 @@ _KNOWLEDGE_SYNONYMS = (
     (('音乐', '配乐', '背景乐', 'bgm'), ('音乐', '配乐', 'bgm', '乐句', '重音', '声音')),
     (('字幕', '文字', '排版', '标题'), ('字幕', '文字', '排版', '阅读', '标题', '字体')),
     (('动效', '特效', '透明', 'overlay', 'effectcraft'), ('动效', '特效', '透明', 'prores', 'effectcraft')),
+    (('配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条'), ('配方', 'recipe', '标题卡', '下三分之一', 'effectcraft', 'overlays')),
+    (('绿幕', '抠像', '色键', 'ultra_key', 'color_key'), ('绿幕', '抠像', '色键', 'ultra_key', 'color_key')),
+    (('蒙版', 'mask', '嵌套', 'composites'), ('蒙版', 'mask', '嵌套', 'composites')),
     (('调色', 'lumetri', '曲线', '色轮', 'hsl'), ('调色', 'lumetri', 'hsl', '曲线', '色轮')),
     (('混合模式', 'blend', '滤色', '正片叠底', '叠加'), ('混合模式', 'blend', '滤色', '正片叠底')),
     (('变速', '倒放', 'speed'), ('变速', '倒放', 'speed')),
@@ -449,9 +452,9 @@ _ANCHOR_RE = re.compile(r'^<a\s+id=["\']([^"\']+)["\']\s*>\s*</a>\s*$')
 
 _CAPABILITY_TOPIC_ANCHORS = (
     ('filmcraft-editing', ('剪辑', '时间轴', '多轨', '转场', 'filmcraft')),
-    ('effectcraft-overlays', ('动效', '特效', '透明', 'prores', 'effectcraft', 'overlay')),
+    ('effectcraft-overlays', ('动效', '特效', '透明', 'prores', 'effectcraft', 'overlay', '配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条')),
     ('filmcraft-grading', ('调色', 'lumetri', 'hsl', '曲线', 'lut')),
-    ('filmcraft-blend', ('混合模式', 'blend', 'mix_mode')),
+    ('filmcraft-blend', ('混合模式', 'blend', 'mix_mode', '绿幕', '抠像', '色键', 'ultra_key', 'color_key', '蒙版', 'mask', '嵌套', 'composites')),
     ('text-highlights', ('重点词', 'highlights', '逐词高亮', 'karaoke', '字幕')),
     ('media-prep', ('vfr', '转码', 'normalize', 'ffmpeg')),
     ('transcription', ('转写', 'whisper', 'transcribe')),

@@ -73,6 +73,6 @@ MCP对应`start_job(operation="music-edit", arguments=["prepare", "--request", "
 
 模型只提出source_id和局部时间，编译器映射回原视频，不执行模型返回的代码或路径。原视频按纯开源后端准入：若源视频为手机 VFR 建议先 `normalize-media`；计划默认生成 `30fps` 规范供 FilmCraft 编译，具体扩展字段参见 [能力说明](capabilities.md) 与 [计划规范](plan-format.md)。计划音轨引用包内music.wav，整个感知包作为项目依赖保留，不删除它。BGM增益当前保持1，原视频音量0；需要对白/原声时由Agent按原接口另行安排。
 
-本地媒体构造、两种协议的真实编码内容/认证/请求/响应、模拟模型回执、动作映射和两后端计划校验属于技术接线。真实云端调用、音乐意境匹配、动作识别、正常速度连续视听、宿主保存重开及最终导出分别验收；没有API配置或未用当前模型实测时不声称内容匹配或审美通过。该增量不结清剪映原生beat markers缺口。
+本地媒体构造、两种协议的真实编码内容/认证/请求/响应、模拟模型回执、动作映射和两后端计划校验属于技术接线。真实云端调用、音乐意境匹配、动作识别、正常速度连续视听、工程打开复核及最终导出分别验收；没有API配置或未用当前模型实测时不声称内容匹配或审美通过。该流程与纯开源 [节拍标点指南](beat-marking.md) 配合完成 `audio[].beat_marks` 映射。
 
 来源：[Gemini generateContent](https://ai.google.dev/api/generate-content)、[Gemini视频理解](https://ai.google.dev/gemini-api/docs/video-understanding)、[OpenAI兼容音视频示例](https://docs.qwencloud.com/developer-guides/speech/multimodal-speech)。仅复用公开协议说明，未复制或安装第三方插件代码；云模型服务授权/计费按用户账户。

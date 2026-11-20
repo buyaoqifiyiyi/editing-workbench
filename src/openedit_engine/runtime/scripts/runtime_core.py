@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 import file_hash
+import overlay_recipes
 import runtime_common
 import runtime_paths
 
@@ -293,6 +294,15 @@ def probe(path):
     }
 
 
+def is_filmcraft_hi10p(info):
+    """Return True for 10-bit H.264 (Hi10P), which FilmCraft renders as MEDIA UNREADABLE."""
+    if not isinstance(info, dict) or info.get('kind') != 'video':
+        return False
+    codec = str(info.get('video_codec') or '').lower()
+    pix_fmt = str(info.get('pix_fmt') or '').lower()
+    return codec in {'h264', 'avc', 'avc1'} and any(tok in pix_fmt for tok in ('10le', '10be', 'p10'))
+
+
 def _validate_keyframes(keys, duration, source_in=0.0, speed=1.0, label='item'):
     if not isinstance(keys, list):
         raise ValueError(f'{label}.keyframes must be an array')
@@ -317,38 +327,357 @@ def _validate_keyframes(keys, duration, source_in=0.0, speed=1.0, label='item'):
         seen.add(ident)
 
 
+def _validate_curve_points(points, label, ch):
+    if not isinstance(points, list) or len(points) < 2:
+        raise ValueError(f'{label}.{ch} curve requires at least two [x, y] anchors')
+    last_x = -1.0
+    for pt in points:
+        if not isinstance(pt, list) or len(pt) != 2:
+            raise ValueError(f'{label}.{ch} curve anchor must be [x, y]')
+        x = number(pt[0], f'{label}.{ch}.x', 0, 1)
+        number(pt[1], f'{label}.{ch}.y', 0, 1)
+        if x <= last_x:
+            raise ValueError(f'{label}.{ch} curve x coordinates must strictly increase')
+        last_x = x
+
+
 def _validate_grading(grade, label):
     if not isinstance(grade, dict) or not grade:
         raise ValueError(f'{label}.grading must be a non-empty object')
     allowed = {
         'exposure', 'contrast', 'saturation', 'creative_sat', 'highlights', 'shadows',
-        'whites', 'blacks', 'temperature', 'tint', 'vibrance', 'sharpness', 'vignette',
-        'luma_curve', 'rgb_curves', 'red_hsl', 'green_hsl', 'blue_hsl', 'hsl',
-        'wheels', 'primary_wheel', 'lut', 'look', 'local_circle',
+        'whites', 'blacks', 'temperature', 'tint', 'vibrance', 'sharpness', 'sharpen',
+        'faded_film', 'look_intensity', 'vignette', 'vignette_midpoint',
+        'vignette_roundness', 'vignette_feather', 'luma_curve', 'rgb_curves',
+        'hue_vs_sat', 'hue_vs_hue', 'hue_vs_luma', 'luma_vs_sat', 'sat_vs_sat',
+        'red_hsl', 'green_hsl', 'blue_hsl', 'hsl', 'wheels', 'primary_wheel',
+        'input_lut', 'lut', 'look', 'local_circle',
     }
     fields(grade, allowed, f'{label}.grading')
-    for scalar_key in ('exposure', 'contrast', 'saturation', 'creative_sat', 'highlights', 'shadows',
-                       'whites', 'blacks', 'temperature', 'tint', 'vibrance', 'sharpness', 'vignette'):
+    scalar_ranges = {
+        'exposure': (-5.0, 5.0),
+        'contrast': (-100.0, 100.0),
+        'saturation': (0.0, 200.0),
+        'creative_sat': (0.0, 200.0),
+        'highlights': (-100.0, 100.0),
+        'shadows': (-100.0, 100.0),
+        'whites': (-100.0, 100.0),
+        'blacks': (-100.0, 100.0),
+        'temperature': (-100.0, 100.0),
+        'tint': (-100.0, 100.0),
+        'vibrance': (-100.0, 100.0),
+        'sharpness': (-100.0, 100.0),
+        'sharpen': (-100.0, 100.0),
+        'faded_film': (0.0, 100.0),
+        'look_intensity': (0.0, 200.0),
+        'vignette': (-5.0, 5.0),
+        'vignette_midpoint': (0.0, 100.0),
+        'vignette_roundness': (-100.0, 100.0),
+        'vignette_feather': (0.0, 100.0),
+    }
+    for scalar_key, (low, high) in scalar_ranges.items():
         if scalar_key in grade:
-            number(grade[scalar_key], f'{label}.grading.{scalar_key}', -200, 300)
+            number(grade[scalar_key], f'{label}.grading.{scalar_key}', low, high)
     curves = {}
-    if 'luma_curve' in grade:
-        curves['luma'] = grade['luma_curve']
+    for curve_key in ('luma_curve', 'hue_vs_sat', 'hue_vs_hue', 'hue_vs_luma', 'luma_vs_sat', 'sat_vs_sat'):
+        if curve_key in grade:
+            curves[curve_key] = grade[curve_key]
     if 'rgb_curves' in grade:
         fields(grade['rgb_curves'], {'red', 'green', 'blue'}, f'{label}.grading.rgb_curves')
         curves.update(grade['rgb_curves'])
     for ch, points in curves.items():
-        if not isinstance(points, list) or len(points) < 2:
-            raise ValueError(f'{label}.grading curve {ch} requires at least two [x, y] anchors')
-        last_x = -1.0
-        for pt in points:
-            if not isinstance(pt, list) or len(pt) != 2:
-                raise ValueError(f'{label}.grading curve {ch} anchor must be [x, y]')
-            x = number(pt[0], f'{label}.grading.{ch}.x', 0, 1)
-            number(pt[1], f'{label}.grading.{ch}.y', 0, 1)
-            if x <= last_x:
-                raise ValueError(f'{label}.grading curve {ch} x coordinates must strictly increase')
-            last_x = x
+        _validate_curve_points(points, f'{label}.grading', ch)
+    for lut_key in ('lut', 'look', 'input_lut'):
+        if lut_key in grade:
+            check_text(grade[lut_key], f'{label}.grading.{lut_key}', 1024)
+    wheel_spec = grade.get('wheels') if 'wheels' in grade else grade.get('primary_wheel')
+    if 'wheels' in grade and 'primary_wheel' in grade:
+        raise ValueError(f'{label}.grading cannot specify both wheels and primary_wheel')
+    if wheel_spec is not None:
+        wlabel = f'{label}.grading.wheels'
+        fields(wheel_spec, {'shadows', 'shadows_l', 'midtones', 'midtones_l', 'highlights', 'highlights_l'}, wlabel)
+        for zone in ('shadows', 'midtones', 'highlights'):
+            if zone in wheel_spec:
+                vec = wheel_spec[zone]
+                if not isinstance(vec, list) or len(vec) != 2:
+                    raise ValueError(f'{wlabel}.{zone} must be [x, y]')
+                number(vec[0], f'{wlabel}.{zone}[0]', -1.0, 1.0)
+                number(vec[1], f'{wlabel}.{zone}[1]', -1.0, 1.0)
+            l_key = f'{zone}_l'
+            if l_key in wheel_spec:
+                number(wheel_spec[l_key], f'{wlabel}.{l_key}', -100.0, 100.0)
+    shorthand_hsl = [k for k in ('red_hsl', 'green_hsl', 'blue_hsl') if k in grade]
+    if len(shorthand_hsl) > 1 or (shorthand_hsl and 'hsl' in grade):
+        raise ValueError(
+            f'{label}.grading supports at most one active HSL secondary section; '
+            'use hue_vs_sat/hue_vs_hue/hue_vs_luma curves for multi-color grading'
+        )
+    if 'hsl' in grade:
+        hlabel = f'{label}.grading.hsl'
+        hsl = grade['hsl']
+        fields(hsl, {'hue', 'hue_range', 'sat_min', 'luma_min', 'luma_max', 'soft',
+                     'denoise', 'blur', 'temp', 'tint', 'sat', 'hue_shift'}, hlabel)
+        hsl_ranges = {
+            'hue': (0.0, 360.0), 'hue_range': (1.0, 180.0), 'sat_min': (0.0, 100.0),
+            'luma_min': (0.0, 100.0), 'luma_max': (0.0, 100.0), 'soft': (0.0, 100.0),
+            'denoise': (0.0, 100.0), 'blur': (0.0, 100.0), 'temp': (-100.0, 100.0),
+            'tint': (-100.0, 100.0), 'sat': (0.0, 200.0), 'hue_shift': (-180.0, 180.0),
+        }
+        for hk, (low, high) in hsl_ranges.items():
+            if hk in hsl:
+                number(hsl[hk], f'{hlabel}.{hk}', low, high)
+    for sk in shorthand_hsl:
+        slabel = f'{label}.grading.{sk}'
+        sh = grade[sk]
+        fields(sh, {'hue', 'hue_shift', 'saturation', 'lightness', 'hue_range', 'soft'}, slabel)
+        if 'hue' in sh:
+            number(sh['hue'], f'{slabel}.hue', -180.0, 360.0)
+        if 'hue_shift' in sh:
+            number(sh['hue_shift'], f'{slabel}.hue_shift', -180.0, 180.0)
+        if 'saturation' in sh:
+            number(sh['saturation'], f'{slabel}.saturation', -100.0, 100.0)
+        if 'lightness' in sh:
+            number(sh['lightness'], f'{slabel}.lightness', -100.0, 100.0)
+        if 'hue_range' in sh:
+            number(sh['hue_range'], f'{slabel}.hue_range', 1.0, 180.0)
+        if 'soft' in sh:
+            number(sh['soft'], f'{slabel}.soft', 0.0, 100.0)
+        if 'lightness' in sh and 'hue_vs_luma' in grade:
+            raise ValueError(f'{label}.grading cannot specify both {sk}.lightness and hue_vs_luma')
+    if 'local_circle' in grade:
+        lc = grade['local_circle']
+        lclabel = f'{label}.grading.local_circle'
+        if not isinstance(lc, dict) or not lc:
+            raise ValueError(f'{lclabel} must be a non-empty object')
+        fields(lc, {'center', 'center_x', 'center_y', 'size', 'width', 'height', 'radius',
+                    'feather', 'opacity', 'expansion', 'inverted', 'invert', 'mode'}, lclabel)
+        if 'center' in lc:
+            if not isinstance(lc['center'], list) or len(lc['center']) != 2:
+                raise ValueError(f'{lclabel}.center must be [x, y]')
+            number(lc['center'][0], f'{lclabel}.center[0]', -10000, 20000)
+            number(lc['center'][1], f'{lclabel}.center[1]', -10000, 20000)
+        for k in ('center_x', 'center_y'):
+            if k in lc:
+                number(lc[k], f'{lclabel}.{k}', -10000, 10000)
+        if 'size' in lc:
+            if not isinstance(lc['size'], list) or len(lc['size']) != 2:
+                raise ValueError(f'{lclabel}.size must be [width, height]')
+            number(lc['size'][0], f'{lclabel}.size[0]', 0.0001, 20000)
+            number(lc['size'][1], f'{lclabel}.size[1]', 0.0001, 20000)
+        for k in ('width', 'height'):
+            if k in lc:
+                number(lc[k], f'{lclabel}.{k}', 0.0001, 10.0)
+        if 'radius' in lc:
+            number(lc['radius'], f'{lclabel}.radius', 0.0001, 10000.0)
+        if 'feather' in lc:
+            number(lc['feather'], f'{lclabel}.feather', 0.0, 1000.0)
+        if 'opacity' in lc:
+            number(lc['opacity'], f'{lclabel}.opacity', 0.0, 1.0)
+        if 'expansion' in lc:
+            number(lc['expansion'], f'{lclabel}.expansion', -1000.0, 1000.0)
+        for bkey in ('inverted', 'invert'):
+            if bkey in lc and type(lc[bkey]) is not bool:
+                raise ValueError(f'{lclabel}.{bkey} must be boolean')
+        if 'mode' in lc and lc['mode'] not in ('none', 'add', 'subtract', 'intersect', 'lighten', 'darken', 'difference'):
+            raise ValueError(f'{lclabel}.mode is unsupported: {lc["mode"]}')
+
+
+def _validate_mask_points(pts, label):
+    if not isinstance(pts, list) or len(pts) < 3:
+        raise ValueError(f'{label} must be an array of at least 3 [x, y] points')
+    for idx, pt in enumerate(pts):
+        if not isinstance(pt, list) or len(pt) != 2:
+            raise ValueError(f'{label}[{idx}] must be [x, y]')
+        number(pt[0], f'{label}[{idx}][0]', -10000, 20000)
+        number(pt[1], f'{label}[{idx}][1]', -10000, 20000)
+
+
+def _validate_mask(mask, duration, canvas, label):
+    del canvas
+    mlabel = f'{label}.mask'
+    allowed = {
+        'shape', 'type', 'effect', 'center', 'center_x', 'center_y', 'size',
+        'width', 'height', 'path', 'points', 'corner_radius', 'feather',
+        'opacity', 'expansion', 'inverted', 'invert', 'mode', 'keyframes',
+    }
+    fields(mask, allowed, mlabel)
+    if not mask:
+        raise ValueError(f'{mlabel} must be a non-empty object')
+    raw_shape = mask.get('shape') or mask.get('type')
+    if raw_shape is None:
+        raw_shape = 'polygon' if ('path' in mask or 'points' in mask) else 'rectangle'
+    shape_alias = {'rect': 'rectangle', 'circle': 'ellipse'}.get(raw_shape, raw_shape)
+    if shape_alias not in ('rectangle', 'ellipse', 'polygon', 'bezier'):
+        raise ValueError(f'{mlabel}.shape must be rectangle, ellipse, polygon, or bezier')
+    if 'effect' in mask:
+        check_text(mask['effect'], f'{mlabel}.effect', 128)
+    if 'center' in mask:
+        if not isinstance(mask['center'], list) or len(mask['center']) != 2:
+            raise ValueError(f'{mlabel}.center must be [x, y]')
+        number(mask['center'][0], f'{mlabel}.center[0]', -10000, 20000)
+        number(mask['center'][1], f'{mlabel}.center[1]', -10000, 20000)
+    for k in ('center_x', 'center_y'):
+        if k in mask:
+            number(mask[k], f'{mlabel}.{k}', -10000, 10000)
+    if 'size' in mask:
+        if not isinstance(mask['size'], list) or len(mask['size']) != 2:
+            raise ValueError(f'{mlabel}.size must be [width, height]')
+        number(mask['size'][0], f'{mlabel}.size[0]', 0.0001, 20000)
+        number(mask['size'][1], f'{mlabel}.size[1]', 0.0001, 20000)
+    for k in ('width', 'height'):
+        if k in mask:
+            number(mask[k], f'{mlabel}.{k}', 0.0001, 10.0)
+    if 'path' in mask or 'points' in mask:
+        if 'path' in mask and 'points' in mask:
+            raise ValueError(f'{mlabel} cannot specify both path and points')
+        _validate_mask_points(mask.get('path') if 'path' in mask else mask.get('points'), f'{mlabel}.path')
+    elif shape_alias in ('polygon', 'bezier'):
+        raise ValueError(f'{mlabel} {shape_alias} requires path or points')
+    if 'corner_radius' in mask:
+        number(mask['corner_radius'], f'{mlabel}.corner_radius', 0.0, 2000.0)
+    if 'feather' in mask:
+        number(mask['feather'], f'{mlabel}.feather', 0.0, 1000.0)
+    if 'opacity' in mask:
+        number(mask['opacity'], f'{mlabel}.opacity', 0.0, 1.0)
+    if 'expansion' in mask:
+        number(mask['expansion'], f'{mlabel}.expansion', -1000.0, 1000.0)
+    for bkey in ('inverted', 'invert'):
+        if bkey in mask and type(mask[bkey]) is not bool:
+            raise ValueError(f'{mlabel}.{bkey} must be boolean')
+    if 'mode' in mask and mask['mode'] not in ('none', 'add', 'subtract', 'intersect', 'lighten', 'darken', 'difference'):
+        raise ValueError(f'{mlabel}.mode is unsupported: {mask["mode"]}')
+    if 'keyframes' in mask:
+        kfs = mask['keyframes']
+        if not isinstance(kfs, list) or not kfs:
+            raise ValueError(f'{mlabel}.keyframes must be a non-empty array')
+        for idx, kf in enumerate(kfs):
+            klabel = f'{mlabel}.keyframes[{idx}]'
+            fields(kf, {'time', 'feather', 'opacity', 'expansion', 'path', 'center', 'size'}, klabel, ('time',))
+            number(kf['time'], f'{klabel}.time', 0.0, duration)
+            if not any(k in kf for k in ('feather', 'opacity', 'expansion', 'path', 'center', 'size')):
+                raise ValueError(f'{klabel} must update at least one mask property')
+            if 'feather' in kf:
+                number(kf['feather'], f'{klabel}.feather', 0.0, 1000.0)
+            if 'opacity' in kf:
+                number(kf['opacity'], f'{klabel}.opacity', 0.0, 1.0)
+            if 'expansion' in kf:
+                number(kf['expansion'], f'{klabel}.expansion', -1000.0, 1000.0)
+            if 'path' in kf:
+                _validate_mask_points(kf['path'], f'{klabel}.path')
+            if 'center' in kf:
+                if not isinstance(kf['center'], list) or len(kf['center']) != 2:
+                    raise ValueError(f'{klabel}.center must be [x, y]')
+                number(kf['center'][0], f'{klabel}.center[0]', -10000, 20000)
+                number(kf['center'][1], f'{klabel}.center[1]', -10000, 20000)
+            if 'size' in kf:
+                if not isinstance(kf['size'], list) or len(kf['size']) != 2:
+                    raise ValueError(f'{klabel}.size must be [width, height]')
+                number(kf['size'][0], f'{klabel}.size[0]', 0.0001, 20000)
+                number(kf['size'][1], f'{klabel}.size[1]', 0.0001, 20000)
+
+
+def _validate_chroma(chroma, label):
+    clabel = f'{label}.chroma'
+    allowed = {
+        'method', 'color', 'key_color', 'setting', 'tolerance', 'strength',
+        'transparency', 'highlight', 'shadow', 'pedestal', 'choke', 'soften',
+        'feather', 'spill', 'contrast', 'mid_point', 'desaturate', 'range',
+        'spill_luma', 'thin', 'output',
+    }
+    fields(chroma, allowed, clabel)
+    if not chroma:
+        raise ValueError(f'{clabel} must be a non-empty object')
+    method = chroma.get('method', 'ultra_key')
+    if method not in ('ultra_key', 'color_key'):
+        raise ValueError(f'{clabel}.method must be ultra_key or color_key')
+    for ck in ('color', 'key_color'):
+        if ck in chroma:
+            if not isinstance(chroma[ck], str) or not re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?', chroma[ck]):
+                raise ValueError(f'{clabel}.{ck} must be #RRGGBB or #RRGGBBAA')
+    if 'setting' in chroma and chroma['setting'] not in ('Default', 'Relaxed', 'Aggressive', 'Custom'):
+        raise ValueError(f'{clabel}.setting must be Default, Relaxed, Aggressive, or Custom')
+    if 'output' in chroma and chroma['output'] not in ('Composite', 'Alpha Channel', 'Color Channel'):
+        raise ValueError(f'{clabel}.output must be Composite, Alpha Channel, or Color Channel')
+    if 'tolerance' in chroma:
+        number(chroma['tolerance'], f'{clabel}.tolerance', 0.0, 255.0 if method == 'color_key' else 100.0)
+    if 'thin' in chroma:
+        number(chroma['thin'], f'{clabel}.thin', -5.0, 5.0)
+    for fk in ('strength', 'feather', 'transparency', 'highlight', 'shadow', 'pedestal',
+               'choke', 'soften', 'spill', 'contrast', 'mid_point', 'desaturate', 'range', 'spill_luma'):
+        if fk in chroma:
+            number(chroma[fk], f'{clabel}.{fk}', 0.0, 100.0)
+
+
+def _validate_loudness(spec, label):
+    llabel = f'{label}.loudness'
+    if isinstance(spec, (int, float)) and type(spec) is not bool:
+        number(spec, llabel, -60.0, 0.0)
+        return
+    if not isinstance(spec, dict) or not spec:
+        raise ValueError(f'{llabel} must be a target LUFS number in [-60, 0] or configuration object')
+    fields(spec, {'target_lufs', 'target', 'type', 'enabled'}, llabel)
+    if 'enabled' in spec and type(spec['enabled']) is not bool:
+        raise ValueError(f'{llabel}.enabled must be boolean')
+    if 'type' in spec and spec['type'] not in ('dialogue', 'music', 'sfx', 'ambience'):
+        raise ValueError(f'{llabel}.type must be dialogue, music, sfx, or ambience')
+    target_val = spec.get('target_lufs') if 'target_lufs' in spec else spec.get('target')
+    if target_val is not None:
+        number(target_val, f'{llabel}.target_lufs', -60.0, 0.0)
+
+
+def _validate_effect_entries(entries, label):
+    if not isinstance(entries, list):
+        raise ValueError(f'{label} must be an array')
+    for idx, eff in enumerate(entries):
+        if isinstance(eff, str):
+            check_text(eff, f'{label}[{idx}]', 128)
+        elif isinstance(eff, dict):
+            fields(eff, {'name', 'params'}, f'{label}[{idx}]', ('name',))
+            check_text(eff['name'], f'{label}[{idx}].name', 128)
+            if 'params' in eff and not isinstance(eff['params'], dict):
+                raise ValueError(f'{label}[{idx}].params must be an object')
+        else:
+            raise ValueError(f'{label}[{idx}] must be an effect name or object')
+
+
+def _validate_composites(composites, track_types, canvas):
+    if not isinstance(composites, list):
+        raise ValueError('composites must be an array')
+    allowed = {
+        'name', 'tracks', 'start', 'duration', 'transform', 'keyframes',
+        'motion_easing', 'blend_mode', 'mix_mode', 'mask', 'grading', 'effects', 'filters',
+    }
+    for idx, spec in enumerate(composites):
+        label = f'composites[{idx}]'
+        fields(spec, allowed, label, ('tracks',))
+        if 'name' in spec:
+            check_text(spec['name'], f'{label}.name', 128)
+        tlist = spec['tracks']
+        if not isinstance(tlist, list) or not tlist or any(not isinstance(t, str) or not t.strip() for t in tlist):
+            raise ValueError(f'{label}.tracks must be a non-empty array of track names')
+        unknown_tracks = [t for t in tlist if t not in track_types]
+        if unknown_tracks:
+            raise ValueError(f'{label}.tracks references unknown track(s): {", ".join(unknown_tracks)}')
+        start = number(spec.get('start', 0.0), f'{label}.start', 0.0, 86400.0)
+        duration = number(spec.get('duration', 86400.0), f'{label}.duration', 0.000001, 86400.0)
+        if 'start' in spec:
+            spec['start'] = us(start) / 1_000_000
+        if 'duration' in spec:
+            spec['duration'] = us(duration) / 1_000_000
+        if 'transform' in spec:
+            _validate_transform(spec['transform'], label)
+        if 'keyframes' in spec:
+            _validate_keyframes(spec['keyframes'], duration, label=label)
+        if 'motion_easing' in spec and spec['motion_easing'] not in EASINGS:
+            raise ValueError(f'{label}.motion_easing must be one of {sorted(EASINGS)}')
+        if 'mask' in spec:
+            _validate_mask(spec['mask'], duration, canvas, label)
+        if 'grading' in spec:
+            _validate_grading(spec['grading'], label)
+        if 'effects' in spec:
+            _validate_effect_entries(spec['effects'], f'{label}.effects')
+        if 'filters' in spec:
+            _validate_effect_entries(spec['filters'], f'{label}.filters')
 
 
 def _validate_transform(transform, label):
@@ -454,7 +783,7 @@ def _validate_overlays(plan, base_dir, canvas, tracks, track_types):
     for index, ov in enumerate(overlays):
         label = f'overlays[{index}]'
         fields(ov, {'id', 'name', 'track', 'start', 'duration', 'width', 'height', 'fps',
-                    'layers', 'script', 'effects', 'out_format', 'gpu'},
+                    'layers', 'script', 'recipe', 'params', 'effects', 'out_format', 'gpu'},
                label, ('start', 'duration'))
         name = ov.setdefault('name', ov.get('id') or f'overlay_{index + 1}')
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_\-\u4e00-\u9fff]{1,64}', name):
@@ -473,15 +802,20 @@ def _validate_overlays(plan, base_dir, canvas, tracks, track_types):
         number(ov['width'], f'{label}.width', 64, 7680)
         number(ov['height'], f'{label}.height', 64, 4320)
         number(ov['fps'], f'{label}.fps', 1, 120)
-        if 'layers' not in ov and 'script' not in ov:
-            raise ValueError(f'{label} must specify layers or script')
-        if 'layers' in ov and not isinstance(ov['layers'], list):
-            raise ValueError(f'{label}.layers must be an array')
-        for li, layer in enumerate(ov.get('layers', [])):
-            if not isinstance(layer, dict):
-                raise ValueError(f'{label}.layers[{li}] must be an object')
-            if layer.get('type') == 'footage' and 'path' in layer:
-                layer['path'] = local_media_path(layer['path'], base_dir, f'{label}.layers[{li}].path')
+        if 'recipe' in ov:
+            if 'layers' in ov or 'script' in ov:
+                raise ValueError(f'{label} cannot mix recipe with layers or script')
+            overlay_recipes.validate_recipe_spec(ov)
+        else:
+            if 'layers' not in ov and 'script' not in ov:
+                raise ValueError(f'{label} must specify layers, script, or recipe')
+            if 'layers' in ov and not isinstance(ov['layers'], list):
+                raise ValueError(f'{label}.layers must be an array')
+            for li, layer in enumerate(ov.get('layers', [])):
+                if not isinstance(layer, dict):
+                    raise ValueError(f'{label}.layers[{li}] must be an object')
+                if layer.get('type') == 'footage' and 'path' in layer:
+                    layer['path'] = local_media_path(layer['path'], base_dir, f'{label}.layers[{li}].path')
 
 
 def provenance(plan):
@@ -595,6 +929,11 @@ def validate_plan(plan_path, user_data=None):
             raise ValueError(f'{label}: expected video or image source, got {info["kind"]}')
         if info.get('vfr'):
             warnings.append(f'{label}: variable frame rate detected ({Path(clip["path"]).name}); normalize-media recommended')
+        if is_filmcraft_hi10p(info):
+            warnings.append(
+                f'{label}: 10-bit H.264 ({info.get("pix_fmt")}) detected ({Path(clip["path"]).name}); '
+                'FilmCraft renders Hi10P as MEDIA UNREADABLE — run normalize-media (8-bit yuv420p) before build'
+            )
         number(clip['start'], f'{label}.start', 0, 86400)
         number(clip['duration'], f'{label}.duration', 0.000001, 86400)
         snap_range(clip, label)
@@ -620,6 +959,21 @@ def validate_plan(plan_path, user_data=None):
             raise ValueError(f'{label}.motion_easing must be one of {sorted(EASINGS)}')
         if 'grading' in clip:
             _validate_grading(clip['grading'], label)
+        if 'mask' in clip:
+            _validate_mask(clip['mask'], duration, canvas, label)
+        if 'chroma' in clip:
+            _validate_chroma(clip['chroma'], label)
+        if 'effects' in clip:
+            _validate_effect_entries(clip['effects'], f'{label}.effects')
+        if 'filters' in clip:
+            _validate_effect_entries(clip['filters'], f'{label}.filters')
+        if 'loudness' in clip:
+            _validate_loudness(clip['loudness'], label)
+            if not (info.get('has_audio') and float(clip.get('volume', 0)) > 0):
+                warnings.append(f'{label}.loudness: clip has no active audio stream (volume=0 or no audio track); loudness matching skipped')
+        for legacy_key in ('denoise', 'animations', 'background'):
+            if legacy_key in clip:
+                warnings.append(f'{label}.{legacy_key}: not compiled on timeline; use offline denoise-audio or EffectCraft overlays')
         if 'transition' in clip:
             tr = clip['transition']
             if isinstance(tr, dict):
@@ -662,6 +1016,26 @@ def validate_plan(plan_path, user_data=None):
         _register_track(item['track'], 'audio', item, label, tracks, track_types)
         if info['duration'] > 0 and source_in + duration * speed > info['duration'] + 0.05:
             raise ValueError(f'{label}: selected audio range exceeds source duration {info["duration"]:.3f}s')
+        fade_in = number(item['fade_in'], f'{label}.fade_in', 0.0, duration) if 'fade_in' in item else 0.0
+        fade_out = number(item['fade_out'], f'{label}.fade_out', 0.0, duration) if 'fade_out' in item else 0.0
+        if fade_in + fade_out > duration + 1e-6:
+            raise ValueError(f'{label}: fade_in + fade_out exceeds audio duration {duration:.3f}s')
+        if 'loudness' in item:
+            _validate_loudness(item['loudness'], label)
+        if 'beat_marks' in item:
+            marks = item['beat_marks']
+            if not isinstance(marks, list):
+                raise ValueError(f'{label}.beat_marks must be an array')
+            source_end = source_in + duration * speed
+            last_mark = -1
+            for mi, mark in enumerate(marks):
+                val = number(mark, f'{label}.beat_marks[{mi}]', source_in - 1e-6, source_end + 1e-6)
+                mu = us(val)
+                if mu <= last_mark:
+                    raise ValueError(f'{label}.beat_marks must be strictly increasing')
+                last_mark = mu
+        if 'denoise' in item:
+            warnings.append(f'{label}.denoise: use offline denoise-audio command to generate cleaned WAV before build')
         if 'keyframes' in item:
             validate_parameter_keys(item['keyframes'], duration, label, 0, 10, source_in, speed)
 
@@ -683,6 +1057,8 @@ def validate_plan(plan_path, user_data=None):
             for prev, curr in zip(ordered, ordered[1:]):
                 if end_us(prev) > us(curr['start']):
                     raise ValueError(f'Overlapping items on track: {track} at {curr["start"]:.6f}s')
+
+    _validate_composites(plan['composites'], track_types, canvas)
 
     if 'layer_order' in plan:
         order = plan['layer_order']

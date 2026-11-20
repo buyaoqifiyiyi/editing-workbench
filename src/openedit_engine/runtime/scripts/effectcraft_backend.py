@@ -9,6 +9,7 @@ from PIL import Image
 
 import craft_rpc
 import file_hash
+import overlay_recipes
 import runtime_core as core
 
 DEFAULT_CJK_FONTS = ('Noto Sans SC', 'Microsoft YaHei', 'SimHei')
@@ -80,6 +81,7 @@ def _map_interp(value):
 
 
 def _add_declarative_layer(client, comp_name, layer, width, height, default_font):
+    del width, height
     ltype = layer.get('type', 'text')
     name = layer.get('name')
     if ltype == 'solid':
@@ -95,7 +97,14 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
         elif 'scale' in layer and isinstance(layer['scale'], list):
             client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/scale', 'value': layer['scale']})
     elif ltype == 'shape':
-        res = client.call_tool('execute_command', {'command': 'layer.newShape', 'params': {'name': name} if name else {}})
+        shape_keys = (
+            'kind', 'name', 'size', 'fill', 'fillType', 'fillBlend', 'fillOpacity',
+            'stroke', 'strokeType', 'strokeBlend', 'strokeOpacity', 'strokeWidth', 'position',
+        )
+        shape_params = {k: layer[k] for k in shape_keys if k in layer}
+        if 'size' in shape_params and 'kind' not in shape_params:
+            shape_params['kind'] = 'rounded'
+        res = client.call_tool('execute_command', {'command': 'layer.newShape', 'params': shape_params})
         layer_id = res['layer']
     elif ltype == 'footage':
         res = client.call_tool('execute_command', {'command': 'file.importFile', 'params': {'path': layer['path']}})
@@ -107,35 +116,55 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
         font_family = _pick_cjk_font(client, layer.get('font')) if layer.get('font') else default_font
         size = float(layer.get('size', 68))
         fill = layer.get('color', '#FFFFFF')
-        res = client.call_tool('execute_command', {
-            'command': 'layer.newText',
-            'params': {'text': text_val, 'size': size, 'fill': fill},
-        })
-        layer_id = res['layer']
-        if name:
-            client.call_tool('execute_command', {'command': 'layer.rename', 'params': {'layer': layer_id, 'name': name}})
-        fill_rgb = _hex_to_rgb01(fill, (1.0, 1.0, 1.0))
-        stroke_rgb = _hex_to_rgb01(layer.get('stroke_color', '#0B1220'), (0.04, 0.07, 0.12))
+        stroke_color = layer.get('stroke_color', '#0B1220')
         stroke_width = float(layer.get('stroke_width', 3 if layer.get('stroke', True) else 0))
         apply_stroke = bool(layer.get('stroke', stroke_width > 0) and stroke_width > 0)
-        jsx = (
-            f'var c = app.project.activeItem;'
-            f'var l = c.layer({json.dumps(name or text_val)});'
-            f'var p = l.property("ADBE Text Properties").property("ADBE Text Document");'
-            f'var d = p.value;'
-            f'd.font = {json.dumps(font_family)};'
-            f'd.fontSize = {size};'
-            f'd.fillColor = {json.dumps(fill_rgb)};'
-            f'd.applyStroke = {"true" if apply_stroke else "false"};'
-            f'd.strokeColor = {json.dumps(stroke_rgb)};'
-            f'd.strokeWidth = {stroke_width};'
-            f'p.setValue(d);'
-        )
-        client.call_tool('run_script', {'code': jsx, 'name': 'apply_text_style'})
+        text_params = {
+            'text': text_val,
+            'font': font_family,
+            'size': size,
+            'fill': fill[:7] if isinstance(fill, str) else '#FFFFFF',
+            'stroke': stroke_color[:7] if isinstance(stroke_color, str) else '#0B1220',
+            'applyStroke': apply_stroke,
+            'strokeWidth': stroke_width,
+            'strokeOverFill': bool(layer.get('stroke_over_fill', False)),
+        }
+        if name:
+            text_params['name'] = name
+        if layer.get('font_style') or layer.get('style'):
+            text_params['style'] = str(layer.get('font_style') or layer['style'])
+        if 'justify' in layer or 'align' in layer:
+            text_params['justify'] = str(layer.get('justify') or layer['align'])
+        if 'position' in layer:
+            text_params['position'] = layer['position']
+        if 'box' in layer:
+            text_params['box'] = layer['box']
+        if 'tracking' in layer:
+            text_params['tracking'] = float(layer['tracking'])
+        res = client.call_tool('execute_command', {'command': 'layer.newText', 'params': text_params})
+        layer_id = res['layer']
+
+        for span in layer.get('highlights', []):
+            set_params = {
+                'layer': layer_id,
+                'range': [int(span['start']), int(span['end'])],
+                'fill': str(span['color'])[:7],
+            }
+            if 'size' in span:
+                set_params['size'] = float(span['size'])
+            if 'stroke' in span:
+                set_params['stroke'] = str(span['stroke'])[:7]
+            client.call_tool('execute_command', {'command': 'layer.setText', 'params': set_params})
+
+        if layer.get('text_preset'):
+            client.call_tool('execute_command', {
+                'command': 'layer.applyTextPreset',
+                'params': {'layer': layer_id, 'preset': str(layer['text_preset'])},
+            })
     else:
         raise ValueError(f'Unsupported EffectCraft declarative layer type: {ltype}')
 
-    if 'position' in layer:
+    if 'position' in layer and ltype not in ('shape', 'text'):
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/position', 'value': layer['position']})
     if 'scale' in layer and ltype != 'solid':
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/scale', 'value': layer['scale']})
@@ -143,10 +172,39 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/opacity', 'value': float(layer['opacity'])})
     if 'rotation' in layer:
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/rotation', 'value': float(layer['rotation'])})
+    if layer.get('blend_mode'):
+        client.call_tool('execute_command', {'command': 'layer.setBlendMode', 'params': {'layers': [layer_id], 'mode': str(layer['blend_mode'])}})
+
+    for st in layer.get('styles', []):
+        client.call_tool('execute_command', {'command': f'layer.style.{st}', 'params': {'layers': [layer_id]}})
+
+    for pid in layer.get('builtin_presets', []):
+        client.call_tool('execute_command', {'command': 'anim.applyBuiltinPreset', 'params': {'preset': str(pid), 'layers': [layer_id]}})
+
+    for m in layer.get('masks', []):
+        mask_params = {'layer': layer_id}
+        for mk in ('shape', 'rect', 'roundness', 'mode'):
+            if mk in m:
+                mask_params[mk] = m[mk]
+        m_res = client.call_tool('execute_command', {'command': 'layer.addMask', 'params': mask_params})
+        if 'inverted' in m:
+            mask_id = m_res.get('mask', 1) if isinstance(m_res, dict) else 1
+            client.call_tool('execute_command', {'command': 'layer.setMask', 'params': {
+                'layer': layer_id, 'mask': mask_id, 'inverted': bool(m['inverted']),
+            }})
+
+    # Effects must be attached BEFORE keyframes or expressions referencing effects/#N/... are added.
+    for eff in layer.get('effects', []):
+        eff_name = eff if isinstance(eff, str) else eff['name']
+        eff_vals = None if isinstance(eff, str) else eff.get('values')
+        args = {'comp': comp_name, 'layer': layer_id, 'effect': eff_name}
+        if eff_vals:
+            args['values'] = eff_vals
+        client.call_tool('add_effect', args)
 
     for kf_group in layer.get('keyframes', []):
         prop_path = kf_group['path']
-        if not prop_path.startswith(('transform/', 'effects/', 'masks/', '@')):
+        if not prop_path.startswith(('transform/', 'effects/', 'masks/', 'text/', '@')):
             prop_path = {
                 'position': 'transform/position',
                 'scale': 'transform/scale',
@@ -164,34 +222,27 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
 
     for prop_path, expr in layer.get('expressions', {}).items():
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': prop_path, 'expression': expr})
-
-    for eff in layer.get('effects', []):
-        eff_name = eff if isinstance(eff, str) else eff['name']
-        eff_vals = None if isinstance(eff, str) else eff.get('values')
-        args = {'comp': comp_name, 'layer': layer_id, 'effect': eff_name}
-        if eff_vals:
-            args['values'] = eff_vals
-        client.call_tool('add_effect', args)
     return layer_id
 
 
 def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_video=True, preview_time=None, gpu=False):
     """Compile an EffectCraft motion-graphics spec into .ecproj, RGBA PNG, and verified ProRes 4444 .mov."""
     cli = find_cli()
-    out = core.new_directory(out_dir)
-    comp_name = spec.get('name', 'Overlay')
     w = int(spec.get('width', width or 1920))
     h = int(spec.get('height', height or 1080))
     rate = float(spec.get('fps', fps or 30))
-    duration = float(spec['duration'])
+    compiled_spec = overlay_recipes.expand_recipe(spec, width=w, height=h, fps=rate) if 'recipe' in spec else spec
+    out = core.new_directory(out_dir)
+    comp_name = compiled_spec.get('name', 'Overlay')
+    duration = float(compiled_spec['duration'])
     ecproj = out / f'{comp_name}.ecproj'
     preview_png = out / 'preview_rgba.png'
 
     t0 = time.monotonic()
     with craft_rpc.CraftMcpClient([cli, 'mcp']) as client:
         default_font = _pick_cjk_font(client)
-        if spec.get('script'):
-            client.call_tool('run_script', {'code': spec['script'], 'name': comp_name})
+        if compiled_spec.get('script'):
+            client.call_tool('run_script', {'code': compiled_spec['script'], 'name': comp_name})
             state = client.call_tool('get_state')
             active_comp = state.get('activeComp') or comp_name
         else:
@@ -200,7 +251,7 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
                 'params': {'name': comp_name, 'width': w, 'height': h, 'frameRate': rate, 'duration': duration},
             })
             active_comp = comp_name
-            for layer in spec.get('layers', []):
+            for layer in compiled_spec.get('layers', []):
                 _add_declarative_layer(client, active_comp, layer, w, h, default_font)
 
         client.call_tool('save_project', {'path': str(ecproj)})
@@ -233,6 +284,8 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
         'duration': duration,
         'overlay_video': None,
     }
+    if 'recipe' in spec:
+        result['recipe'] = spec['recipe']
 
     if render_video:
         mov_path = out / f'{comp_name}.mov'

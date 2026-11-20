@@ -45,13 +45,13 @@ def decode(path):
 
 
 def resolve_model(explicit):
-    """--model, then JIANYING_WHISPER_MODEL; a HF cache directory or a directory holding model.bin."""
-    candidate = explicit or os.environ.get('JIANYING_WHISPER_MODEL')
+    """--model, then OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL; a HF cache directory or a directory holding model.bin."""
+    candidate = explicit or os.environ.get('OPENEDIT_WHISPER_MODEL') or os.environ.get('JIANYING_WHISPER_MODEL')
     if not candidate:
         listing = ', '.join(f'{name} (model.bin {size:,} B)' for name, size in MODEL_CACHES)
         raise ValueError(
             'Offline transcription needs a local faster-whisper model: pass --model DIR or set '
-            f'JIANYING_WHISPER_MODEL. This Skill ships no weights; the caches measured here are {listing}, '
+            f'OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL. This Skill ships no weights; the caches measured here are {listing}, '
             'either the HF cache directory or its snapshot directory.')
     root = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
     if not root.is_dir():

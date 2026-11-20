@@ -18,12 +18,14 @@ import file_hash
 import filmcraft_backend
 import media_prep
 import open_engine
+import overlay_recipes
 import runtime_core as core
 
 
 class _FakeEffectCraft:
     def __init__(self, calls):
         self.calls = calls
+        self.size = (320, 180)
 
     def __enter__(self):
         return self
@@ -37,14 +39,20 @@ class _FakeEffectCraft:
         if name == 'list_fonts':
             return {'families': [{'family': 'Noto Sans SC'}]}
         if name == 'execute_command':
-            if params.get('command') in ('layer.newText', 'layer.newSolid', 'layer.newShape'):
+            cmd = params.get('command')
+            p = params.get('params', {})
+            if cmd == 'comp.new':
+                self.size = (int(p.get('width', 320)), int(p.get('height', 180)))
+            elif cmd in ('layer.newText', 'layer.newSolid', 'layer.newShape'):
                 return {'layer': f'L_{len(self.calls)}'}
+            elif cmd == 'layer.addMask':
+                return {'mask': 1}
             return {'ok': True}
         if name == 'save_project':
             Path(params['path']).write_text('{"comp": "Title"}', encoding='utf-8')
             return {'saved': True}
         if name == 'render_frame':
-            img = Image.new('RGBA', (320, 180), (0, 0, 0, 0))
+            img = Image.new('RGBA', self.size, (0, 0, 0, 0))
             img.save(params['path'])
             return {'path': params['path']}
         return {}
@@ -113,6 +121,10 @@ class _FakeFilmCraft:
                     })
             elif cid == 'graphics.newText':
                 return {'clip': f'gx_{len(self.calls)}'}
+            elif cid == 'masks.add':
+                return {'clip': p.get('clip'), 'effect': p.get('effect', 'opacity'), 'mask': 0, 'name': 'Mask (1)'}
+            elif cid == 'clip.nest':
+                return {'clips': [f'nest_{len(self.calls)}'], 'sequence': 99}
             elif cid in ('file.saveAs', 'file.exportOtio', 'file.exportFcpxml'):
                 Path(p['path']).write_text('{}', encoding='utf-8')
         return {}
@@ -298,6 +310,349 @@ class OpenEngineTests(unittest.TestCase):
         self.assertIsNone(craft_rpc.extract_png_bytes([{'type': 'text', 'text': 'hi'}]))
         self.assertEqual(open_engine.main(['capabilities']), 0)
         self.assertEqual(open_engine.main(['validate', '--plan', str(self.root / 'missing.json')]), 1)
+
+    def test_direction_a_validation_and_compilation_contracts(self):
+        # 640x480 foreground clip to exercise fit scale composition alongside 1920x1080 canvas.
+        fg = self.root / 'fg640.mp4'
+        core.run([core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                  '-f', 'lavfi', '-i', 'color=c=0x00C832:s=640x480:r=30:d=2',
+                  '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', str(fg)])
+        plan = {
+            'schema_version': 2,
+            'name': 'dir-a-full',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 30},
+            'clips': [
+                {
+                    'path': str(self.v1),
+                    'start': 0.0,
+                    'duration': 2.0,
+                    'track': 'video',
+                    'loudness': {'target_lufs': -16.0, 'type': 'dialogue'},
+                    'filters': [{'name': 'gaussian_blur', 'params': {'blurriness': 2.0}}],
+                    'grading': {
+                        'saturation': 112,
+                        'creative_sat': 105,
+                        'sharpen': 25,
+                        'faded_film': 12,
+                        'look_intensity': 80,
+                        'vignette': -1.5,
+                        'vignette_midpoint': 45,
+                        'hue_vs_sat': [[0.0, 0.5], [0.5, 0.7], [1.0, 0.5]],
+                        'wheels': {'midtones': [0.1, -0.05], 'highlights_l': 8.0},
+                        'red_hsl': {'saturation': 20, 'lightness': 15, 'hue_shift': -5},
+                        'local_circle': {'center_x': 0.0, 'center_y': 0.0, 'radius': 240.0, 'feather': 25.0},
+                    },
+                },
+                {
+                    'path': str(fg),
+                    'start': 0.2,
+                    'duration': 1.5,
+                    'track': 'pip',
+                    'fit': 'contain',
+                    'transform': {'scale_x': 0.5, 'scale_y': 0.5, 'flip_horizontal': True, 'flip_vertical': True},
+                    'keyframes': [{'property': 'uniform_scale', 'time': 0.5, 'value': 0.8}],
+                    'chroma': {'method': 'ultra_key', 'key_color': '#00C832', 'tolerance': 35, 'choke': 10, 'soften': 15},
+                    'mask': {
+                        'shape': 'rectangle',
+                        'center': [960, 540],
+                        'size': [800, 600],
+                        'feather': 0.0,
+                        'opacity': 0.85,
+                        'inverted': False,
+                        'keyframes': [
+                            {'time': 0.0, 'feather': 0.0},
+                            {'time': 0.8, 'center': [1000, 540], 'size': [600, 450], 'feather': 12.0},
+                        ],
+                    },
+                },
+            ],
+            'audio': [
+                {
+                    'path': str(self.audio),
+                    'start': 0.0,
+                    'duration': 2.0,
+                    'track': 'bgm',
+                    'fade_in': 0.25,
+                    'fade_out': 0.3,
+                    'loudness': -18.0,
+                    'beat_marks': [0.25, 0.75, 1.5],
+                },
+            ],
+            'composites': [
+                {
+                    'name': 'PipGroup',
+                    'tracks': ['pip'],
+                    'start': 0.0,
+                    'duration': 2.0,
+                    'transform': {'rotation': 8.0, 'alpha': 0.9},
+                    'grading': {'contrast': 10},
+                },
+            ],
+        }
+        p_path = self.root / 'dir_a.json'
+        core.write_json(p_path, plan)
+        normalized, probes, warnings = core.validate_plan(p_path)
+        self.assertEqual(warnings, [])
+
+        calls = []
+        with patch('filmcraft_backend.find_cli', return_value='filmcraft-cli'), \
+                patch('craft_rpc.CraftMcpClient', side_effect=lambda *a, **k: _FakeFilmCraft(calls)):
+            report = filmcraft_backend.build_project(normalized, self.root / 'dir_a_out', probes=probes)
+        self.assertEqual(report['status'], 'passed')
+        cmds = [(prm['id'], prm.get('params', {})) for n, prm in calls if n == 'command_run']
+
+        # Fit + flip + composed keyframe scale (640x480 in 1920x1080 contain fit ratio = 2.25)
+        self.assertTrue(any(cid == 'clip.fitToFrame' for cid, _ in cmds))
+        self.assertTrue(any(cid == 'effects.apply' and p.get('effect') == 'horizontal_flip' for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.apply' and p.get('effect') == 'vertical_flip' for cid, p in cmds))
+        self.assertTrue(any(
+            cid == 'effects.setParam' and p.get('effect') == 'motion' and p.get('param') == 'scale'
+            and p.get('keyframe') and abs(p.get('value', 0.0) - 0.8 * 2.25 * 100.0) < 1e-3
+            for cid, p in cmds
+        ))
+
+        # Chroma + static & animated rectangle mask with explicit feather=0 override & 4-vertex keyframe path
+        self.assertTrue(any(cid == 'effects.apply' and p.get('effect') == 'ultra_key' for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'ultra_key' and p.get('param') == 'key_color' for cid, p in cmds))
+        self.assertTrue(any(cid == 'masks.add' and p.get('shape') == 'rectangle' for cid, p in cmds))
+        self.assertTrue(any(cid == 'masks.set' and p.get('feather') == 0.0 and p.get('opacity') == 85.0 for cid, p in cmds))
+        self.assertTrue(any(
+            cid == 'effects.setParam' and p.get('mask') == 0 and p.get('keyframe')
+            and p.get('param') == 'path' and p.get('time') == filmcraft_backend._ticks(1.0)
+            and p.get('value') == [[700.0, 315.0], [1300.0, 315.0], [1300.0, 765.0], [700.0, 765.0]]
+            for cid, p in cmds
+        ))
+        self.assertTrue(any(
+            cid == 'effects.setParam' and p.get('mask') == 0 and p.get('keyframe')
+            and p.get('param') == 'feather' and p.get('time') == filmcraft_backend._ticks(1.0)
+            and p.get('value') == 12.0
+            for cid, p in cmds
+        ))
+
+        # Lumetri saturation vs creative_sat, sharpen, wheels, red_hsl->hsl_sat/hue_vs_luma, local_circle
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'saturation' and p.get('value') == 112 for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'sharpen' and p.get('value') == 25 for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'vignette_amount' and p.get('value') == -1.5 for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'wheel_midtones' and p.get('value') == [0.1, -0.05] for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'hsl_sat' and p.get('value') == 120.0 for cid, p in cmds))
+        self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'lumetri' and p.get('param') == 'hue_vs_luma' for cid, p in cmds))
+        self.assertTrue(any(cid == 'masks.add' and p.get('effect') == 'lumetri' and p.get('shape') == 'ellipse' for cid, p in cmds))
+
+        # Filters + audio transitions + essentialSound setType->autoMatch ordering + beat markers + composite nest
+        self.assertTrue(any(cid == 'effects.apply' and p.get('effect') == 'gaussian_blur' for cid, p in cmds))
+        self.assertTrue(any(cid == 'sequence.applyAudioTransition' and p.get('edge') == 'in' for cid, p in cmds))
+        self.assertTrue(any(cid == 'sequence.applyAudioTransition' and p.get('edge') == 'out' for cid, p in cmds))
+        es_seq = [cid for cid, _ in cmds if cid.startswith('essentialSound.')]
+        self.assertEqual(es_seq, ['essentialSound.setType', 'essentialSound.autoMatch', 'essentialSound.setType', 'essentialSound.autoMatch'])
+        self.assertEqual(sum(1 for cid, _ in cmds if cid == 'markers.add'), 3)
+        self.assertTrue(any(cid == 'clip.nest' and p.get('name') == 'PipGroup' for cid, p in cmds))
+
+        # Silent/no-audio clip with loudness produces a clear warning
+        warn_plan = json.loads(json.dumps(plan))
+        warn_plan['clips'][0].update(path=str(self.v2), volume=0.0)
+        wp = self.root / 'warn_loudness.json'
+        core.write_json(wp, warn_plan)
+        _, _, w_loud = core.validate_plan(wp)
+        self.assertTrue(any('loudness' in w and 'no active audio' in w for w in w_loud))
+
+        # Validation error cases across all 6 new groups
+        invalid_cases = [
+            lambda d: d['clips'][1]['mask'].update(shape='polygon', size=[10, 10]),  # missing path for polygon
+            lambda d: d['clips'][1]['chroma'].update(method='invalid_key'),
+            lambda d: d['audio'][0].update(fade_in=1.5, fade_out=1.0),
+            lambda d: d['audio'][0].update(beat_marks=[1.0, 0.5]),
+            lambda d: d['composites'][0].update(tracks=['missing_track']),
+            lambda d: d['clips'][0]['grading'].update(primary_wheel={'shadows': [0.0, 0.0]}),
+            lambda d: d['clips'][0]['grading'].update(green_hsl={'saturation': 10}),
+            lambda d: d['clips'][0]['grading'].update(hue_vs_luma=[[0.0, 0.5], [1.0, 0.5]]),
+            lambda d: d['clips'][0]['grading'].update(vignette=-18.0),
+            lambda d: d['clips'][0]['grading']['local_circle'].update(bogus=1),
+        ]
+        for idx, mutate in enumerate(invalid_cases):
+            broken = json.loads(json.dumps(plan))
+            mutate(broken)
+            bp = self.root / f'bad_dir_a_{idx}.json'
+            core.write_json(bp, broken)
+            with self.assertRaises(ValueError, msg=f'dir-a invalid case {idx}'):
+                core.validate_plan(bp)
+
+    def test_overlay_recipes_validation_expansion_and_mock_build(self):
+        recipes_meta = overlay_recipes.list_recipes()
+        self.assertEqual(
+            set(recipes_meta),
+            {'title_card', 'lower_third', 'keyword_callout', 'beat_flash', 'cinematic_bars', 'progress_banner'},
+        )
+        sample_specs = [
+            ('title_card', (1920, 1080), {
+                'name': 'r_title', 'duration': 2.0, 'recipe': 'title_card',
+                'params': {'title': '开源引擎标题', 'subtitle': '副标题验证', 'highlights': [{'start': 0, 'end': 4, 'color': '#FACC15'}]},
+            }),
+            ('lower_third', (1080, 1920), {
+                'name': 'r_lt', 'duration': 2.0, 'recipe': 'lower_third',
+                'params': {'title': '主讲人', 'subtitle': '竖屏下三分之一', 'align': 'right'},
+            }),
+            ('keyword_callout', (1920, 1080), {
+                'name': 'r_kw', 'duration': 1.2, 'recipe': 'keyword_callout',
+                'params': {'text': '核心突破点', 'highlights': [{'start': 0, 'end': 2, 'color': '#38BDF8'}]},
+            }),
+            ('beat_flash', (1920, 1080), {
+                'name': 'r_flash', 'duration': 0.5, 'recipe': 'beat_flash',
+                'params': {'peak_time': 0.15, 'peak_opacity': 90, 'blend_mode': 'Screen'},
+            }),
+            ('cinematic_bars', (1080, 1920), {
+                'name': 'r_bars', 'duration': 1.8, 'recipe': 'cinematic_bars',
+                'params': {'bar_ratio': 0.12, 'animate_in': 0.3, 'animate_out': 0.3},
+            }),
+            ('progress_banner', (1920, 1080), {
+                'name': 'r_prog', 'duration': 2.0, 'recipe': 'progress_banner',
+                'params': {'label': '第一章 架构总览', 'progress_start': 0.1, 'progress_end': 0.9, 'position': 'top'},
+            }),
+        ]
+        all_calls = []
+        for idx, (rname, (w, h), spec) in enumerate(sample_specs):
+            ec_calls = []
+            with patch('effectcraft_backend.find_cli', return_value='effectcraft-cli'), \
+                    patch('craft_rpc.CraftMcpClient', side_effect=lambda *a, **k: _FakeEffectCraft(ec_calls)):
+                res = effectcraft_backend.build_overlay(spec, self.root / f'recipe_{idx}_{rname}', width=w, height=h, fps=30, render_video=False)
+            self.assertEqual(res['status'], 'passed')
+            self.assertEqual(res.get('recipe'), rname)
+            self.assertEqual((res['width'], res['height']), (w, h))
+            all_calls.extend(ec_calls)
+
+            # Verify add_effect precedes any add_keyframe targeting effects/#...
+            add_eff_indices = [i for i, (tn, _) in enumerate(ec_calls) if tn == 'add_effect']
+            eff_kf_indices = [i for i, (tn, pr) in enumerate(ec_calls) if tn == 'add_keyframe' and str(pr.get('path', '')).startswith('effects/')]
+            if eff_kf_indices:
+                self.assertTrue(add_eff_indices and min(add_eff_indices) < min(eff_kf_indices), f'{rname}: effect must precede effect keyframe')
+
+        exec_cmds = [(pr.get('command'), pr.get('params', {})) for tn, pr in all_calls if tn == 'execute_command']
+        self.assertTrue(any(c == 'layer.newShape' and p.get('kind') == 'rounded' for c, p in exec_cmds))
+        self.assertTrue(any(c == 'layer.newText' and 'position' in p and 'font' in p for c, p in exec_cmds))
+        self.assertTrue(any(c == 'layer.setText' and p.get('range') == [0, 4] for c, p in exec_cmds))
+        self.assertTrue(any(c == 'layer.applyTextPreset' and p.get('preset') == 'fadeUpCharacters' for c, p in exec_cmds))
+        self.assertTrue(any(c == 'layer.style.dropShadow' for c, _ in exec_cmds))
+        self.assertTrue(any(c == 'layer.setBlendMode' and p.get('mode') == 'Screen' for c, p in exec_cmds))
+
+        # Validate plan accepts overlays[].recipe and rejects invalid recipe payloads
+        valid_plan = {
+            'schema_version': 2,
+            'name': 'recipe-plan',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 30},
+            'clips': [{'path': str(self.v2), 'start': 0.0, 'duration': 2.0}],
+            'overlays': [{'name': 'hero', 'start': 0.0, 'duration': 1.5, 'recipe': 'title_card', 'params': {'title': '配方测试'}}],
+        }
+        vp = self.root / 'recipe_plan.json'
+        core.write_json(vp, valid_plan)
+        norm_p, _, _ = core.validate_plan(vp)
+        self.assertEqual(norm_p['overlays'][0]['recipe'], 'title_card')
+
+        invalid_overlay_cases = [
+            lambda d: d['overlays'][0].update(recipe='nonexistent_recipe'),
+            lambda d: d['overlays'][0]['params'].pop('title'),
+            lambda d: d['overlays'][0]['params'].update(bg_opacity=150),
+            lambda d: d['overlays'][0].update(layers=[{'type': 'text', 'text': 'conflict'}]),
+        ]
+        for idx, mutate in enumerate(invalid_overlay_cases):
+            broken = json.loads(json.dumps(valid_plan))
+            mutate(broken)
+            bp = self.root / f'bad_recipe_{idx}.json'
+            core.write_json(bp, broken)
+            with self.assertRaises(ValueError, msg=f'recipe invalid case {idx}'):
+                core.validate_plan(bp)
+
+    def test_frame_snapped_keyframe_and_nested_interpolation_timing(self):
+        snapped_start = 1545264000000  # frame 365 @ 60fps for start=6.083s
+        snapped_nest_start = 1545264000000
+
+        class _SnappedFilmCraft(_FakeFilmCraft):
+            def call_tool(self, name, params=None):
+                res = super().call_tool(name, params)
+                if name == 'command_run' and (params or {}).get('id') == 'timeline.place':
+                    p = params.get('params', {})
+                    if p.get('video') is not False:
+                        self.seq['video'][-1]['items'][-1].update({
+                            'start': snapped_start, 'sourceIn': 25401600000, 'speed': 1.25,
+                        })
+                elif name == 'command_run' and (params or {}).get('id') == 'clip.nest':
+                    nid = res['clips'][0]
+                    self.seq['video'][0]['items'].append({
+                        'clip': nid, 'start': snapped_nest_start, 'sourceIn': 0, 'speed': 1.0,
+                    })
+                return res
+
+        plan = {
+            'schema_version': 2,
+            'name': 'snap-timing',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 60},
+            'clips': [{
+                'path': str(self.v2), 'start': 6.083, 'duration': 1.0, 'source_in': 0.1, 'speed': 1.25, 'track': 'split_top',
+                'keyframes': [{'property': 'uniform_scale', 'time': 0.2, 'value': 1.1, 'interpolation': 'easeOut'}],
+                'mask': {'shape': 'rectangle', 'center': [960, 540], 'size': [400, 400], 'keyframes': [{'time': 0.0, 'feather': 0.0}]},
+            }],
+            'composites': [{
+                'name': 'SnapNest', 'tracks': ['split_top'], 'start': 6.083, 'duration': 1.0,
+                'keyframes': [{'property': 'uniform_scale', 'time': 0.0, 'value': 1.0, 'interpolation': 'easeOut'}],
+            }],
+        }
+        p_path = self.root / 'snap.json'
+        core.write_json(p_path, plan)
+        norm, probes, _ = core.validate_plan(p_path)
+        calls = []
+        with patch('filmcraft_backend.find_cli', return_value='filmcraft-cli'), \
+                patch('craft_rpc.CraftMcpClient', side_effect=lambda *a, **k: _SnappedFilmCraft(calls)):
+            report = filmcraft_backend.build_project(norm, self.root / 'snap_out', probes=probes)
+        self.assertEqual(report['status'], 'passed')
+        cmds = [(prm['id'], prm.get('params', {})) for n, prm in calls if n == 'command_run']
+        # Nested composite keyframe at t_local=0 must use snapped_nest_start for setParam AND mediaTime=0 for setInterpolation.
+        self.assertTrue(any(
+            cid == 'effects.setParam' and str(p.get('clip', '')).startswith('nest_')
+            and p.get('param') == 'scale' and p.get('time') == snapped_nest_start
+            for cid, p in cmds
+        ))
+        self.assertTrue(any(
+            cid == 'effects.setInterpolation' and str(p.get('clip', '')).startswith('nest_')
+            and p.get('mediaTime') == 0 and p.get('interpolation') == 'easeOut'
+            for cid, p in cmds
+        ))
+        # Speed-scaled clip keyframe & mask keyframe at snapped_start must stay aligned with sourceIn + local*speed.
+        expected_media = round(25401600000 + filmcraft_backend._ticks(0.2) * 1.25)
+        self.assertTrue(any(
+            cid == 'effects.setInterpolation' and not str(p.get('clip', '')).startswith('nest_')
+            and p.get('mediaTime') == expected_media
+            for cid, p in cmds
+        ))
+        self.assertTrue(any(
+            cid == 'effects.setParam' and p.get('mask') == 0 and p.get('time') == snapped_start
+            for cid, p in cmds
+        ))
+
+    def test_hi10p_h264_detection_warning_and_build_refusal(self):
+        self.assertTrue(core.is_filmcraft_hi10p({'kind': 'video', 'video_codec': 'h264', 'pix_fmt': 'yuv420p10le'}))
+        self.assertFalse(core.is_filmcraft_hi10p({'kind': 'video', 'video_codec': 'h264', 'pix_fmt': 'yuv420p'}))
+        self.assertFalse(core.is_filmcraft_hi10p({'kind': 'video', 'video_codec': 'prores', 'pix_fmt': 'yuva444p12le'}))
+
+        hi10p = self.root / 'anime_hi10p.mp4'
+        core.run([
+            core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+            '-f', 'lavfi', '-i', 'testsrc2=s=64x64:r=24:d=1',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le', str(hi10p),
+        ])
+        insp = media_prep.inspect_media(hi10p, self.root / 'inspect_hi10p', frames=1)
+        self.assertTrue(insp['items'][0]['needs_normalization'])
+        self.assertIn('h264_10bit_hi10p_unsupported_by_filmcraft', insp['items'][0]['warnings'])
+
+        plan_path = self.root / 'hi10p_plan.json'
+        core.write_json(plan_path, {
+            'schema_version': 2,
+            'name': 'hi10p-guard',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 30},
+            'clips': [{'path': str(hi10p), 'start': 0.0, 'duration': 0.8}],
+        })
+        norm, probes, warnings = core.validate_plan(plan_path)
+        self.assertTrue(any('10-bit H.264' in w and 'normalize-media' in w for w in warnings))
+        with self.assertRaisesRegex(ValueError, 'normalize-media'):
+            filmcraft_backend.build_project(norm, self.root / 'hi10p_out', probes=probes)
+        self.assertFalse((self.root / 'hi10p_out').exists())
 
 
 def main():

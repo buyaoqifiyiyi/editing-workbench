@@ -51,8 +51,16 @@ def inspect_media(input_path, out_dir, frames=3, max_files=200):
     probed = []
     for idx, media_file in enumerate(candidates):
         info = core.probe(media_file)
+        item_warnings = []
         if info.get('has_video'):
             info['sample_frames'] = _extract_frames(media_file, out / f'item_{idx}', info.get('duration', 0), int(frames))
+            if info.get('vfr'):
+                item_warnings.append('variable_frame_rate')
+            if core.is_filmcraft_hi10p(info):
+                item_warnings.append('h264_10bit_hi10p_unsupported_by_filmcraft')
+        if item_warnings:
+            info['warnings'] = item_warnings
+        info['needs_normalization'] = bool(item_warnings)
         probed.append(info)
 
     report = {'status': 'passed', 'input': str(target), 'count': len(probed), 'items': probed}

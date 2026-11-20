@@ -9,6 +9,7 @@ import sys
 import effectcraft_backend
 import filmcraft_backend
 import media_prep
+import overlay_recipes
 import runtime_core as core
 
 
@@ -85,6 +86,7 @@ def capabilities(query=None, live=False):
         'effectcraft': {
             'project_format': '.ecproj (plaintext JSON)',
             'features': '308 effects, 9 layer styles, shape/solid/text layers, CJK fonts, text animators, masks, expressions, 3D camera/lights, AE-style JS scripting',
+            'overlay_recipes': sorted(overlay_recipes.RECIPES),
             'alpha_overlay_export': 'ProRes 4444 RGBA (.mov, yuva444p12le) -> direct composite onto FilmCraft V2+',
             'caveat': 'WebM VP9 default CLI export drops alpha; ProRes 4444 (.mov) is locked as the verified alpha interchange',
         },

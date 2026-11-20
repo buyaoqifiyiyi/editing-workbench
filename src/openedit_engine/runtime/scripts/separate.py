@@ -50,11 +50,11 @@ def decode(path):
 
 
 def model_path(explicit):
-    """--model, then JIANYING_DEMUCS_MODEL; the Skill does not ship the weights."""
-    candidate = explicit or os.environ.get('JIANYING_DEMUCS_MODEL')
+    """--model, then OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL; the Skill does not ship the weights."""
+    candidate = explicit or os.environ.get('OPENEDIT_DEMUCS_MODEL') or os.environ.get('JIANYING_DEMUCS_MODEL')
     if not candidate:
         raise ValueError(
-            f'Offline separation needs the demucs ONNX model: pass --model PATH or set JIANYING_DEMUCS_MODEL. '
+            f'Offline separation needs the demucs ONNX model: pass --model PATH or set OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL. '
             f'This Skill ships no weights; the file measured here is {MODEL_NAME} '
             f'({MODEL_BYTES:,} B) from {MODEL_SOURCE}.')
     path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
