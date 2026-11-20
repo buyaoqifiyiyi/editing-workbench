@@ -1,4 +1,4 @@
-"""Exercise the bundled knowledge library through the actual guide and MCP interfaces."""
+"""Exercise the bundled pure open-source knowledge library through CLI and MCP interfaces."""
 from pathlib import Path
 import os
 import subprocess
@@ -12,12 +12,17 @@ from mcp import Client, StdioServerParameters
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'src'))
-from jianying_engine import api
-from jianying_engine.mcp_server import create_server
+from openedit_engine import api  # noqa: E402
+from openedit_engine.mcp_server import create_server  # noqa: E402
 
-GUIDES = ('reference/creative-knowledge', 'reference/creative-knowledge-story',
-          'reference/creative-knowledge-techniques', 'reference/creative-knowledge-audio',
-          'reference/creative-knowledge-workflows', 'reference/creative-knowledge-sources')
+GUIDES = (
+    'reference/creative-knowledge',
+    'reference/creative-knowledge-story',
+    'reference/creative-knowledge-techniques',
+    'reference/creative-knowledge-audio',
+    'reference/creative-knowledge-workflows',
+    'reference/creative-knowledge-sources',
+)
 
 
 class KnowledgeInterfaceTests(unittest.TestCase):
@@ -31,7 +36,7 @@ class KnowledgeInterfaceTests(unittest.TestCase):
 
     def test_cli_reads_the_candidate_from_an_unrelated_directory(self):
         code = ('import sys;sys.path.insert(0,sys.argv[1]);'
-                'from jianying_engine.cli import main;'
+                'from openedit_engine.cli import main;'
                 'raise SystemExit(main(["guide","reference/creative-knowledge"]))')
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, '-I', '-c', code,
@@ -69,17 +74,9 @@ class KnowledgeInterfaceTests(unittest.TestCase):
                 self.assertEqual(api.search_knowledge('火山岩浆地质年代')['results'], [])
 
     def test_single_tool_names_and_concrete_methods_are_retrievable(self):
-        for query in ('Whisper', 'Demucs', 'OpenAI', 'Resolve', '绿幕'):
+        for query in ('Whisper', 'Demucs', 'FilmCraft', 'EffectCraft', '绿幕'):
             with self.subTest(query=query):
-                self.assertTrue(api.search_knowledge(query, 3)['results'])
-
-    def test_json_parameters_are_searchable_without_english_substring_false_matches(self):
-        for query in ('effects_adjust_blur', 'effects_adjust_speed'):
-            with self.subTest(query=query):
-                self.assertTrue(api.search_knowledge(query, 5)['results'])
-        for query in ('RAM', 'LAN'):
-            with self.subTest(query=query):
-                self.assertEqual(api.search_knowledge(query)['results'], [])
+                self.assertTrue(api.search_knowledge(query, 3)['results'], query)
 
     def test_usage_command_does_not_outrank_the_requested_story_method(self):
         first = api.search_knowledge('剧情不清 人物目标与代价', 1)['results'][0]
@@ -89,8 +86,8 @@ class KnowledgeInterfaceTests(unittest.TestCase):
                                       'reference/general-editing'})
 
     def test_named_backend_and_sound_method_rank_useful_guides_first(self):
-        self.assertEqual(api.search_knowledge('Resolve', 1)['results'][0]['guide'],
-                         'reference/resolve-workflow')
+        self.assertEqual(api.search_knowledge('EffectCraft', 1)['results'][0]['guide'],
+                         'reference/openedit')
         self.assertNotEqual(api.search_knowledge('J-cut', 1)['results'][0]['guide'],
                             'reference/creative-knowledge-sources')
 
@@ -99,13 +96,13 @@ class KnowledgeInterfaceTests(unittest.TestCase):
         self.assertIn('reference/creative-knowledge-workflows', {x['guide'] for x in results})
 
     def test_registered_operational_guides_are_also_searchable(self):
-        results = api.search_knowledge('草稿路径迁移', 5)['results']
+        results = api.search_knowledge('素材路径迁移', 5)['results']
         self.assertIn('migration', {x['guide'] for x in results})
-        self.assertEqual(api.search_knowledge('剪映剪辑步骤', 1)['results'][0]['guide'], 'editing')
+        self.assertEqual(api.search_knowledge('开源剪辑步骤', 1)['results'][0]['guide'], 'editing')
 
     def test_cli_search_uses_same_local_api(self):
         code = ('import sys;sys.path.insert(0,sys.argv[1]);'
-                'from jianying_engine.cli import main;'
+                'from openedit_engine.cli import main;'
                 'raise SystemExit(main(["knowledge","剧情不清人物目标与代价","--limit","3"]))')
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, '-I', '-c', code,
@@ -114,57 +111,37 @@ class KnowledgeInterfaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)['results'])
 
-    def test_restored_capability_anchors_and_current_mesh_paragraph_exist(self):
+    def test_capability_anchors_and_search_hints(self):
         text = api.read_guide('capabilities')
-        for anchor in ('<a id="alpha-video"></a>', '<a id="mask-rect"></a>',
-                       '<a id="separation"></a>', '<a id="native-beat"></a>'):
-            self.assertIn(anchor, text)
-        self.assertIn('Mesh Avatar 素材制作', text)
-        self.assertIn('ImageGen 每次只接收原图', text)
-
-    def test_search_returns_section_context_anchors_and_capability_hints(self):
-        cap_lines = api.read_guide('capabilities').splitlines()
-        pip_results = api.search_knowledge('画中画重复如何全画幅接管', 5)['results']
-        self.assertTrue(pip_results)
-        for item in pip_results:
-            self.assertGreaterEqual(item['section_start_line'], 1)
-            self.assertIn(item['excerpt'], item['context'])
-        hints = [hint for item in pip_results for hint in item.get('capability_hints', [])]
-        self.assertTrue(hints)
+        for anchor_id in (
+            'filmcraft-editing', 'effectcraft-overlays', 'filmcraft-grading', 'filmcraft-blend',
+            'text-highlights', 'media-prep', 'transcription', 'separation', 'ducking',
+            'offline-denoise', 'beat-editing', 'offline-tracking',
+        ):
+            self.assertIn(f'<a id="{anchor_id}"></a>', text)
+        cap_lines = text.splitlines()
+        hints = [h for item in api.search_knowledge('ProRes 透明通道动效', 5)['results']
+                 for h in item.get('capability_hints', [])]
         for hint in hints:
             self.assertEqual(hint['guide'], 'capabilities')
             self.assertIn(f'<a id="{hint["anchor"]}"></a>', '\n'.join(cap_lines[max(0, hint['line'] - 3):hint['line']]))
 
-        chroma_results = api.search_knowledge('Chroma2 色键绿幕', 5)['results']
-        self.assertTrue(any(item['guide'] == 'capabilities' and item['anchor'] == 'installed-chroma2'
-                            for item in chroma_results))
-
-        speed_results = api.search_knowledge('曲线变速 变速', 5)['results']
-        self.assertTrue(speed_results)
-        self.assertTrue(any(
-            (item['guide'] == 'capabilities' and item['anchor'] == 'speed-curve')
-            or any(h['anchor'] == 'speed-curve' for h in item.get('capability_hints', []))
-            for item in speed_results
-        ))
-
 
 class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
-    async def test_mcp_retrieves_knowledge_and_explains_both_media_calls(self):
+    async def test_mcp_retrieves_knowledge_and_explains_endpoints(self):
         with tempfile.TemporaryDirectory() as state:
             async with Client(create_server(state)) as client:
-                instructions = client.instructions
-                self.assertIn('analyze and review', instructions)
+                self.assertIn('FilmCraft', client.instructions)
                 info = (await client.call_tool('describe_operations', {})).structured_content
                 self.assertIn('reference/creative-knowledge', info['guides'])
-                self.assertIn('analyze and review', info['operations']['music-edit'])
+                self.assertIn('multimodal', info['operations']['music-edit'])
                 for name in GUIDES:
                     result = (await client.call_tool('read_guide', {'name': name})).structured_content
                     self.assertFalse(result.get('truncated'), name)
                     self.assertTrue(result['text'].strip(), name)
                 capability = (await client.call_tool('read_guide', {'name': 'capabilities'})).structured_content
                 self.assertFalse(capability['truncated'])
-                self.assertIn('<a id="mask-rect"></a>', capability['text'])
-                self.assertIn('<a id="native-beat"></a>', capability['text'])
+                self.assertIn('<a id="effectcraft-overlays"></a>', capability['text'])
                 denied = (await client.call_tool('read_guide', {'name': '../../private'})).structured_content
                 self.assertIn('error', denied)
 
@@ -174,9 +151,9 @@ class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
                                              'USERPROFILE', 'TEMP', 'TMP') if k in os.environ}
             env['PYTHONPATH'] = str(root / 'src')
             params = StdioServerParameters(command=sys.executable,
-                args=['-m', 'jianying_engine.mcp_server', '--state-dir', state], env=env)
+                args=['-m', 'openedit_engine.mcp_server', '--state-dir', state], env=env)
             async with Client(params) as client:
-                self.assertIn('analyze and review', client.instructions)
+                self.assertIn('FilmCraft', client.instructions)
                 info = (await client.call_tool('describe_operations', {})).structured_content
                 self.assertIn('reference/creative-knowledge', info['guides'])
                 guide = (await client.call_tool('read_guide',

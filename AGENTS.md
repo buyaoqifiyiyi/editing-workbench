@@ -1,22 +1,24 @@
-# Agent 剪辑引擎
+# OpenEdit Engine 开发与协作规范
 
-本目录是引擎与 Agent Skill 分发模板的源码。执行通过当前 Agent 对话中的编辑技能和本机 CLI/MCP 完成。独立工作台源码用于历史恢复。
+本仓库是纯开源 Agent 剪辑引擎 **`openedit-engine`**（含兼容垫片 **`jianying_engine`**）与 Agent Skill 分发模板的唯一正式源码。
 
-## 开工与资料
+## 目录结构与真值边界
 
-- 先阅读 [README](README.md)。执行 `python -I -m jianying_engine paths` 核对正在使用的解释器与运行时。
-- 本机维护者如有 `AGENTS.local.md`，按其中约定定位正式环境、项目路径、维护台账与验收记录。
-- Agent Skill 的分发模板位于 [adapters/skills/editing-workbench](adapters/skills/editing-workbench)。维护先读引擎 maintenance 指南；按所选宿主执行先读 planning 及对应宿主指南。
-- 素材、草稿、凭据、模型、项目与具体环境的验收资料保存在源码仓库外。续接沿用原项目和软件分工；切换宿主时另存对应计划。
+- **正式核心源码**：[src/openedit_engine](src/openedit_engine)（公共白名单与 BM25 知识检索在 `src/openedit_engine/api.py`，后端目录与探测在 `software_backends.py` / `software_detection.py`，脚本/核心校验/后端编译与参考文档/指南在 `src/openedit_engine/runtime/`）。
+- **向后兼容薄垫片**：[src/jianying_engine](src/jianying_engine) 仅包含 9 个薄委托文件以保持已有脚本/MCP 配置无缝工作；严禁在该目录下编写或分叉独立业务逻辑。
+- **Skill 分发模板**：[adapters/skills/editing-workbench](adapters/skills/editing-workbench) 是同步到外部 Agent Skills 目录的唯一模板来源。
+- **本机环境说明**：如果工作区存在 `AGENTS.local.md`，按其中约定定位本机 Python 虚拟环境、外部项目目录及长期维护台账目录；提交历史前请务必阅读 `README.md` 与 `python -I -m openedit_engine paths`。
 
-## 实施与验证
-- 当前软件适配计划为剪映、Premiere Pro、After Effects、DaVinci Resolve。Agent 按本机安装和各职责当前的准入选择。音频处理通过引擎白名单按需调用。历史工具与资料保留兼容。
+## 实施与验收约束
 
-
-- 先审视目标、错误假设、遗漏和成本。新增实现先复用现有路径及近期适用调研；需要重新选型时考察整个开源生态、官方文档和许可证，简述取舍后实施。
-- 执行实现与资源位于 `src/jianying_engine/runtime`，旧 Skill 路径是兼容入口。新增操作通过 `src/jianying_engine/api.py` 共用白名单接入 CLI/MCP，避免另建一套实现或绕过准入守卫。
-- 新能力逐子集准入：验证参数入口、构建、结构回读、实际原生输出及相关发布/迁移路径，覆盖必要拒绝边界；按影响运行现有检查，涉及发行资源时检查隔离 wheel。单纯规则文档变更检查路径、引用与内容，不重跑媒体测试。
-- 逆向任务若已接入 REA 则调用，并保留实际调用证据、歧义和限制；源码搜索、枚举或字段存在与实际 REA 调用分开记录。研究副本与原装资源分开，静态发现不能直接开放为生产能力。
-- 区分静态检查、自动测试、原生静帧、界面操作、保存重开、连续视听和最终导出；只声明实际完成的层级。用户负责最终完整视听和导出，原生效果保留可编辑参数。
-- 能力状态以运行时 `references/capabilities.md` 及对应验收为准。完成能力接入后，更新外部任务清单与固定功能族缺口台账，明确汇报已接入/受限接入/未接入及剩余数量；子集完成不自动结清整个功能族。
-- 并行工作遵循全局调度规则，隔离写入范围。独立聊天或研究副本的成果需核对差异并串行验收后合入；共享 MCP、浏览器和剪映会话先协调，避免中断其他任务。
+1. **全栈纯开源与单一命令面**：不重新引入任何闭源商业剪辑宿主（剪映、PR、AE、DaVinci）适配或静态/加密逆向逻辑。所有新 CLI/MCP 能力均须先通过 `src/openedit_engine/api.py` 注册白名单与 `OPERATION_SCHEMAS` 后暴露。
+2. **禁止隐式副作用与越权操作**：
+   - 严禁启动任何图形界面客户端（FilmCraft GUI / EffectCraft GUI / 商业软件）；
+   - 严禁修改外部商业软件用户数据目录、缓存或 `%LOCALAPPDATA%\JianyingEngine\runtime-admissions.json`；
+   - 除非用户明确指令，严禁执行 `git commit` 或 `git push`；
+   - 严禁篡改外部已安装 Skill 目录下的 `backends\` 与 `.magpie-library`。
+3. **透明通道中间件规则**：EffectCraft 透明叠层在编码链路上一律使用 `ProRes 4444 RGBA (.mov, yuva444p12le)` 并经 `ffprobe` + 严格解码验收；禁止使用丢 Alpha 的 WebM VP9 默认导出替代。
+4. **分层验收口径（严禁混为一谈）**：
+   - 区分“源码单元测试（`unittest`）”、“运行时自检（`openedit checks`，跳过需外置模型权重的项目须明确标注）”、“实时 stdio MCP 通信”、“实际编译导出 + `ffmpeg -v error -xerror` 严格全解码 + PNG 预览图检查”以及“人工 GUI 微调与连续视听审美确认”。
+   - 任何外部测试/模型/渲染跳过都必须如实记录为未验证或跳过，不得申报为全量实机通过。
+5. **并行隔离与外部台账**：涉及多方改动时隔离输出临时目录；每次重要维护完成并通过全量验收后，记录真实 SHA-256 与验证读数到工作区外维护台账并清理临时编译产物。

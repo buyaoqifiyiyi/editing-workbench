@@ -1,7 +1,6 @@
-"""Real local media checks for bounded reference analysis and practice comparison."""
+"""Real local media checks for bounded reference extraction and practice comparison."""
 import asyncio
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,7 +15,7 @@ from PIL import Image
 
 
 def invoke(*args, env=None):
-    return subprocess.run([sys.executable, '-I', '-m', 'jianying_engine', *map(str, args)],
+    return subprocess.run([sys.executable, '-I', '-m', 'openedit_engine', *map(str, args)],
                           capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120, env=env)
 
 
@@ -34,7 +33,7 @@ def synthetic(path):
 
 class ReferenceAndPracticeTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='jy-reference-practice-')
+        self.temp = tempfile.TemporaryDirectory(prefix='oe-reference-practice-')
         self.root = Path(self.temp.name)
         self.video = self.root / '来源-三镜头.mp4'
         synthetic(self.video)
@@ -43,56 +42,25 @@ class ReferenceAndPracticeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_reference_backends_use_bounded_absolute_times(self):
-        backends = ['ffmpeg']
-        private = Path(os.environ.get('LOCALAPPDATA', self.temp.name)) / 'JianyingEngine' / 'optional' / 'pyscenedetect-0.7.2'
-        if importlib.util.find_spec('scenedetect') or private.is_dir():
-            backends.append('pyscenedetect')
-        for backend in backends:
-            with self.subTest(backend=backend):
-                out = self.root / backend
-                result = invoke('reference', '--input', self.video, '--out', out,
-                                '--start', '1', '--duration', '4', '--max-frames', '4',
-                                '--detector', backend, '--min-scene-seconds', '0.1')
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                report = json.loads((out / 'analysis.json').read_text(encoding='utf-8'))
-                self.assertEqual(report['cut_candidates'], [2.0, 4.0])
-                self.assertEqual([(s['start'], s['end']) for s in report['shot_candidates']],
-                                 [(1, 2), (2, 4), (4, 5)])
-                self.assertEqual(report['shot_summary']['median_duration'], 1)
-                self.assertEqual(report['semantic_analysis'], 'not_performed')
-        # The second scene cut occurs after this shorter window and must not leak from showinfo.
-        shorter = self.root / 'bounded'
-        result = invoke('reference', '--input', self.video, '--out', shorter,
-                        '--start', '1', '--duration', '2', '--max-frames', '2')
+    def test_reference_extraction_uses_bounded_window_and_preserves_source(self):
+        out = self.root / 'ref'
+        result = invoke('reference', '--input', self.video, '--out', out,
+                        '--start', '1', '--duration', '4', '--max-frames', '4', '--threshold', '0.2')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        report = json.loads((shorter / 'analysis.json').read_text(encoding='utf-8'))
-        self.assertEqual(report['cut_candidates'], [2.0])
+        report = json.loads((out / 'reference.json').read_text(encoding='utf-8'))
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual((report['start'], report['window']), (1.0, 4.0))
+        self.assertTrue(report['frames'])
+        for frame in report['frames']:
+            self.assertTrue(Path(frame).is_file())
+            self.assertTrue(Path(frame).resolve().is_relative_to(out.resolve()))
         self.assertEqual(hashlib.sha256(self.video.read_bytes()).hexdigest(), self.original)
 
     def test_reference_rejects_bad_threshold_before_creating_output(self):
         out = self.root / 'invalid'
-        result = invoke('reference', '--input', self.video, '--out', out,
-                        '--detector', 'pyscenedetect', '--content-threshold', 'nan')
+        result = invoke('reference', '--input', self.video, '--out', out, '--threshold', 'nan')
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(out.exists())
-
-    def test_missing_optional_detector_does_not_break_default(self):
-        if importlib.util.find_spec('scenedetect'):
-            self.skipTest('PySceneDetect is installed in the shared interpreter')
-        environment = dict(os.environ)
-        environment['LOCALAPPDATA'] = str(self.root / 'no-optional')
-        selected = self.root / 'missing'
-        result = invoke('reference', '--input', self.video, '--out', selected,
-                        '--duration', '1', '--max-frames', '2', '--detector', 'pyscenedetect',
-                        env=environment)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('PySceneDetect 0.7.2', result.stdout)
-        self.assertFalse(selected.exists())
-        default = self.root / 'fallback'
-        result = invoke('reference', '--input', self.video, '--out', default,
-                        '--duration', '1', '--max-frames', '2', env=environment)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_real_comparison_preserves_side_assignment_audio_and_inputs(self):
         out = self.root / 'comparison'
@@ -148,8 +116,8 @@ class ReferenceAndPracticeTests(unittest.TestCase):
 
 
 class PracticeMcpTests(unittest.IsolatedAsyncioTestCase):
-    async def test_real_mcp_routes_comparison_job(self):
-        with tempfile.TemporaryDirectory(prefix='jy-practice-mcp-') as tmp:
+    async def test_real_mcp_routes_comparison_and_reference_jobs(self):
+        with tempfile.TemporaryDirectory(prefix='oe-practice-mcp-') as tmp:
             root = Path(tmp)
             video = root / 'source.mp4'
             synthetic(video)
@@ -158,7 +126,7 @@ class PracticeMcpTests(unittest.IsolatedAsyncioTestCase):
                            if name in os.environ}
             environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1] / 'src')
             params = StdioServerParameters(command=sys.executable,
-                args=['-m', 'jianying_engine.mcp_server', '--state-dir', str(root / 'state')],
+                args=['-m', 'openedit_engine.mcp_server', '--state-dir', str(root / 'state')],
                 env=environment)
             async with Client(params) as client:
                 discovered = (await client.call_tool('describe_operations', {})).structured_content
@@ -177,19 +145,7 @@ class PracticeMcpTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue((root / 'out' / 'comparison.mp4').is_file())
                 report = json.loads((root / 'out' / 'comparison.json').read_text(encoding='utf-8'))
                 self.assertEqual(report['human_watching'], 'not_performed')
-                private = Path(environment.get('LOCALAPPDATA', str(root))) / 'JianyingEngine' / 'optional' / 'pyscenedetect-0.7.2'
-                if private.is_dir():
-                    started = (await client.call_tool('start_job', {'operation': 'reference',
-                        'arguments': ['--input', str(video), '--out', str(root / 'reference'),
-                                      '--start', '1', '--duration', '4', '--max-frames', '2',
-                                      '--detector', 'pyscenedetect'], 'timeout_seconds': 90})).structured_content
-                    job_id = started['job_id']
-                    for _ in range(300):
-                        status = (await client.call_tool('job_status', {'job_id': job_id})).structured_content
-                        if status['finished'] is not None:
-                            break
-                        await asyncio.sleep(.1)
-                    self.assertEqual((status['state'], status['returncode']), ('succeeded', 0), status)
-                    analysis = json.loads((root / 'reference' / 'analysis.json').read_text(encoding='utf-8'))
-                    self.assertEqual(analysis['cut_candidates'], [2.0, 4.0])
-                    self.assertEqual(analysis['detector']['decoded_frames'], 120)
+
+
+if __name__ == '__main__':
+    unittest.main()

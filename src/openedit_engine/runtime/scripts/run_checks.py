@@ -1,0 +1,153 @@
+"""Single entry for open-source regression checks in isolated temporary directories."""
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+import editor
+
+SCRIPTS = Path(__file__).resolve().parent
+SRC_ROOT = Path(__file__).resolve().parents[3]
+
+# name -> (script, arg_kind)
+CHECKS = {
+    'open_engine': ('open_engine_self_check.py', 'out'),
+    'practice_compare': ('practice_compare_self_check.py', 'out'),
+    'mesh_avatar': ('mesh_avatar_self_check.py', 'out'),
+    'mesh_avatar_project': ('mesh_avatar_project_self_check.py', 'out'),
+    'music_edit': ('music_edit_self_check.py', 'out'),
+    'karaoke': ('karaoke_self_check.py', 'out'),
+    'karaoke_flow': ('karaoke_flow_self_check.py', 'out'),
+    'beats': ('beats_self_check.py', 'out'),
+    'beat_apply': ('beat_apply_self_check.py', 'out'),
+    'reverse': ('reverse_self_check.py', 'out'),
+    'stock': ('stock_self_check.py', 'out'),
+    'migration': ('migration_self_check.py', 'out'),
+    'layout_tracks': ('layout_tracks_self_check.py', 'out'),
+    'ducking': ('ducking_self_check.py', 'out'),
+    'separate': ('separate_self_check.py', 'model'),
+    'transcribe': ('transcribe_self_check.py', 'whisper'),
+    'captions': ('captions_self_check.py', 'out'),
+    'tracking': ('tracking_self_check.py', 'out'),
+    'tracking_apply': ('tracking_apply_self_check.py', 'out'),
+    'offline_denoise': ('offline_denoise_self_check.py', 'out'),
+}
+
+
+def arguments(kind, out, options):
+    if kind == 'out':
+        return ['--out', str(out)]
+    if kind == 'model':
+        return ['--out', str(out), '--model', str(options.demucs_model)]
+    if kind == 'whisper':
+        return ['--out', str(out), '--model', str(options.whisper_model)]
+    raise ValueError(kind)
+
+
+def skip_reason(name, spec, options):
+    _, kind = spec
+    if name == 'beats':
+        try:
+            import importlib.util
+            if importlib.util.find_spec('librosa') is None or importlib.util.find_spec('numba') is None:
+                return 'offline beat analysis needs optional openedit-engine[rhythm] dependencies; unverified here'
+        except ImportError:
+            return 'offline beat analysis dependencies are unavailable; unverified here'
+    if name == 'tracking':
+        try:
+            import av  # noqa: F401
+            import cv2
+            if not callable(getattr(cv2, 'TrackerCSRT_create', None)):
+                return 'OpenCV CSRT is unavailable; install requirements-tracking.txt in this interpreter'
+        except ImportError:
+            return 'offline tracking needs PyAV and OpenCV contrib in this interpreter'
+    if kind == 'model' and not options.demucs_model:
+        return 'needs --demucs-model (htdemucs ONNX weights; engine ships none)'
+    if kind == 'model':
+        try:
+            import onnxruntime  # noqa: F401
+        except ImportError:
+            return 'onnxruntime is not importable in this interpreter; offline separation stays unverified here'
+    if kind == 'whisper' and not options.whisper_model:
+        return 'needs --whisper-model (faster-whisper weights; engine ships none)'
+    if kind == 'whisper':
+        try:
+            import faster_whisper  # noqa: F401
+        except ImportError:
+            return 'faster-whisper is not importable in this interpreter; offline transcription stays unverified here'
+    try:
+        editor.tool('ffmpeg')
+        editor.tool('ffprobe')
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--only', nargs='+', choices=list(CHECKS))
+    parser.add_argument('--keep', type=Path, help='New directory to retain check outputs; default uses a temporary directory')
+    parser.add_argument('--timeout', type=int, default=1200)
+    parser.add_argument('--demucs-model', type=Path, default=None, help='htdemucs ONNX weights directory for separation check')
+    parser.add_argument('--whisper-model', type=Path, default=None, help='faster-whisper model directory for transcription check')
+    options = parser.parse_args(argv)
+
+    for dest in ('demucs_model', 'whisper_model'):
+        val = getattr(options, dest)
+        if val is not None:
+            setattr(options, dest, val.resolve())
+
+    holder = None
+    if options.keep:
+        root = options.keep.resolve()
+        root.mkdir(parents=True, exist_ok=False)
+    else:
+        holder = tempfile.TemporaryDirectory(prefix='openedit-checks-', ignore_cleanup_errors=True)
+        root = Path(holder.name)
+
+    existing_pp = os.environ.get('PYTHONPATH', '')
+    pythonpath = str(SRC_ROOT) + (os.pathsep + existing_pp if existing_pp else '')
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONIOENCODING='utf-8', PYTHONPATH=pythonpath)
+
+    results = []
+    for name in options.only or CHECKS:
+        spec = CHECKS[name]
+        reason = skip_reason(name, spec, options)
+        if reason:
+            results.append({'check': name, 'status': 'skipped', 'reason': reason})
+            continue
+        started = time.monotonic()
+        try:
+            command = [sys.executable, str(SCRIPTS / spec[0]), *arguments(spec[1], root / name, options)]
+            done = subprocess.run(
+                command,
+                cwd=SCRIPTS,
+                env=environment,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=options.timeout,
+            )
+            status = 'passed' if done.returncode == 0 else 'failed'
+            entry = {'check': name, 'status': status, 'seconds': round(time.monotonic() - started, 1)}
+            if status == 'failed':
+                entry['tail'] = (done.stdout + done.stderr)[-1500:]
+        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+            entry = {'check': name, 'status': 'failed', 'tail': f'{type(exc).__name__}: {exc}'}
+        results.append(entry)
+
+    summary = {key: sum(r['status'] == key for r in results) for key in ('passed', 'failed', 'skipped')}
+    editor.emit({'summary': summary, 'evidence': str(root) if options.keep else None, 'results': results})
+    if holder:
+        holder.cleanup()
+    return 1 if summary['failed'] else 0
+
+
+if __name__ == '__main__':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    sys.exit(main())

@@ -1,0 +1,5 @@
+# Open-source core dependencies pinned for Python 3.12+
+fonttools==4.60.2
+imageio==2.38.0
+numpy==2.5.3
+Pillow==12.3.0

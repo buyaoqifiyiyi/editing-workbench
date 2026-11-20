@@ -1,7 +1,5 @@
-"""Local editing tools. Importing this package starts no work or network connection."""
-__version__ = "0.6.3"
+"""Thin transition compatibility package delegating to `openedit_engine`."""
 
+from openedit_engine import __version__
 
-
-
-
+__all__ = ['__version__']

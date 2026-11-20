@@ -1,24 +1,25 @@
-"""Fresh stdio MCP -> native media preparation/analysis fixture -> both backend plans -> real draft."""
+"""Fresh stdio MCP -> media preparation/analysis fixture -> openedit/filmcraft plans -> real .fcproj build."""
 import asyncio
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from mcp import Client, StdioServerParameters
-from jianying_engine import api
-from jianying_engine.workbench import Workbench
+from openedit_engine import api
 import test_music_edit as fixture
 
 
 class MusicEditFlow(unittest.IsolatedAsyncioTestCase):
-    async def test_fresh_mcp_music_pipeline_and_workbench_route(self):
-        sys.path.insert(0, str(api.RUNTIME / 'scripts'))
+    async def test_fresh_mcp_music_pipeline_builds_filmcraft_project(self):
+        scripts_dir = str(api.RUNTIME / 'scripts')
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
         import music_edit
+
         await asyncio.to_thread(fixture.MusicEditTests.setUpClass)
         self.addCleanup(fixture.MusicEditTests.tearDownClass)
         with tempfile.TemporaryDirectory(prefix='music-edit-mcp-') as temporary:
@@ -29,9 +30,11 @@ class MusicEditFlow(unittest.IsolatedAsyncioTestCase):
                            ('PATH', 'SYSTEMROOT', 'LOCALAPPDATA', 'USERPROFILE', 'TEMP', 'TMP') if name in os.environ}
             environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1] / 'src')
             environment['PYTHONIOENCODING'] = 'utf-8'
-            parameters = StdioServerParameters(command=sys.executable,
-                                              args=['-m', 'jianying_engine.mcp_server', '--state-dir', str(root / 'jobs')],
-                                              env=environment)
+            parameters = StdioServerParameters(
+                command=sys.executable,
+                args=['-m', 'openedit_engine.mcp_server', '--state-dir', str(root / 'jobs')],
+                env=environment,
+            )
             async with Client(parameters) as client:
                 found = await client.call_tool('describe_operations', {})
                 self.assertIn('music-edit', found.structured_content['operations'])
@@ -58,30 +61,40 @@ class MusicEditFlow(unittest.IsolatedAsyncioTestCase):
                 prepared = await job('music-edit', ['prepare', '--request', str(request), '--out', str(root / 'bundle')])
                 self.assertFalse(prepared['network_called'])
                 config = root / 'omni.json'
-                config.write_text(json.dumps({'enabled': True, 'base_url': 'https://example.invalid/v1',
-                                               'api_key_env': 'MUSIC_EDIT_TEST_KEY', 'protocol': 'openai-compatible',
-                                               'model': 'fixture/av-model', 'request_options': {}}), encoding='utf-8')
-                response = {'choices': [{'finish_reason': 'stop', 'message': {
-                    'content': json.dumps(fixture.MusicEditTests.analysis)}}], 'usage': {'prompt_tokens': 1, 'completion_tokens': 1}}
-                # Only the provider reply is a fixture; codecs, MCP jobs, validators and draft builder are real.
+                config.write_text(json.dumps({
+                    'enabled': True, 'base_url': 'https://example.invalid/v1',
+                    'api_key_env': 'MUSIC_EDIT_TEST_KEY', 'protocol': 'openai-compatible',
+                    'model': 'fixture/av-model', 'request_options': {},
+                }), encoding='utf-8')
+                response = {
+                    'choices': [{'finish_reason': 'stop', 'message': {
+                        'content': json.dumps(fixture.MusicEditTests.analysis)}}],
+                    'usage': {'prompt_tokens': 1, 'completion_tokens': 1},
+                }
                 with patch.dict(os.environ, {'MUSIC_EDIT_TEST_KEY': 'fixture-only-key'}), \
                         patch.object(music_edit, 'send_payload', return_value=response):
                     await asyncio.to_thread(music_edit.analyze, root / 'bundle', config)
-                result = await job('beats', ['--input', str(root / 'bundle/media/music.wav'), '--duration', '4', '--out', str(root / 'beats')])
+
+                result = await job('beats', [
+                    '--input', str(root / 'bundle/media/music.wav'),
+                    '--duration', '4', '--out', str(root / 'beats'),
+                ])
                 self.assertEqual(result['status'], 'succeeded')
-                for backend in ('resolve', 'jianying'):
-                    result = await job('music-edit', ['compile', '--bundle', str(root / 'bundle'), '--backend', backend,
-                                                      '--out', str(root / backend), '--beats', str(root / 'beats'),
-                                                      '--width', '320', '--height', '180'])
-                    self.assertEqual(result['status'], 'plan_validated')
-                built = await job('build', ['--plan', str(root / 'jianying/edit-plan.json'), '--out', str(root / 'draft')])
-                self.assertTrue((root / 'draft/draft_content.json').is_file())
-                self.assertIsInstance(built, dict)
-            workbench = Workbench(root / 'state', root)
-            instructions = workbench.instructions()
-            self.assertIn('music-edit', instructions)
-            self.assertIn('reference/music-edit', workbench.feedback_instructions())
-            await workbench.close()
+
+                for backend in ('openedit', 'filmcraft'):
+                    compiled = await job('music-edit', [
+                        'compile', '--bundle', str(root / 'bundle'), '--backend', backend,
+                        '--out', str(root / backend), '--beats', str(root / 'beats'),
+                        '--width', '320', '--height', '180',
+                    ])
+                    self.assertEqual(compiled['status'], 'plan_validated')
+
+                built = await job('build', [
+                    '--plan', str(root / 'openedit/edit-plan.json'),
+                    '--out', str(root / 'project'),
+                ])
+                self.assertEqual(built['status'], 'passed')
+                self.assertTrue((root / 'project/music-edit.fcproj').is_file())
 
 
 if __name__ == '__main__':

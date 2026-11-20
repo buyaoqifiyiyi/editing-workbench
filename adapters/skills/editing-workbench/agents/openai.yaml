@@ -1,6 +1,6 @@
 interface:
   display_name: "Agent 剪辑"
-  short_description: "直接调用本机引擎，按所选剪辑软件规划与制作"
+  short_description: "直接调用纯开源 OpenEdit 引擎（FilmCraft+EffectCraft+FFmpeg）完成创作规划与剪辑"
   default_prompt: "使用 $editing-workbench，在当前对话根据我的素材、脚本或参考规划或剪辑，并应用本机剪辑知识。"
 policy:
   allow_implicit_invocation: true

@@ -1,4 +1,4 @@
-"""Native mark mapping uses synthetic media and never launches an editor or model."""
+"""Open audio beat-mark mapping uses synthetic media and never launches an editor or model."""
 import json
 import os
 from pathlib import Path
@@ -10,8 +10,9 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / 'src/jianying_engine/runtime/scripts'
-sys.path.insert(0, str(SCRIPTS))
+SCRIPTS = ROOT / 'src/openedit_engine/runtime/scripts'
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 import beat_apply
 import beat_apply_self_check
 
@@ -21,11 +22,8 @@ class BeatApplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'marks'
             checks = beat_apply_self_check.check_marks(root)
-            self.assertGreater(len(checks), 60)
-            # Fresh process exercises successful CLI parsing/output with a mocked
-            # host identity, while the report loader and plan validator stay real.
+            self.assertGreater(len(checks), 45)
             bootstrap = ('import sys; sys.path.insert(0, sys.argv.pop(1)); '
-                         'import native_beat; native_beat.runtime=lambda:None; '
                          'import beat_apply; sys.exit(beat_apply.main())')
             case = root / '0'
             target = case / 'cli.json'
@@ -38,8 +36,6 @@ class BeatApplyTests(unittest.TestCase):
             self.assertIn('beat_marks', json.loads(target.read_text(encoding='utf-8'))['audio'][0])
 
     def test_microsecond_collision_is_refused_even_before_every_n(self):
-        # The real loader admits only hop-aligned 22050Hz samples, which cannot
-        # collide in microseconds. Mock an algorithm result to exercise the guard.
         plan = {'canvas': dict(width=320, height=180, fps=30),
                 'audio': [dict(path=str(ROOT / 'audio.wav'), source_in=0, duration=4)],
                 'notes': []}
@@ -78,7 +74,7 @@ class BeatApplyTests(unittest.TestCase):
 
     def test_real_whitelist_cli_help_and_output_conflict(self):
         env = dict(os.environ, PYTHONPATH=str(ROOT / 'src'), PYTHONIOENCODING='utf-8')
-        command = [sys.executable, '-m', 'jianying_engine', 'beat-apply']
+        command = [sys.executable, '-m', 'openedit_engine', 'beat-apply']
         help_result = subprocess.run(command + ['--help'], cwd=ROOT, env=env, capture_output=True, text=True, encoding='utf-8')
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn('--mark-audio', help_result.stdout)

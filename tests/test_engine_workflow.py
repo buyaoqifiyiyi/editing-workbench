@@ -1,34 +1,30 @@
-"""UI API -> owned ACP peer -> real MCP engine -> editable draft -> artifact preview."""
+"""Real headless MCP pipeline: reverse -> denoise-audio -> captions -> tracking-apply -> FilmCraft build -> artifacts."""
 import asyncio
 import hashlib
 import json
 import os
-import subprocess
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
-import httpx2
+from mcp import Client, StdioServerParameters
 from PIL import Image
-from jianying_engine.workbench import Workbench, create_app
-from jianying_engine import api
-from test_workbench import available_backends
+from openedit_engine import api, artifacts
 
 
-@patch('jianying_engine.workbench.detect_backends', new=available_backends)
 class EngineWorkflow(unittest.IsolatedAsyncioTestCase):
-    async def test_actual_engine_from_agent_protocol_to_readable_deliverables(self):
-        with tempfile.TemporaryDirectory(prefix='engine-flow-') as folder:
+    async def test_mcp_pipeline_to_filmcraft_fcproj_and_artifact_discovery(self):
+        with tempfile.TemporaryDirectory(prefix='openedit-workflow-') as folder:
             root = Path(folder)
             work = root / 'work'
             source_dir = work / 'incoming'
             source_dir.mkdir(parents=True)
-            source = source_dir / 'shot.png'
-            Image.new('RGB', (320, 240), '#639b46').save(source)
-            sys.path.insert(0, str(api.RUNTIME / 'scripts'))
+            scripts_dir = str(api.RUNTIME / 'scripts')
+            if scripts_dir not in sys.path:
+                sys.path.insert(0, scripts_dir)
             import editor
+
             video = source_dir / 'reverse-source.mov'
             editor.run([editor.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
                         '-f', 'lavfi', '-i', "nullsrc=s=320x240:r=30:d=2,geq=lum='20+N*3':cb=128:cr=128",
@@ -38,111 +34,92 @@ class EngineWorkflow(unittest.IsolatedAsyncioTestCase):
             subtitle = source_dir / 'corrected.srt'
             subtitle.write_text('1\n00:00:00,100 --> 00:00:00,400\n人工校正字幕\n第二行\n\n2\n00:00:00,600 --> 00:00:00,900\n第二个镜头\n', encoding='utf-8-sig')
             original_subtitle = subtitle.read_bytes()
-            original = hashlib.sha256(source.read_bytes()).hexdigest()
-            self.enterContext(patch.dict(os.environ, {
-                'JIANYING_RUNTIME_ADMISSIONS': str(root / 'unused-admissions.json')}))
-            service = Workbench(root / 'state', work)
-            app = create_app(service, 'token', 8765)
-            fixture = Path(__file__).with_name('fixtures') / 'acp_engine_fixture.py'
-            try:
-                async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url='http://127.0.0.1:8765',
-                                             headers={'X-Workbench-Token': 'token'}) as client:
-                    for action, body in [('connect', {'agent_id': 'custom-acp', 'cli_path': sys.executable, 'args': ['-u', str(fixture)]}),
-                                         ('session/prepare', {}), ('media', {'paths': [str(source_dir)]}),
-                                         ('send', {'text': '通过本机引擎创建1秒倒放草稿及中文多行字幕；只用于集成测试。'})]:
-                        response = await client.post('/api/' + action, json=body)
-                        self.assertEqual(response.status_code, 200, response.text)
-                    async with asyncio.timeout(45):
+
+            environment = {name: os.environ[name] for name in
+                           ('PATH', 'SYSTEMROOT', 'LOCALAPPDATA', 'USERPROFILE', 'TEMP', 'TMP') if name in os.environ}
+            environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1] / 'src')
+            environment['PYTHONIOENCODING'] = 'utf-8'
+            params = StdioServerParameters(
+                command=sys.executable,
+                args=['-m', 'openedit_engine.mcp_server', '--state-dir', str(root / 'jobs')],
+                env=environment,
+            )
+            async with Client(params) as client:
+                async def run_job(op, args):
+                    started = (await client.call_tool('start_job', {'operation': op, 'arguments': args})).structured_content
+                    self.assertTrue(started.get('job_id'), started)
+                    async with asyncio.timeout(120):
                         while True:
-                            state = (await client.get('/api/state')).json()
-                            if state['current_session']['status'] == 'error':
-                                self.fail(state['current_session']['error'])
-                            if state['current_session']['status'] == 'idle' and state['artifacts']:
+                            st = (await client.call_tool('job_status', {'job_id': started['job_id']})).structured_content
+                            if st['state'] not in ('running', 'starting'):
                                 break
-                            await asyncio.sleep(.02)
-                    self.assertTrue(any('build' in event['label'] and event['status'] == 'completed' for event in state['current_session']['events']))
-                    self.assertTrue(any('reverse' in event['label'] and event['status'] == 'completed' for event in state['current_session']['events']))
-                    self.assertTrue(any('denoise-audio' in event['label'] and event['status'] == 'completed' for event in state['current_session']['events']))
-                    self.assertTrue(any('tracking-apply' in event['label'] and event['status'] == 'completed' for event in state['current_session']['events']))
-                    self.assertTrue(any(item['name'] == 'draft_content.json' for item in state['artifacts']))
-                    self.assertEqual(len([item for item in state['artifacts'] if item['category']=='deliverable']),2)
-                    report = next(item for item in state['artifacts'] if item['name'] == '交付说明.md')
-                    preview = (await client.get(report['url'])).json()['text']
-                    self.assertIn('未做剪映UI', preview)
-                    content = json.loads((work / 'output/draft/draft_content.json').read_text(encoding='utf-8'))
-                    segments = [segment for track in content['tracks'] for segment in track['segments']]
-                    video_segments = next(track for track in content['tracks'] if track['type'] == 'video')['segments']
-                    self.assertEqual(sum(segment['target_timerange']['duration'] for segment in video_segments), 1_000_000)
-                    captions = next(track for track in content['tracks'] if track.get('name') == 'captions')
-                    self.assertEqual([segment['target_timerange'] for segment in captions['segments']],
-                                     [{'start': 100000, 'duration': 300000}, {'start': 600000, 'duration': 300000}])
-                    text = next(item for item in content['materials']['texts']
-                                if item['id'] == captions['segments'][0]['material_id'])
-                    self.assertEqual(json.loads(text['content'])['text'], '人工校正字幕\n第二行')
-                    words = next(track for track in content['tracks'] if track.get('name') == 'words')
-                    texts = {item['id']: json.loads(item['content'])['text'] for item in content['materials']['texts']}
-                    self.assertEqual([(segment['target_timerange']['start'], segment['target_timerange']['duration'],
-                                       texts[segment['material_id']]) for segment in words['segments']],
-                                     [(100000, 100000, '合成'), (200000, 200000, '词测试'),
-                                      (600000, 100000, '第二'), (700000, 200000, '镜头')])
-                    self.assertEqual(subtitle.read_bytes(), original_subtitle)
-                    label = next(track for track in content['tracks'] if track.get('name') == 'follow-label')['segments'][0]
-                    self.assertEqual(texts[label['material_id']], '跟随标签')
-                    self.assertEqual(label['target_timerange'], {'start': 0, 'duration': 500000})
-                    keys = {group['property_type']: group['keyframe_list'] for group in label['common_keyframes']}
-                    self.assertEqual([key['time_offset'] for key in keys['KFTypePositionX']], [0, 250000, 499999])
-                    self.assertEqual(keys['KFTypePositionX'][0]['values'], [-.5])
-                    self.assertEqual(keys['KFTypePositionY'][0]['values'], [.25])
-                    self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), original)
-                    reversed_media = work / 'output/reverse/reversed.mov'
-                    self.assertTrue(reversed_media.is_file())
-                    self.assertTrue(all(Path(item['path']) == reversed_media for item in content['materials']['videos']))
-                    self.assertEqual(hashlib.sha256(video.read_bytes()).hexdigest(), original_video)
-                    cleaned = work / 'output/denoise/denoised.wav'
-                    audio_segment = next(track for track in content['tracks'] if track['type'] == 'audio')['segments'][0]
-                    material = next(item for item in content['materials']['audios'] if item['id'] == audio_segment['material_id'])
-                    self.assertEqual(Path(material['path']), cleaned)
-                    self.assertEqual(audio_segment['source_timerange'], {'start': 0, 'duration': 1000000})
-                    self.assertEqual(audio_segment['target_timerange'], {'start': 0, 'duration': 1000000})
-                    self.assertTrue(all(segment['volume'] == 0 for segment in video_segments))
-                    self.assertFalse(content['materials'].get('realtime_denoises'))
-                    denoise_report = json.loads((work / 'output/denoise/denoise-report.json').read_text(encoding='utf-8'))
-                    self.assertEqual(denoise_report['status'], 'passed')
-                    self.assertEqual(denoise_report['denoised']['frames'], 48000)
-                    self.assertFalse(content['materials'].get('common_mask'))
-            finally:
-                await service.close()
+                            await asyncio.sleep(0.05)
+                    self.assertEqual((st['state'], st['returncode']), ('succeeded', 0), st)
+                    return json.loads((await client.call_tool('read_job_output', {'job_id': started['job_id']})).structured_content['text'])
 
+                rev = await run_job('reverse', ['--input', str(video), '--start', '0', '--duration', '1',
+                                                '--audio', 'reverse', '--out', str(work / 'output/reverse')])
+                self.assertEqual(rev['status'], 'passed')
+                reversed_media = Path(rev['output_media'])
+                self.assertTrue(reversed_media.is_file())
 
-class NativeMaskAdmission(unittest.TestCase):
-    def test_unadmitted_install_still_refuses_mask_without_writing_admissions(self):
-        with tempfile.TemporaryDirectory(prefix='mask-admission-') as folder:
-            root = Path(folder)
-            install = root / '99.0.0.1'
-            (install / 'Resources/Font/SystemFont').mkdir(parents=True)
-            source = root / 'shot.png'
-            Image.new('RGB', (320, 240), '#639b46').save(source)
-            plan = root / 'plan.json'
-            plan.write_text(json.dumps({
-                'schema_version': 1, 'name': 'unadmitted-mask', 'mode': 'script',
-                'canvas': {'width': 320, 'height': 240, 'fps': 30},
-                'clips': [{'path': str(source), 'start': 0, 'duration': 1,
-                           'mask': {'name': '矩形', 'experimental': True, 'size': .6,
-                                    'rect_width': .45, 'feather': 20, 'rendering': 'red_coverage_v1'}}]
-            }), encoding='utf-8')
-            original = plan.read_bytes()
-            admissions = root / 'absent-admissions.json'
-            result = subprocess.run(api.command_for('validate', ['--plan', str(plan)]),
-                                    env=dict(os.environ, JIANYING_INSTALL=str(install),
-                                             JIANYING_RUNTIME_ADMISSIONS=str(admissions),
-                                             PYTHONDONTWRITEBYTECODE='1'),
-                                    capture_output=True, text=True, encoding='utf-8', timeout=30)
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            error = json.loads(result.stdout)['error']
-            self.assertIn('red_coverage_v1 requires measured Jianying', error)
-            self.assertIn('99.0.0.1 is not admitted', error)
-            self.assertEqual(plan.read_bytes(), original)
-            self.assertFalse(admissions.exists())
+                denoise = await run_job('denoise-audio', ['--input', str(reversed_media), '--start', '0',
+                                                          '--duration', '1', '--noise-floor', '-40', '--reduction', '12',
+                                                          '--out', str(work / 'output/denoise')])
+                self.assertEqual(denoise['status'], 'passed')
+                cleaned = Path(denoise['output_media'])
+
+                marker = source_dir / 'marker.png'
+                Image.new('RGB', (32, 32), '#FF4400').save(marker)
+                base_plan = work / 'output/plan-base.json'
+                base_plan.write_text(json.dumps({
+                    'schema_version': 2,
+                    'name': 'workflow-demo',
+                    'canvas': {'width': 320, 'height': 240, 'fps': 30},
+                    'clips': [{'path': str(reversed_media), 'start': 0.0, 'duration': 1.0, 'volume': 0.0}],
+                    'audio': [{'path': str(cleaned), 'track': 'voice', 'start': 0.0, 'duration': 1.0, 'volume': 1.0}],
+                    'captions': [{'text': '跟随标签', 'start': 0.0, 'duration': 1.0, 'x': 0, 'y': 0,
+                                  'border': False, 'track': 'follow-label', 'style': {'auto_wrapping': False}}],
+                }, ensure_ascii=False, indent=2), encoding='utf-8')
+
+                cap_plan = work / 'output/plan-captions.json'
+                cap_res = await run_job('captions', [str(base_plan), '--srt', str(subtitle), '--timebase', 'timeline',
+                                                     '--index', '0', '--out', str(cap_plan)])
+                self.assertEqual(cap_res['imported_captions'], 2)
+
+                tracking_json = work / 'output/tracking.json'
+                tracking_json.write_text(json.dumps({
+                    'schema_version': 1, 'status': 'tracked', 'method': 'opencv_csrt',
+                    'source': {'path': str(reversed_media.resolve()), 'bytes': reversed_media.stat().st_size,
+                               'sha256': hashlib.sha256(reversed_media.read_bytes()).hexdigest(),
+                               'width': 320, 'height': 240},
+                    'coverage_start': 0.0, 'coverage_end': 1.0, 'lost_at': None, 'boundaries': [],
+                    'samples': [{'time': 0.0, 'bbox': [70, 80, 20, 20]}, {'time': 0.5, 'bbox': [150, 110, 20, 20]}],
+                }), encoding='utf-8')
+                final_plan = work / 'output/plan-final.json'
+                trk_res = await run_job('tracking-apply', [str(cap_plan), '--tracking', str(tracking_json),
+                                                           '--source-index', '0', '--caption-index', '0',
+                                                           '--out', str(final_plan)])
+                self.assertEqual(trk_res['status'], 'passed')
+
+                built = await run_job('build', ['--plan', str(final_plan), '--out', str(work / 'output/project')])
+                self.assertEqual(built['status'], 'passed')
+                self.assertTrue((work / 'output/project/workflow-demo.fcproj').is_file())
+                self.assertTrue((work / 'output/project/剪辑交付.md').is_file())
+                self.assertTrue((work / 'output/project/素材来源.json').is_file())
+
+                (work / 'workbench-delivery.json').write_text(json.dumps({
+                    'schema_version': 1,
+                    'items': [
+                        {'path': 'output/project/workflow-demo.fcproj', 'title': 'FilmCraft可编辑工程'},
+                        {'path': 'output/project/剪辑交付.md', 'title': '交付说明'},
+                    ],
+                }, ensure_ascii=False), encoding='utf-8')
+                discovered = artifacts.discover(work)
+                deliverables = [d for d in discovered if d['category'] == 'deliverable']
+                self.assertEqual(len(deliverables), 2)
+                self.assertEqual(hashlib.sha256(video.read_bytes()).hexdigest(), original_video)
+                self.assertEqual(subtitle.read_bytes(), original_subtitle)
 
 
 if __name__ == '__main__':
