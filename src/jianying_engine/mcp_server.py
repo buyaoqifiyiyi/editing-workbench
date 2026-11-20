@@ -31,11 +31,41 @@ def create_server(state_dir=None):
                                     'other operations do not call models. Jobs do not survive this server session.')
 
     @server.tool(structured_output=True)
-    async def describe_operations() -> dict[str, Any]:
-        """Discover the explicit engine operations; no shell command or Python code can be supplied."""
+    async def describe_operations(operation: str | None = None, include_backends: bool = False) -> dict[str, Any]:
+        """Discover explicit engine operations, structured parameter schemas, guides, job limits and optional backend availability."""
         value = api.operations() if callable(api.operations) else api.operations
-        return {'operations': value, 'guides': list(api.paths()['guides']),
-                'transport': 'stdio', 'persistent_jobs': False}
+        job_limits = {
+            'concurrent_limit': manager.concurrent_limit,
+            'retained_terminal_limit': manager.job_limit,
+            'eviction': 'lru_terminal_only',
+            'logs_persisted_on_disk': True,
+        }
+        if operation is not None:
+            try:
+                schema = api.operation_schemas(operation)
+            except ValueError as exc:
+                return {'operation': operation, 'error': str(exc), 'job_limits': job_limits}
+            result = {
+                'operation': operation,
+                'description': value[operation],
+                'schema': schema,
+                'guides': list(api.paths()['guides']),
+                'transport': 'stdio',
+                'persistent_jobs': False,
+                'job_limits': job_limits,
+            }
+        else:
+            result = {
+                'operations': value,
+                'operation_schemas': api.operation_schemas(),
+                'guides': list(api.paths()['guides']),
+                'transport': 'stdio',
+                'persistent_jobs': False,
+                'job_limits': job_limits,
+            }
+        if include_backends:
+            result['backends'] = await asyncio.to_thread(api.backends)
+        return result
 
     @server.tool(structured_output=True)
     async def read_guide(name: str) -> dict[str, Any]:
@@ -55,12 +85,21 @@ def create_server(state_dir=None):
             return {'query': query, 'results': [], 'error': str(exc)}
 
     @server.tool(structured_output=True)
-    async def start_job(operation: str, arguments: list[str], timeout_seconds: float = 1800) -> dict[str, Any]:
-        """Start one whitelisted operation with CLI argument tokens; returns quickly with a job ID."""
+    async def start_job(
+        operation: str,
+        arguments: list[str] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout_seconds: float = 1800,
+    ) -> dict[str, Any]:
+        """Start one whitelisted operation using CLI tokens or structured params; returns quickly with a job ID."""
         try:
+            if arguments is not None and params is not None:
+                raise ValueError('Specify either arguments or params, not both')
+            tokens = (api.arguments_from_params(operation, params) if params is not None
+                      else ([] if arguments is None else arguments))
             # Once a subprocess launch begins, retain ownership even if the client cancels this quick request.
             with anyio.CancelScope(shield=True):
-                return await manager.start(operation, arguments, timeout_seconds)
+                return await manager.start(operation, tokens, timeout_seconds)
         except (ValueError, OSError) as exc:
             return {'state': 'rejected', 'error': str(exc), 'job_id': None, 'returncode': None}
 

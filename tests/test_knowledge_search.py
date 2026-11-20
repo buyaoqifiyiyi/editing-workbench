@@ -122,6 +122,31 @@ class KnowledgeInterfaceTests(unittest.TestCase):
         self.assertIn('Mesh Avatar 素材制作', text)
         self.assertIn('ImageGen 每次只接收原图', text)
 
+    def test_search_returns_section_context_anchors_and_capability_hints(self):
+        cap_lines = api.read_guide('capabilities').splitlines()
+        pip_results = api.search_knowledge('画中画重复如何全画幅接管', 5)['results']
+        self.assertTrue(pip_results)
+        for item in pip_results:
+            self.assertGreaterEqual(item['section_start_line'], 1)
+            self.assertIn(item['excerpt'], item['context'])
+        hints = [hint for item in pip_results for hint in item.get('capability_hints', [])]
+        self.assertTrue(hints)
+        for hint in hints:
+            self.assertEqual(hint['guide'], 'capabilities')
+            self.assertIn(f'<a id="{hint["anchor"]}"></a>', '\n'.join(cap_lines[max(0, hint['line'] - 3):hint['line']]))
+
+        chroma_results = api.search_knowledge('Chroma2 色键绿幕', 5)['results']
+        self.assertTrue(any(item['guide'] == 'capabilities' and item['anchor'] == 'installed-chroma2'
+                            for item in chroma_results))
+
+        speed_results = api.search_knowledge('曲线变速 变速', 5)['results']
+        self.assertTrue(speed_results)
+        self.assertTrue(any(
+            (item['guide'] == 'capabilities' and item['anchor'] == 'speed-curve')
+            or any(h['anchor'] == 'speed-curve' for h in item.get('capability_hints', []))
+            for item in speed_results
+        ))
+
 
 class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
     async def test_mcp_retrieves_knowledge_and_explains_both_media_calls(self):

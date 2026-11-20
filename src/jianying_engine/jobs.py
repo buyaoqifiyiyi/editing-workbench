@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass, field
@@ -136,7 +137,9 @@ class JobManager:
         if output_limit < 1 or concurrent_limit < 1 or job_limit < 1:
             raise ValueError('Job limits must be positive')
         self.output_limit, self.concurrent_limit, self.job_limit = output_limit, concurrent_limit, job_limit
-        self.jobs = {}
+        self.jobs = OrderedDict()
+        self._evicted: OrderedDict[str, str] = OrderedDict()
+        self._evicted_limit = max(1024, job_limit * 8)
         self.closed = False
         self._lock = asyncio.Lock()
 
@@ -147,10 +150,10 @@ class JobManager:
         async with self._lock:
             if self.closed:
                 raise ValueError('Job manager has closed')
-            if len(self.jobs) >= self.job_limit:
-                raise ValueError('This server reached its retained job limit; start a new server session')
             if sum(not job.task.done() for job in self.jobs.values()) >= self.concurrent_limit:
                 raise ValueError('Concurrent job limit reached; finish or cancel an active job')
+            if len(self.jobs) >= self.job_limit and not any(job.task.done() for job in self.jobs.values()):
+                raise ValueError('Retained job limit reached while all jobs are active; finish or cancel an active job')
             job_id = uuid.uuid4().hex
             directory = self.state_dir / job_id
             await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=False)
@@ -165,6 +168,14 @@ class JobManager:
                 process.stderr.close()
                 raise
             job = _Job(job_id, operation, process, tree, directory)
+            while len(self.jobs) >= self.job_limit:
+                evict_id = next((jid for jid, item in self.jobs.items() if item.task.done()), None)
+                if evict_id is None:
+                    break
+                evicted = self.jobs.pop(evict_id)
+                self._evicted[evict_id] = str(evicted.directory)
+                if len(self._evicted) > self._evicted_limit:
+                    self._evicted.popitem(last=False)
             self.jobs[job_id] = job
             job.task = asyncio.create_task(self._watch(job, timeout_seconds))
         return await self.status(job_id)
@@ -193,9 +204,15 @@ class JobManager:
             job.finished = time.time()
             await asyncio.to_thread(self._save, job)
 
-    def _get(self, job_id):
+    def _get(self, job_id, *, touch=True):
         if job_id not in self.jobs:
+            if job_id in self._evicted:
+                raise ValueError(
+                    f'Job {job_id} was evicted from in-memory retention after finishing; persisted logs remain at {self._evicted[job_id]}'
+                )
             raise ValueError('Unknown job_id in this server session; jobs are not restored across restarts')
+        if touch:
+            self.jobs.move_to_end(job_id)
         return self.jobs[job_id]
 
     def _snapshot(self, job):
@@ -256,8 +273,8 @@ class JobManager:
     async def close(self):
         async with self._lock:
             self.closed = True
-            for job in self.jobs.values():
+            for job in list(self.jobs.values()):
                 if job.process.poll() is None and job.state == 'running':
                     job.state = 'cancelling'
                     job.tree.close()
-        await asyncio.gather(*(asyncio.shield(job.task) for job in self.jobs.values()))
+        await asyncio.gather(*(asyncio.shield(job.task) for job in list(self.jobs.values())))

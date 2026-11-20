@@ -158,6 +158,42 @@ class JobsTest(unittest.IsolatedAsyncioTestCase):
         finally:
             kernel.CloseHandle(handle)
 
+    async def test_lru_evicts_oldest_finished_job_and_preserves_disk_logs(self):
+        bounded = JobManager(self.temp.name, output_limit=1024, concurrent_limit=2, job_limit=3)
+        self.addAsyncCleanup(bounded.close)
+
+        async def run_quick(tag):
+            with patch('jianying_engine.jobs.command_for', return_value=[sys.executable, '-c', f'print({tag!r})']):
+                started = await bounded.start('test', [])
+            jid = started['job_id']
+            await asyncio.wait_for(bounded.jobs[jid].task, 15)
+            return jid
+
+        j1 = await run_quick('one')
+        j2 = await run_quick('two')
+        j2_dir = bounded.jobs[j2].directory
+        j3 = await run_quick('three')
+        # Reading j1 refreshes its LRU position so j2 becomes the oldest terminal handle.
+        self.assertEqual((await bounded.status(j1))['state'], 'succeeded')
+        j4 = await run_quick('four')
+
+        self.assertEqual(set(bounded.jobs), {j1, j3, j4})
+        self.assertTrue((j2_dir / 'result.json').is_file())
+        self.assertTrue((j2_dir / 'stdout.log').is_file())
+        with self.assertRaisesRegex(ValueError, f'evicted.*{j2_dir.name}'):
+            await bounded.status(j2)
+        for jid in (j1, j3, j4):
+            self.assertEqual((await bounded.status(jid))['state'], 'succeeded')
+
+    async def test_job_limit_never_evicts_active_jobs(self):
+        tight = JobManager(self.temp.name, concurrent_limit=2, job_limit=1)
+        self.addAsyncCleanup(tight.close)
+        with patch('jianying_engine.jobs.command_for', return_value=[sys.executable, '-c', 'import time;time.sleep(60)']):
+            first = await tight.start('test', [])
+            with self.assertRaisesRegex(ValueError, 'all jobs are active'):
+                await tight.start('test', [])
+        await tight.cancel(first['job_id'])
+
 
 if __name__ == '__main__':
     unittest.main()

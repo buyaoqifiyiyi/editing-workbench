@@ -100,6 +100,54 @@ class StdioTest(unittest.IsolatedAsyncioTestCase):
                                {'job_id': job_id, 'stream': 'stderr'})).structured_content
                 self.assertEqual(stderr_page['stream'], 'stderr')
 
+    async def test_structured_params_and_schema_discovery(self):
+        with tempfile.TemporaryDirectory(prefix='jianying-engine-params-test-') as state:
+            async with Client(create_server(state)) as client:
+                tools = await client.list_tools()
+                self.assertEqual(
+                    {t.name for t in tools.tools},
+                    {'describe_operations', 'read_guide', 'search_knowledge',
+                     'start_job', 'job_status', 'read_job_output', 'cancel_job'},
+                )
+                described = (await client.call_tool('describe_operations', {})).structured_content
+                self.assertIn('validate', described['operation_schemas'])
+                self.assertEqual(described['job_limits'], {
+                    'concurrent_limit': 2,
+                    'retained_terminal_limit': 128,
+                    'eviction': 'lru_terminal_only',
+                    'logs_persisted_on_disk': True,
+                })
+                self.assertNotIn('backends', described)
+                with_backends = (await client.call_tool('describe_operations', {'include_backends': True})).structured_content
+                self.assertEqual({b['id'] for b in with_backends['backends']['backends']},
+                                 {'resolve', 'jianying', 'after-effects', 'premiere'})
+                self.assertTrue(with_backends['backends']['roles'])
+                focused = (await client.call_tool('describe_operations', {'operation': 'validate'})).structured_content
+                self.assertTrue(focused['schema']['params']['plan']['required'])
+                bad_op = (await client.call_tool('describe_operations', {'operation': '../nope'})).structured_content
+                self.assertIn('error', bad_op)
+
+                both = (await client.call_tool('start_job', {
+                    'operation': 'doctor', 'arguments': [], 'params': {},
+                })).structured_content
+                self.assertEqual(both['state'], 'rejected')
+
+                bad_params = (await client.call_tool('start_job', {
+                    'operation': 'validate', 'params': {'unknown': 'x'},
+                })).structured_content
+                self.assertEqual(bad_params['state'], 'rejected')
+
+                started = (await client.call_tool('start_job', {
+                    'operation': 'doctor', 'params': {}, 'timeout_seconds': 30,
+                })).structured_content
+                self.assertTrue(started['job_id'])
+                for _ in range(150):
+                    status = (await client.call_tool('job_status', {'job_id': started['job_id']})).structured_content
+                    if status['finished'] is not None:
+                        break
+                    await asyncio.sleep(.1)
+                self.assertEqual((status['state'], status['returncode']), ('succeeded', 0), status)
+
 
 if __name__ == '__main__':
     unittest.main()

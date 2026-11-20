@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from . import __version__
-from .api import command_for, operations, paths, read_guide, search_knowledge
+from .api import backends, command_for, operations, paths, read_guide, search_knowledge
 
 
 def main(argv=None):
@@ -15,7 +15,7 @@ def main(argv=None):
     if not args or args[0] in ('-h', '--help'):
         print('jianying-engine <operation> [arguments]\nUse <operation> --help for its exact arguments.\n')
         print('\n'.join(f'  {name:22} {description}' for name, description in operations().items()))
-        print('\n  paths                  Show the active runtime and guide paths.\n  guide <name>           Read a registered guide.\n  knowledge <query>      Search bundled editing knowledge.\n  mcp                    Start the optional stdio MCP adapter.')
+        print('\n  paths                  Show the active runtime and guide paths.\n  backends [--no-detect] Show supported software backends and local installation availability.\n  guide <name>           Read a registered guide.\n  knowledge <query>      Search bundled editing knowledge.\n  mcp                    Start the optional stdio MCP adapter.')
         return 0
     if args == ['--version']:
         print(__version__)
@@ -23,6 +23,13 @@ def main(argv=None):
     try:
         if args == ['paths']:
             print(json.dumps(paths(), ensure_ascii=False, indent=2))
+            return 0
+        if args[0] == 'backends':
+            parser = argparse.ArgumentParser(prog='jianying-engine backends',
+                description='List supported software backends and read-only local availability.')
+            parser.add_argument('--no-detect', action='store_true')
+            options = parser.parse_args(args[1:])
+            print(json.dumps(backends(detect=not options.no_detect), ensure_ascii=False, indent=2))
             return 0
         if args[0] == 'guide':
             if len(args) != 2:
