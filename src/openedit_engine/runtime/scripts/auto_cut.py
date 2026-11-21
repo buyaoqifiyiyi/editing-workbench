@@ -60,13 +60,16 @@ def _resolve_vad_model(explicit, detector):
     return None
 
 
-def _load_silero_session(model_path):
+def _load_silero_session(model_path, *, gpu=False):
+    if gpu:
+        runtime_paths.prepare_cuda_dlls()
     try:
         import onnxruntime as ort
     except ImportError as exc:
         raise ValueError(f'Silero VAD requires onnxruntime in this interpreter: {exc}') from None
+    providers = runtime_paths.resolve_ort_providers(ort.get_available_providers(), gpu=gpu)
     try:
-        session = ort.InferenceSession(str(model_path), providers=['CPUExecutionProvider'])
+        session = ort.InferenceSession(str(model_path), providers=providers)
     except Exception as exc:
         raise ValueError(f'onnxruntime could not initialize {model_path.name}: {exc}') from None
     input_names = {i.name for i in session.get_inputs()}
@@ -75,9 +78,9 @@ def _load_silero_session(model_path):
     return session
 
 
-def detect_speech_silero(audio, duration, model_path, *, threshold, min_silence):
+def detect_speech_silero(audio, duration, model_path, *, threshold, min_silence, gpu=False):
     """Run Silero VAD v5 chunked inference (512 samples + 64-sample context @ 16 kHz)."""
-    session = _load_silero_session(model_path)
+    session = _load_silero_session(model_path, gpu=gpu)
     total = int(audio.shape[0])
     pad_len = (-total) % VAD_WINDOW
     padded = np.pad(audio, (0, pad_len)) if pad_len else audio
@@ -284,7 +287,10 @@ def run_auto_cut(args):
 
     if detector_used == 'silero':
         audio_16k = decode_mono_16k(source)
-        raw_spans = detect_speech_silero(audio_16k, duration, vad_model, threshold=thresh, min_silence=min_silence)
+        raw_spans = detect_speech_silero(
+            audio_16k, duration, vad_model, threshold=thresh, min_silence=min_silence,
+            gpu=getattr(args, 'gpu', False),
+        )
     else:
         raw_spans = detect_speech_ffmpeg(source, duration, threshold_db=thresh, min_silence=min_silence)
 
@@ -398,6 +404,7 @@ def main(argv=None):
     parser.add_argument('--width', type=int, default=None, help='Optional canvas width override')
     parser.add_argument('--height', type=int, default=None, help='Optional canvas height override')
     parser.add_argument('--fps', type=float, default=None, help='Optional canvas fps override')
+    parser.add_argument('--gpu', action='store_true', help='Prefer CUDA/DirectML ORT provider when available')
     args = parser.parse_args(argv)
     try:
         report = run_auto_cut(args)

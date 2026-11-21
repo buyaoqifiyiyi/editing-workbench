@@ -44,7 +44,20 @@ def overlay_cache_dir(explicit=None):
     return runtime_paths.external_directory(path, 'Overlay cache')
 
 
-def _overlay_cache_key(cli_path, compiled_spec, *, width, height, fps, duration, render_video, preview_time, gpu):
+def _overlay_cache_key(
+    cli_path,
+    compiled_spec,
+    *,
+    width,
+    height,
+    fps,
+    duration,
+    render_video,
+    preview_time,
+    gpu,
+    resolution='full',
+    quality='best',
+):
     cli_file = Path(cli_path)
     if not cli_file.is_file() or compiled_spec.get('script'):
         return None
@@ -68,6 +81,8 @@ def _overlay_cache_key(cli_path, compiled_spec, *, width, height, fps, duration,
         'preview_time': float(preview_time),
         'render_video': bool(render_video),
         'gpu': bool(gpu),
+        'resolution': str(resolution),
+        'quality': str(quality),
         'layers': layers,
         'footage_hashes': footage_hashes,
     }
@@ -75,7 +90,7 @@ def _overlay_cache_key(cli_path, compiled_spec, *, width, height, fps, duration,
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _try_restore_overlay_cache(entry_dir, out, comp_name, *, render_video, width, height, fps, duration, spec, cache_key, cache_root):
+def _try_restore_overlay_cache(entry_dir, out, comp_name, *, render_video, width, height, fps, duration, spec, cache_key, cache_root, resolution='full', quality='best'):
     meta_path = entry_dir / 'cache-meta.json'
     if not meta_path.is_file():
         return None
@@ -87,7 +102,8 @@ def _try_restore_overlay_cache(entry_dir, out, comp_name, *, render_video, width
         return None
     if (meta.get('width') != int(width) or meta.get('height') != int(height)
             or float(meta.get('fps', -1)) != float(fps) or float(meta.get('duration', -1)) != float(duration)
-            or bool(meta.get('render_video')) != bool(render_video)):
+            or bool(meta.get('render_video')) != bool(render_video)
+            or meta.get('resolution', 'full') != resolution or meta.get('quality', 'best') != quality):
         return None
     cached_ecproj = entry_dir / 'overlay.ecproj'
     cached_png = entry_dir / 'preview_rgba.png'
@@ -157,6 +173,8 @@ def _store_overlay_cache(entry_dir, ecproj, preview_png, result, *, render_video
             'height': result['height'],
             'fps': result['fps'],
             'duration': result['duration'],
+            'resolution': result.get('resolution', 'full'),
+            'quality': result.get('quality', 'best'),
             'render_video': bool(render_video),
             'ecproj_sha256': file_hash.sha256(ecproj),
             'preview_png_sha256': file_hash.sha256(preview_png),
@@ -345,12 +363,36 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
     return layer_id
 
 
-def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_video=True, preview_time=None, gpu=False, use_cache=True, cache_dir=None):
+def build_overlay(
+    spec,
+    out_dir,
+    *,
+    width=None,
+    height=None,
+    fps=None,
+    render_video=True,
+    preview_time=None,
+    gpu=False,
+    resolution='full',
+    quality='best',
+    draft=False,
+    use_cache=True,
+    cache_dir=None,
+):
     """Compile an EffectCraft motion-graphics spec into .ecproj, RGBA PNG, and verified ProRes 4444 .mov."""
     cli = find_cli()
     w = int(spec.get('width', width or 1920))
     h = int(spec.get('height', height or 1080))
     rate = float(spec.get('fps', fps or 30))
+    if draft:
+        if resolution == 'full':
+            resolution = 'half'
+        if quality == 'best':
+            quality = 'draft'
+    if resolution not in ('full', 'half', 'third', 'quarter'):
+        raise ValueError(f'Unsupported overlay resolution: {resolution}')
+    if quality not in ('best', 'draft'):
+        raise ValueError(f'Unsupported overlay quality: {quality}')
     compiled_spec = overlay_recipes.expand_recipe(spec, width=w, height=h, fps=rate) if 'recipe' in spec else spec
     comp_name = compiled_spec.get('name', 'Overlay')
     duration = float(compiled_spec['duration'])
@@ -364,6 +406,7 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
         cache_key = _overlay_cache_key(
             cli, compiled_spec, width=w, height=h, fps=rate, duration=duration,
             render_video=render_video, preview_time=pt, gpu=gpu_flag,
+            resolution=resolution, quality=quality,
         )
         if cache_key is not None:
             cache_root = overlay_cache_dir(cache_dir)
@@ -376,8 +419,11 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
             entry_dir, out, comp_name, render_video=render_video,
             width=w, height=h, fps=rate, duration=duration, spec=spec,
             cache_key=cache_key, cache_root=cache_root,
+            resolution=resolution, quality=quality,
         )
         if cached is not None:
+            cached['resolution'] = resolution
+            cached['quality'] = quality
             cached['elapsed_seconds'] = round(time.monotonic() - t0, 3)
             core.write_json(out / 'overlay-report.json', cached)
             return cached
@@ -430,6 +476,8 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
         'height': h,
         'fps': rate,
         'duration': duration,
+        'resolution': resolution,
+        'quality': quality,
         'overlay_video': None,
     }
     if 'recipe' in spec:
@@ -446,6 +494,7 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
             '--out', str(mov_path),
             '--format', 'prores', '--prores', '4444',
             '--channels', 'rgba', '--audio', 'off',
+            '--resolution', resolution, '--quality', quality,
         ])
         core.run(cmd, timeout=600)
         if not mov_path.is_file():

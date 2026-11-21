@@ -19,6 +19,7 @@ dependencies = [
 exchange = ["opentimelineio==0.18.1"]
 rhythm = ["librosa==0.11.0", "numba==0.68.0"]
 audio = ["faster-whisper==1.2.1", "onnxruntime==1.31.0", "av==19.0.1"]
+gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.31.0", "nvidia-cublas-cu12>=12.0"]
 tracking = ["opencv-contrib-python-headless==4.13.0.92", "av==19.0.1"]
 mcp = ["mcp==2.3.0"]
 all = [

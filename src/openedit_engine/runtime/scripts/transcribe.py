@@ -24,6 +24,7 @@ import runtime_paths
 
 RATE = 16000
 COMPUTE_TYPES = ('int8', 'int8_float32', 'float32')
+COMPUTE_TYPES_CUDA = ('float16', 'int8_float16', 'int8', 'float32')
 MODEL_CACHES = (('models--Systran--faster-whisper-base', 145217532),
                 ('models--Systran--faster-whisper-tiny', 75538270))
 
@@ -87,10 +88,34 @@ def sha256(path):
     return file_hash.sha256(path).upper()
 
 
-def load_model(model_dir, compute_type, threads):
+def resolve_device(device='cpu', gpu=False):
+    """Resolve deterministic CTranslate2 execution device ('cpu' by default; 'cuda' when GPU enabled)."""
+    req = (device or 'cpu').strip().lower()
+    if req not in ('cpu', 'cuda', 'auto'):
+        raise ValueError(f'Unsupported transcription device: {device}; choose cpu, cuda, or auto')
+    if gpu and req == 'cpu':
+        req = 'auto'
+    if req == 'cpu':
+        return 'cpu'
+    runtime_paths.prepare_cuda_dlls()
+    try:
+        import ctranslate2
+        cuda_count = int(ctranslate2.get_cuda_device_count())
+    except Exception:
+        cuda_count = 0
+    if cuda_count > 0:
+        return 'cuda'
+    if req == 'cuda':
+        raise ValueError('CUDA device requested for faster-whisper, but no CUDA GPU is available')
+    return 'cpu'
+
+
+def load_model(model_dir, compute_type, threads, *, device='cpu'):
     """Import and open the model offline; both the runtime and the weights are caller-supplied."""
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
+    if device == 'cuda':
+        runtime_paths.prepare_cuda_dlls()
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -98,8 +123,8 @@ def load_model(model_dir, compute_type, threads):
             'Offline transcription needs faster-whisper in the interpreter running this script; install it '
             'there (pip install faster-whisper). It runs on CTranslate2 and does not need torch. This Skill '
             'never installs packages itself.')
-    kwargs = {'device': 'cpu', 'compute_type': compute_type, 'local_files_only': True}
-    if threads:
+    kwargs = {'device': device, 'compute_type': compute_type, 'local_files_only': True}
+    if threads and device == 'cpu':
         kwargs['cpu_threads'] = threads
     started = time.perf_counter()
     try:
@@ -173,7 +198,12 @@ def run_transcription(args):
         raise ValueError(f'Output directory already exists; build a new named version: {out}')
     if not 1 <= args.beam_size <= 10:
         raise ValueError('--beam-size must be in [1, 10]')
-    if args.compute_type not in COMPUTE_TYPES:
+    actual_device = resolve_device(getattr(args, 'device', 'cpu'), getattr(args, 'gpu', False))
+    compute_type = args.compute_type or ('float16' if actual_device == 'cuda' else 'int8')
+    if actual_device == 'cuda':
+        if compute_type not in COMPUTE_TYPES_CUDA:
+            raise ValueError(f'--compute-type must be one of {COMPUTE_TYPES_CUDA} on CUDA')
+    elif compute_type not in COMPUTE_TYPES:
         raise ValueError(f'--compute-type must be one of {COMPUTE_TYPES} on CPU')
     if args.language != 'auto' and not re.fullmatch(r'[a-z]{2,3}', args.language):
         raise ValueError("--language must be 'auto' or a two-to-three letter code such as zh or en")
@@ -185,7 +215,7 @@ def run_transcription(args):
     model_dir = resolve_model(args.model)
     files = model_files(model_dir)
     model_bin = model_dir / 'model.bin'
-    model, load_seconds = load_model(model_dir, args.compute_type, args.threads)
+    model, load_seconds = load_model(model_dir, compute_type, args.threads, device=actual_device)
 
     audio = decode(source)
     seconds = audio.shape[0] / RATE
@@ -238,13 +268,13 @@ def run_transcription(args):
         'model': {'requested': str(args.model or os.environ.get('OPENEDIT_WHISPER_MODEL') or os.environ.get('JIANYING_WHISPER_MODEL') or model_dir),
                   'resolved': str(model_dir), 'files': files, 'model_bin_bytes': model_bin.stat().st_size,
                   'model_bin_sha256': next(item['sha256'] for item in files if item['file'] == 'model.bin'),
-                  'device': 'cpu', 'compute_type': args.compute_type, 'load_seconds': round(load_seconds, 3)},
+                  'device': actual_device, 'compute_type': compute_type, 'load_seconds': round(load_seconds, 3)},
         'audio': {'path': str(source), 'bytes': source.stat().st_size, 'sample_rate': RATE,
                   'seconds': round(audio.shape[0] / RATE, 3),
                   'decode_path': 'ffmpeg 16 kHz mono PCM16, then stdlib wave + numpy (PyAV is bypassed: '
                                  'av 19.0.1 rejects the metadata_errors keyword faster-whisper passes)'},
         'params': {'language': args.language, 'beam_size': args.beam_size, 'vad_filter': not args.no_vad,
-                   'compute_type': args.compute_type, 'threads': args.threads,
+                   'device': actual_device, 'compute_type': compute_type, 'threads': args.threads,
                    'condition_on_previous_text': True, 'word_timestamps': want_words,
                    'level': 'word' if want_words else 'segment'},
         'info': {'language': info.language, 'language_probability': round(info.language_probability, 6),
@@ -259,7 +289,7 @@ def run_transcription(args):
         'text_all': text_all,
         'files': {path.name: path.stat().st_size for path in sorted(out.iterdir())},
         'boundaries': [
-            'CPU int8 by default; the weights and faster-whisper are caller-supplied and never downloaded here.',
+            f'{actual_device.upper()} {compute_type} execution; weights and faster-whisper are caller-supplied and never downloaded here.',
             'Segment text is machine output: no human correction, no punctuation or wording cleanup.',
             ('Word intervals are model alignment estimates, not forced alignment or guaranteed character timing; zero/overlapping words are refused.'
              if want_words else 'Timings are the model\'s segment boundaries, not word-level alignment (word_timestamps=False).'),
@@ -284,8 +314,11 @@ def main(argv=None):
     parser.add_argument('--model', help='faster-whisper model directory, else OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL')
     parser.add_argument('--language', default='zh', help="'auto' or a code such as zh / en; default zh")
     parser.add_argument('--beam-size', type=int, default=5)
-    parser.add_argument('--compute-type', default='int8',
-                        help='one of int8 / int8_float32 / float32; validated below so every refusal is JSON')
+    parser.add_argument('--device', choices=('cpu', 'cuda', 'auto'), default='cpu',
+                        help='Execution device: cpu (default), cuda, or auto')
+    parser.add_argument('--gpu', action='store_true', help='Prefer CUDA GPU when available (auto device selection)')
+    parser.add_argument('--compute-type', default=None,
+                        help='CPU: int8/int8_float32/float32; CUDA: float16/int8_float16/int8/float32')
     parser.add_argument('--threads', type=int, default=0, help='0 leaves the thread count to the runtime')
     parser.add_argument('--no-vad', action='store_true', help='disable the voice-activity filter')
     parser.add_argument('--word-timestamps', action='store_true',

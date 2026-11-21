@@ -656,11 +656,18 @@ def build_project(
     preview_times=None,
     export_path=None,
     hardware_encoding='off',
+    export_scale=None,
+    draft=False,
     export_otio=None,
     export_fcpxml=None,
 ):
     """Build a plaintext .fcproj project (plus optional overlays, previews, and verified MP4)."""
     probe_map = dict(probes or {})
+    if export_scale is not None:
+        export_scale = float(core.number(export_scale, 'export_scale', 0.1, 1.0))
+    eff_scale = export_scale if export_scale is not None else (0.5 if draft else 1.0)
+    ov_resolution = 'half' if draft else 'full'
+    ov_quality = 'draft' if draft else 'best'
     # Verify stock provenance checksums and codec compatibility BEFORE creating output directory.
     records = core.provenance(plan)
     for clip in plan['clips']:
@@ -693,6 +700,9 @@ def build_project(
                 height=canvas['height'],
                 fps=canvas['fps'],
                 render_video=True,
+                resolution=ov_resolution,
+                quality=ov_quality,
+                draft=draft,
                 use_cache=use_overlay_cache,
             )
             compiled_overlays.append({
@@ -1008,8 +1018,9 @@ def build_project(
         if preview_times:
             p_dir = out / 'previews'
             p_dir.mkdir()
+            prev_max_side = 960 if draft else 0
             for idx, ts in enumerate(preview_times):
-                res = client.call_tool('render_frame', {'seconds': float(ts), 'max_side': 0})
+                res = client.call_tool('render_frame', {'seconds': float(ts), 'max_side': prev_max_side})
                 raw = craft_rpc.extract_png_bytes(res)
                 if not raw:
                     raise RuntimeError(f'No PNG bytes returned for preview t={ts}')
@@ -1021,11 +1032,13 @@ def build_project(
             mp4 = Path(export_path).resolve()
             mp4.parent.mkdir(parents=True, exist_ok=True)
             exp_cfg = plan.get('export', {})
+            exp_w = max(64, int(round(int(canvas['width']) * eff_scale / 2.0)) * 2) if eff_scale < 0.9999 else int(canvas['width'])
+            exp_h = max(64, int(round(int(canvas['height']) * eff_scale / 2.0)) * 2) if eff_scale < 0.9999 else int(canvas['height'])
             exp_params = {
                 'path': str(mp4),
                 'format': exp_cfg.get('format', 'h264'),
-                'width': int(canvas['width']),
-                'height': int(canvas['height']),
+                'width': exp_w,
+                'height': exp_h,
                 'fps': float(canvas['fps']),
                 'hardwareEncoding': exp_cfg.get('hardware_encoding', hardware_encoding),
                 'audio': bool(exp_cfg.get('audio', True)),
@@ -1034,7 +1047,8 @@ def build_project(
             }
             if exp_params['hardwareEncoding'] == 'off' and exp_params['format'] == 'h264':
                 exp_params['bitrateMode'] = 'crf'
-                exp_params['crf'] = int(exp_cfg.get('crf', 20))
+                default_crf = 28 if draft else 20
+                exp_params['crf'] = int(exp_cfg.get('crf', default_crf))
             exp_res = client.call_tool('command_run', {'id': 'file.exportMedia', 'params': exp_params})
             expect_audio = bool(exp_params['audio'] and (plan.get('audio') or linked_audio_active))
             exp_info = _verify_exported_mp4(mp4, expect_audio)
@@ -1042,6 +1056,8 @@ def build_project(
                 'path': str(mp4),
                 'sha256': file_hash.sha256(mp4),
                 'bytes': mp4.stat().st_size,
+                'scale': eff_scale,
+                'draft': bool(draft),
                 'render_result': exp_res.get('result') if isinstance(exp_res, dict) else exp_res,
                 'probe': exp_info,
                 'strict_decode': 'passed',
@@ -1050,6 +1066,7 @@ def build_project(
     return {
         'status': 'passed',
         'backend': 'filmcraft',
+        'draft': bool(draft),
         'project': str(fcproj_path),
         'project_sha256': file_hash.sha256(fcproj_path),
         'duration_frames': final_seq.get('durationFrames'),
@@ -1093,7 +1110,19 @@ def preview_project(project_path, out_dir, times, max_side=0):
     return report
 
 
-def export_project(project_path, out_path, *, fmt='h264', crf=20, hardware_encoding='off', burn_captions=True, audio=True, gpu_rendering='auto'):
+def export_project(
+    project_path,
+    out_path,
+    *,
+    fmt='h264',
+    crf=None,
+    hardware_encoding='off',
+    burn_captions=True,
+    audio=True,
+    gpu_rendering='auto',
+    scale=None,
+    draft=False,
+):
     """Export an existing .fcproj to final media and run ffprobe + strict ffmpeg decode verification."""
     cli = find_cli()
     proj = Path(project_path).resolve()
@@ -1105,9 +1134,16 @@ def export_project(project_path, out_path, *, fmt='h264', crf=20, hardware_encod
     dst.parent.mkdir(parents=True, exist_ok=True)
     if fmt not in ('h264', 'hevc', 'prores', 'wav', 'aac'):
         raise ValueError(f'Unsupported export format: {fmt}')
+    if gpu_rendering not in ('auto', 'off'):
+        raise ValueError(f'Unsupported gpu_rendering mode: {gpu_rendering}')
+
+    eff_scale = float(core.number(scale, 'scale', 0.1, 1.0)) if scale is not None else (0.5 if draft else 1.0)
+    eff_crf = int(core.number(crf, 'crf', 0, 51)) if crf is not None else (28 if draft else 20)
 
     t0 = time.monotonic()
     cmd = [cli, '--project', str(proj), 'export', str(dst), '--format', fmt, '--gpu-rendering', gpu_rendering]
+    if eff_scale < 0.9999 and fmt in ('h264', 'hevc', 'prores'):
+        cmd.extend(['--scale', f'{eff_scale:.4g}'])
     if not audio:
         cmd.append('--no-audio')
     settings = {}
@@ -1116,7 +1152,7 @@ def export_project(project_path, out_path, *, fmt='h264', crf=20, hardware_encod
             settings['hardwareEncoding'] = 'auto'
         else:
             settings['bitrateMode'] = 'crf'
-            settings['crf'] = int(core.number(crf, 'crf', 0, 51))
+            settings['crf'] = eff_crf
     settings['burnCaptions'] = bool(burn_captions)
     cmd.extend(['--settings', json.dumps(settings)])
     core.run(cmd, timeout=900)
@@ -1132,6 +1168,9 @@ def export_project(project_path, out_path, *, fmt='h264', crf=20, hardware_encod
         'output': str(dst),
         'sha256': file_hash.sha256(dst),
         'bytes': dst.stat().st_size,
+        'draft': bool(draft),
+        'scale': eff_scale,
+        'gpu_rendering': gpu_rendering,
         'elapsed_seconds': round(time.monotonic() - t0, 3),
         'probe': info,
         'expect_audio_requested': expect_audio,

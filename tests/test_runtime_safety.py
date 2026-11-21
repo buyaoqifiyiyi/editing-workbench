@@ -80,6 +80,7 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'demucs').mkdir()
             (root / 'vad').mkdir()
             (root / 'matting').mkdir()
+            (root / 'face').mkdir()
             (root / 'faster-whisper-tiny').mkdir()
             (root / 'faster-whisper-base').mkdir()
             (root / 'faster-whisper-tiny' / 'model.bin').write_bytes(b'tiny')
@@ -87,7 +88,9 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'demucs' / 'htdemucs_fp16weights.onnx').write_bytes(b'dm')
             (root / 'vad' / 'silero_vad.onnx').write_bytes(b'vd')
             (root / 'matting' / 'birefnet_general.onnx').write_bytes(b'bf')
+            (root / 'matting' / 'birefnet_lite_fp16.onnx').write_bytes(b'fp16')
             (root / 'matting' / 'rmbg14_quantized.onnx').write_bytes(b'rm')
+            (root / 'face' / 'face_detection_yunet_2023mar.onnx').write_bytes(b'yn')
             clean_env = {
                 'OPENEDIT_MODELS_DIR': str(root),
                 'OPENEDIT_NO_AUTO_MODELS': '',
@@ -97,15 +100,22 @@ class RuntimeSafety(unittest.TestCase):
                 'JIANYING_WHISPER_MODEL': '',
                 'OPENEDIT_VAD_MODEL': '',
                 'OPENEDIT_MATTING_MODEL': '',
+                'OPENEDIT_FACE_MODEL': '',
             }
             with patch.dict(editor.os.environ, clean_env, clear=False):
                 inv = runtime_paths.discover_local_models()
-                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting')))
+                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting', 'face')))
                 self.assertEqual(Path(inv['whisper']['path']).name, 'faster-whisper-base')
                 self.assertEqual(Path(inv['matting']['path']).name, 'birefnet_general.onnx')
+                self.assertEqual(Path(runtime_paths.discover_model('matting', prefer_fp16=True)).name, 'birefnet_lite_fp16.onnx')
+                self.assertEqual(Path(inv['face']['path']).name, 'face_detection_yunet_2023mar.onnx')
+                provs = runtime_paths.resolve_ort_providers(['CUDAExecutionProvider', 'CPUExecutionProvider'], gpu=True)
+                self.assertEqual(provs[0][0], 'CUDAExecutionProvider')
+                self.assertEqual(provs[0][1]['cudnn_conv_algo_search'], 'HEURISTIC')
                 with patch.dict(editor.os.environ, {'OPENEDIT_NO_AUTO_MODELS': '1'}):
                     self.assertIsNone(runtime_paths.discover_model('demucs'))
                     self.assertIsNone(runtime_paths.discover_model('whisper'))
+                    self.assertIsNone(runtime_paths.discover_model('face'))
 
     def test_runtime_common_locks_and_validators(self):
         with tempfile.TemporaryDirectory(prefix='oe-common-') as folder:

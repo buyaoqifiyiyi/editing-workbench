@@ -34,10 +34,12 @@ def doctor():
         found = importlib.util.find_spec(mod) is not None
         ver = None
         if found:
-            try:
-                ver = importlib.metadata.version(pkg.replace('_', '-'))
-            except importlib.metadata.PackageNotFoundError:
-                pass
+            for dist_name in (pkg.replace('_', '-'), f'{pkg.replace("_", "-")}-gpu'):
+                try:
+                    ver = importlib.metadata.version(dist_name)
+                    break
+                except importlib.metadata.PackageNotFoundError:
+                    pass
         optional[pkg] = {'available': found, 'version': ver}
 
     fc_ok = backends['filmcraft']['installed']
@@ -54,6 +56,25 @@ def doctor():
 
     warnings = [backends[name]['warning'] for name in ('filmcraft', 'effectcraft') if backends[name].get('warning')]
 
+    ort_providers = []
+    if optional['onnxruntime']['available']:
+        try:
+            import onnxruntime as ort
+            ort_providers = list(ort.get_available_providers())
+        except Exception:
+            pass
+    ct2_cuda = 0
+    try:
+        import ctranslate2
+        ct2_cuda = int(ctranslate2.get_cuda_device_count())
+    except Exception:
+        pass
+    gpu_accel = {
+        'onnxruntime_providers': ort_providers,
+        'cuda_provider_available': 'CUDAExecutionProvider' in ort_providers,
+        'ctranslate2_cuda_devices': ct2_cuda,
+    }
+
     return {
         'status': 'ready' if ready else 'incomplete',
         'ready': ready,
@@ -62,6 +83,7 @@ def doctor():
         'runtime_root': str(core.SKILL_ROOT),
         'backends': backends,
         'gpu': gpu,
+        'gpu_acceleration': gpu_accel,
         'local_models': runtime_paths.discover_local_models(),
         'optional_ai_packages': optional,
         'instructions': instructions,
@@ -97,9 +119,12 @@ def capabilities(query=None, live=False):
             'caveat': 'WebM VP9 default CLI export drops alpha; ProRes 4444 (.mov) is locked as the verified alpha interchange',
         },
         'offline_ai_and_media': [
-            'auto-cut (Silero VAD ONNX + FFmpeg silencedetect rough cut)',
-            'matting (RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA alpha .mov)',
-            'beats / beat-apply (librosa)', 'transcribe (faster-whisper)', 'separate (Demucs ONNX)',
+            'auto-reframe (PySceneDetect + OpenCV YuNet face / saliency smooth pan -> editable 9:16 plan)',
+            'rough-cut (one-command auto-cut -> faster-whisper -> clip-clamped/karaoke captions)',
+            'audio-master (two-pass FFmpeg EBU R128 loudnorm + true-peak/clipping QC)',
+            'auto-cut (Silero VAD ONNX + FFmpeg silencedetect rough cut, optional --gpu)',
+            'matting (RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA alpha .mov, optional --gpu/--device)',
+            'beats / beat-apply (librosa)', 'transcribe (faster-whisper CPU/CUDA)', 'separate (Demucs ONNX CPU/CUDA)',
             'denoise-audio (FFT)', 'ducking', 'captions / karaoke', 'tracking / tracking-apply (OpenCV CSRT)',
             'reverse', 'practice-compare', 'normalize-media (FFmpeg single & batch VFR/Hi10P -> CFR)',
         ],
@@ -123,7 +148,19 @@ def capabilities(query=None, live=False):
     return caps
 
 
-def build(plan_path, out_dir, *, export_path=None, preview_times=None, hardware_encoding='off', export_otio=None, export_fcpxml=None, use_overlay_cache=True):
+def build(
+    plan_path,
+    out_dir,
+    *,
+    export_path=None,
+    preview_times=None,
+    hardware_encoding='off',
+    export_scale=None,
+    draft=False,
+    export_otio=None,
+    export_fcpxml=None,
+    use_overlay_cache=True,
+):
     plan, probes, warnings = core.validate_plan(plan_path)
     report = filmcraft_backend.build_project(
         plan,
@@ -132,6 +169,8 @@ def build(plan_path, out_dir, *, export_path=None, preview_times=None, hardware_
         preview_times=preview_times,
         export_path=export_path,
         hardware_encoding=hardware_encoding,
+        export_scale=export_scale,
+        draft=draft,
         export_otio=export_otio,
         export_fcpxml=export_fcpxml,
         use_overlay_cache=use_overlay_cache,
@@ -198,6 +237,8 @@ def main(argv=None):
     c_build.add_argument('--export', dest='export_path', help='Optional immediate final media export path')
     c_build.add_argument('--preview-times', type=float, nargs='+', help='Optional preview frame times in seconds')
     c_build.add_argument('--hardware-encoding', choices=('off', 'auto'), default='off')
+    c_build.add_argument('--export-scale', type=float, default=None, help='Optional export resolution scale in [0.1, 1.0]')
+    c_build.add_argument('--draft', action='store_true', help='Fast half-resolution/draft build for quick iteration')
     c_build.add_argument('--export-otio', help='Optional OTIO interchange output path')
     c_build.add_argument('--export-fcpxml', help='Optional FCPXML interchange output path')
     c_build.add_argument('--no-overlay-cache', action='store_true', help='Disable EffectCraft overlay cache')
@@ -212,8 +253,11 @@ def main(argv=None):
     c_exp.add_argument('--project', required=True)
     c_exp.add_argument('--out', required=True)
     c_exp.add_argument('--format', dest='fmt', choices=('h264', 'hevc', 'prores', 'wav', 'aac'), default='h264')
-    c_exp.add_argument('--crf', type=int, default=20)
+    c_exp.add_argument('--crf', type=int, default=None)
     c_exp.add_argument('--hardware-encoding', choices=('off', 'auto'), default='off')
+    c_exp.add_argument('--gpu-rendering', choices=('auto', 'off'), default='auto')
+    c_exp.add_argument('--scale', type=float, default=None, help='Optional export resolution scale in [0.1, 1.0]')
+    c_exp.add_argument('--draft', action='store_true', help='Fast half-resolution draft export (scale=0.5, crf=28)')
     c_exp.add_argument('--no-burn-captions', action='store_true')
     c_exp.add_argument('--no-audio', action='store_true')
 
@@ -222,6 +266,9 @@ def main(argv=None):
     c_ov.add_argument('--out', required=True)
     c_ov.add_argument('--no-video', action='store_true')
     c_ov.add_argument('--gpu', action='store_true')
+    c_ov.add_argument('--resolution', choices=('full', 'half', 'third', 'quarter'), default='full')
+    c_ov.add_argument('--quality', choices=('best', 'draft'), default='best')
+    c_ov.add_argument('--draft', action='store_true', help='Render fast half-resolution draft overlay')
     c_ov.add_argument('--no-cache', action='store_true', help='Disable content-addressed overlay cache')
 
     c_fce = sub.add_parser('filmcraft-exec', help='Direct JSON command escape hatch to FilmCraft engine')
@@ -282,17 +329,21 @@ def main(argv=None):
                       'probes': probes, 'warnings': warnings}
         elif args.action == 'build':
             result = build(args.plan, args.out, export_path=args.export_path, preview_times=args.preview_times,
-                           hardware_encoding=args.hardware_encoding, export_otio=args.export_otio, export_fcpxml=args.export_fcpxml,
+                           hardware_encoding=args.hardware_encoding, export_scale=args.export_scale, draft=args.draft,
+                           export_otio=args.export_otio, export_fcpxml=args.export_fcpxml,
                            use_overlay_cache=not args.no_overlay_cache)
         elif args.action == 'preview':
             result = filmcraft_backend.preview_project(args.project, args.out, args.times, max_side=args.max_side)
         elif args.action == 'export':
             result = filmcraft_backend.export_project(args.project, args.out, fmt=args.fmt, crf=args.crf,
                                                       hardware_encoding=args.hardware_encoding,
-                                                      burn_captions=not args.no_burn_captions, audio=not args.no_audio)
+                                                      burn_captions=not args.no_burn_captions, audio=not args.no_audio,
+                                                      gpu_rendering=args.gpu_rendering, scale=args.scale, draft=args.draft)
         elif args.action == 'render-overlay':
             spec = _load_json_spec(args.spec)
-            result = effectcraft_backend.build_overlay(spec, args.out, render_video=not args.no_video, gpu=args.gpu, use_cache=not args.no_cache)
+            result = effectcraft_backend.build_overlay(spec, args.out, render_video=not args.no_video, gpu=args.gpu,
+                                                       resolution=args.resolution, quality=args.quality, draft=args.draft,
+                                                       use_cache=not args.no_cache)
         elif args.action == 'filmcraft-exec':
             cmds = _load_json_spec(args.commands)
             result = filmcraft_backend.exec_commands(cmds, project=args.project, save_as=args.save_as)

@@ -17,9 +17,9 @@ OpenEdit Engine 将 **ArtCraft FilmCraft**（非线性主剪辑、调色、字�
 - **定位**：MIT/Apache-2.0 纯 Rust 非线性剪辑与调色混音内核，工程为明文 JSON 格式 `.fcproj`，支持自由画布（`64..7680` × `64..4320`，`1..120fps`）、多轨 V/A 排布、Lumetri 曲线/色轮/HSL/3D LUT、26 种混合模式、富文本多色高亮与烧录字幕。
 - **核心操作与 CLI 入口**：
   - 环境与能力探测：`openedit doctor`、`openedit backends`、`openedit capabilities --query blur --live`
-  - 媒体准备与预处理：`openedit inspect`、`openedit reference [--detector ffmpeg|pyscenedetect]`、`openedit normalize-media`（单文件或目录批量 VFR/Hi10P → 8-bit CFR）、`openedit auto-cut`（Silero VAD / FFmpeg 气口粗剪）、`openedit matting`（非绿幕 AI 抠像 → ProRes 4444 RGBA `.mov`）
-  - 校验与编译：`openedit validate --plan <edit-plan.json>`、`openedit build --plan <edit-plan.json> --out <新目录> [--preview-times 0.5 2.0] [--export <out.mp4>] [--export-otio <timeline.otio>] [--export-fcpxml <timeline.fcpxml>]`
-  - 二次审片与导出：`openedit preview --project <in.fcproj> --out <目录> --times 0.5 2.0`、`openedit export --project <in.fcproj> --out <out.mp4> --format h264|hevc|prores|wav|aac [--hardware-encoding off|auto]`
+  - 媒体准备与 AI 工具：`openedit inspect`、`openedit reference [--detector ffmpeg|pyscenedetect]`、`openedit normalize-media`（单文件或目录批量 VFR/Hi10P → 8-bit CFR）、`openedit auto-cut`、`openedit rough-cut`（去静音+字幕一步出工程）、`openedit auto-reframe`（横竖屏自动跟拍重构图）、`openedit matting`（非绿幕 AI 抠像 → ProRes 4444 RGBA）、`openedit audio-master`（双遍 EBU R128 响度母带与质检）；`transcribe` / `separate` / `matting` / `auto-cut` 均支持可选 `--gpu` CUDA 加速。
+  - 校验与编译：`openedit validate --plan <edit-plan.json>`、`openedit build --plan <edit-plan.json> --out <新目录> [--draft] [--export-scale 0.5] [--preview-times 0.5 2.0] [--export <out.mp4>] [--export-otio <timeline.otio>] [--export-fcpxml <timeline.fcpxml>]`
+  - 二次审片与导出：`openedit preview --project <in.fcproj> --out <目录> --times 0.5 2.0`、`openedit export --project <in.fcproj> --out <out.mp4> --format h264|hevc|prores|wav|aac [--draft] [--scale 0.5] [--gpu-rendering auto|off] [--hardware-encoding off|auto]`
   - 高级直通逃生舱：`openedit filmcraft-exec --commands '[{"id":"...", "params":{...}}]' [--project <in.fcproj>] [--save-as <out.fcproj>]`（直通全部 718 条 FilmCraft MCP 命令）
 
 ## 质量检查与导出验收

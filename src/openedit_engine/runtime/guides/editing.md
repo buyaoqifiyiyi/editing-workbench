@@ -14,7 +14,8 @@
 2. **VFR / 异形封装标准化**：若检测到手机 VFR 视频或非常规编码，先执行 `openedit normalize-media --input <源视频> --out <cfr视频.mp4>` 转为恒定帧率 CFR H.264/AAC 或 ProRes，防止多轨声画漂移。
 3. **可选离线 AI 辅助与创作知识检索**：
    - 使用 `openedit knowledge "<问题>"` 或 MCP `search_knowledge` 检索叙事、声画关系、转场、混合与构图方法，并用 `guide` / `read_guide` 读原文。
-   - 按任务白名单按需调用：`beats` / `beat-apply`（节拍检测与按拍切镜）、`transcribe`（Whisper 转写，需自备权重）、`separate`（Demucs 人声分离，需自备权重）、`ducking`（音乐自动闪避）、`denoise-audio`（FFT 降噪）、`captions`（逐段/逐词高亮字幕映射）、`tracking` / `tracking-apply`（CSRT 单目标跟踪）。
+   - 按任务白名单按需调用：`auto-reframe`（16:9 ↔ 9:16 竖屏智能跟拍重构图）、`rough-cut`（去气口+字幕一步出粗剪工程）、`audio-master`（双遍 EBU R128 响度母带与削波体检）、`beats` / `beat-apply`（节拍检测与按拍切镜）、`transcribe`（Whisper 转写，可选 `--gpu`）、`separate`（Demucs 人声分离，可选 `--gpu`）、`ducking`（音乐自动闪避）、`denoise-audio`（FFT 降噪）、`captions`（逐段/逐词高亮字幕映射）、`tracking` / `tracking-apply`（CSRT 单目标跟踪）。
+   - 前期快速迭代可对 `build` / `export` / `render-overlay` 加 `--draft` 生成半分辨率快速预览草稿（最终交付前去掉 `--draft` 以全分辨率严格全解码导出）。
 
 ## 3. 编写计划、合法性校验与工程编译
 

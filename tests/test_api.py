@@ -52,7 +52,8 @@ class EngineInterfaceTests(unittest.TestCase):
         for name in ('validate', 'build', 'preview', 'export', 'render-overlay',
                      'filmcraft-exec', 'effectcraft-exec', 'captions', 'music-edit', 'ducking',
                      'layout-tracks', 'denoise-audio', 'reverse', 'migrate', 'transcribe',
-                     'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting', 'stock', 'mesh-avatar'):
+                     'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting',
+                     'auto-reframe', 'rough-cut', 'audio-master', 'stock', 'mesh-avatar'):
             self.assertIn(name, schemas)
         self.assertEqual(set(schemas), set(api.operations()))
         self.assertEqual(api.operation_schemas('validate'), schemas['validate'])
@@ -109,12 +110,22 @@ class EngineInterfaceTests(unittest.TestCase):
              ['--spec', 's.json', '--out', 'o', '--no-cache']),
             ('normalize-media', {'input': 'clips_dir', 'out': 'prep_out', 'force': True, 'max_files': 50},
              ['--input', 'clips_dir', '--out', 'prep_out', '--force', '--max-files', '50']),
-            ('auto-cut', {'input': 'talk.mp4', 'out': 'ac_out', 'detector': 'silero', 'threshold': 0.5, 'min_silence': 0.4},
-             ['--input', 'talk.mp4', '--out', 'ac_out', '--detector', 'silero', '--threshold', '0.5', '--min-silence', '0.4']),
-            ('matting', {'input': 'fg.mp4', 'out': 'm_out', 'backend': 'birefnet', 'alpha_feather': 0.5, 'alpha_erode': -1, 'keep_audio': True},
-             ['--input', 'fg.mp4', '--out', 'm_out', '--backend', 'birefnet', '--alpha-feather', '0.5', '--alpha-erode=-1', '--keep-audio']),
-            ('checks', {'only': ['auto_cut', 'matting'], 'no_auto_models': True},
-             ['--only', 'auto_cut', 'matting', '--no-auto-models']),
+            ('auto-cut', {'input': 'talk.mp4', 'out': 'ac_out', 'detector': 'silero', 'threshold': 0.5, 'min_silence': 0.4, 'gpu': True},
+             ['--input', 'talk.mp4', '--out', 'ac_out', '--detector', 'silero', '--threshold', '0.5', '--min-silence', '0.4', '--gpu']),
+            ('matting', {'input': 'fg.mp4', 'out': 'm_out', 'backend': 'birefnet', 'alpha_feather': 0.5, 'alpha_erode': -1, 'keep_audio': True, 'device': 'cuda'},
+             ['--input', 'fg.mp4', '--out', 'm_out', '--backend', 'birefnet', '--alpha-feather', '0.5', '--alpha-erode=-1', '--keep-audio', '--device', 'cuda']),
+            ('auto-reframe', {'input': 'w.mp4', 'out': 'rf_out', 'aspect': '9:16', 'detector': 'yunet', 'smoothing': 0.6},
+             ['--input', 'w.mp4', '--out', 'rf_out', '--aspect', '9:16', '--detector', 'yunet', '--smoothing', '0.6']),
+            ('rough-cut', {'input': 't.mp4', 'out': 'rc_out', 'language': 'zh', 'gpu': True, 'karaoke_mode': 'active'},
+             ['--input', 't.mp4', '--out', 'rc_out', '--language', 'zh', '--gpu', '--karaoke-mode', 'active']),
+            ('audio-master', {'input': 'a.wav', 'out': 'am_out', 'preset': 'podcast', 'sample_rate': 48000, 'measure_only': True},
+             ['--input', 'a.wav', '--out', 'am_out', '--preset', 'podcast', '--sample-rate', '48000', '--measure-only']),
+            ('build', {'plan': 'p.json', 'out': 'bo', 'draft': True, 'export_scale': 0.5},
+             ['--plan', 'p.json', '--out', 'bo', '--export-scale', '0.5', '--draft']),
+            ('export', {'project': 'p.fcproj', 'out': 'e.mp4', 'draft': True, 'scale': 0.5, 'gpu_rendering': 'off'},
+             ['--project', 'p.fcproj', '--out', 'e.mp4', '--gpu-rendering', 'off', '--scale', '0.5', '--draft']),
+            ('checks', {'only': ['auto_cut', 'matting', 'auto_reframe', 'rough_cut', 'audio_master'], 'no_auto_models': True},
+             ['--only', 'auto_cut', 'matting', 'auto_reframe', 'rough_cut', 'audio_master', '--no-auto-models']),
         ]
         for op, params, expected_tokens in valid_cases:
             with self.subTest(op=op):
@@ -138,6 +149,8 @@ class EngineInterfaceTests(unittest.TestCase):
             ('music-edit', {'subcommand': 'configure'}),
             ('auto-cut', {'input': 'talk.mp4', 'out': 'o', 'detector': 'bogus'}),
             ('matting', {'input': 'fg.mp4', 'out': 'o', 'backend': 'bogus'}),
+            ('auto-reframe', {'input': 'w.mp4', 'out': 'o', 'detector': 'bogus'}),
+            ('audio-master', {'input': 'a.wav', 'out': 'o', 'preset': 'bogus'}),
         ]
         for op, params in bad_cases:
             with self.subTest(op=op, params=params):

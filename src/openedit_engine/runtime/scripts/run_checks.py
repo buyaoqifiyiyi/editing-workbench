@@ -37,6 +37,9 @@ CHECKS = {
     'offline_denoise': ('offline_denoise_self_check.py', 'out'),
     'auto_cut': ('auto_cut_self_check.py', 'vad'),
     'matting': ('matting_self_check.py', 'matting'),
+    'auto_reframe': ('auto_reframe_self_check.py', 'face'),
+    'rough_cut': ('rough_cut_self_check.py', 'rough'),
+    'audio_master': ('audio_master_self_check.py', 'out'),
 }
 
 
@@ -59,6 +62,19 @@ def arguments(kind, out, options):
         return args
     if kind == 'matting':
         return ['--out', str(out), '--model', str(options.matting_model)]
+    if kind == 'face':
+        args = ['--out', str(out)]
+        face_model = getattr(options, 'face_model', None)
+        if face_model:
+            args.extend(['--face-model', str(face_model)])
+        return args
+    if kind == 'rough':
+        args = ['--out', str(out)]
+        if getattr(options, 'whisper_model', None):
+            args.extend(['--whisper-model', str(options.whisper_model)])
+        if getattr(options, 'vad_model', None):
+            args.extend(['--vad-model', str(options.vad_model)])
+        return args
     raise ValueError(kind)
 
 
@@ -93,6 +109,11 @@ def skip_reason(name, spec, options):
             import faster_whisper  # noqa: F401
         except ImportError:
             return 'faster-whisper is not importable in this interpreter; offline transcription stays unverified here'
+    if kind == 'face':
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            return 'opencv (cv2) is required for auto-reframe check'
     if kind == 'matting':
         if not getattr(options, 'matting_model', None):
             return 'needs --matting-model (RVM / BiRefNet / RMBG ONNX weights; engine ships none)'
@@ -118,10 +139,11 @@ def main(argv=None):
     parser.add_argument('--whisper-model', type=Path, default=None, help='faster-whisper model directory for transcription check')
     parser.add_argument('--vad-model', type=Path, default=None, help='Optional Silero VAD ONNX weights for auto-cut check')
     parser.add_argument('--matting-model', type=Path, default=None, help='Matting ONNX weights for matting check')
+    parser.add_argument('--face-model', type=Path, default=None, help='Optional YuNet ONNX weights for auto-reframe check')
     parser.add_argument('--no-auto-models', action='store_true', help='Disable local model auto-discovery in %LOCALAPPDATA%\\OpenEditTools\\models')
     options = parser.parse_args(argv)
 
-    for dest in ('demucs_model', 'whisper_model', 'vad_model', 'matting_model'):
+    for dest in ('demucs_model', 'whisper_model', 'vad_model', 'matting_model', 'face_model'):
         val = getattr(options, dest)
         if val is not None:
             setattr(options, dest, val.resolve())
@@ -134,6 +156,8 @@ def main(argv=None):
             options.vad_model = runtime_paths.discover_model('vad')
         if options.matting_model is None:
             options.matting_model = runtime_paths.discover_model('matting')
+        if options.face_model is None:
+            options.face_model = runtime_paths.discover_model('face')
 
     holder = None
     if options.keep:

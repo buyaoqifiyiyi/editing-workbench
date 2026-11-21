@@ -1,4 +1,5 @@
 """Direct openedit_engine & jianying_engine compatibility wrapper tests covering open_engine_self_check."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -46,6 +47,12 @@ class OverlayCacheTests(unittest.TestCase):
                 render_video=True, preview_time=0.25, gpu=False,
             )
             self.assertNotEqual(key_a, key_c)
+
+            key_draft = effectcraft_backend._overlay_cache_key(
+                fake_cli, spec_a, width=320, height=180, fps=30, duration=0.5,
+                render_video=True, preview_time=0.25, gpu=False, resolution='half', quality='draft',
+            )
+            self.assertNotEqual(key_c, key_draft)
 
     def test_real_effectcraft_overlay_cache_miss_hit_invalidation_and_recovery(self):
         with tempfile.TemporaryDirectory(prefix='oe-real-ov-cache-') as tmp:
@@ -174,6 +181,37 @@ class CompatibilityAliasTests(unittest.TestCase):
         self.assertEqual(oe_ver.stdout.strip(), openedit_engine.__version__)
         self.assertEqual(jy_ver.stdout.strip(), openedit_engine.__version__)
 
+
+class DraftPreviewFlagsTests(unittest.TestCase):
+    def test_filmcraft_export_and_build_draft_flags_forward_cleanly(self):
+        import filmcraft_backend
+        recorded = []
+
+        def fake_run(cmd, timeout=120):
+            recorded.append(list(cmd))
+            if 'export' in cmd:
+                dst = Path(cmd[cmd.index('export') + 1])
+                dst.write_bytes(b'fake-mp4')
+            return type('Res', (), {'returncode': 0, 'stderr': '', 'stdout': ''})()
+
+        with tempfile.TemporaryDirectory(prefix='oe-draft-exp-') as tmp:
+            root = Path(tmp)
+            proj = root / 'sample.fcproj'
+            proj.write_text('{}', encoding='utf-8')
+            out_mp4 = root / 'draft.mp4'
+            with patch('filmcraft_backend.find_cli', return_value='filmcraft-cli'), \
+                 patch('filmcraft_backend.core.run', side_effect=fake_run), \
+                 patch('filmcraft_backend.core.probe', return_value={'has_video': True, 'has_audio': True}):
+                rep = filmcraft_backend.export_project(proj, out_mp4, draft=True, gpu_rendering='off')
+            self.assertTrue(rep['draft'])
+            self.assertEqual(rep['scale'], 0.5)
+            self.assertEqual(rep['gpu_rendering'], 'off')
+            export_cmd = recorded[0]
+            self.assertIn('--scale', export_cmd)
+            self.assertEqual(export_cmd[export_cmd.index('--scale') + 1], '0.5')
+            self.assertEqual(export_cmd[export_cmd.index('--gpu-rendering') + 1], 'off')
+            settings = json.loads(export_cmd[export_cmd.index('--settings') + 1])
+            self.assertEqual(settings['crf'], 28)
 
 if __name__ == '__main__':
     unittest.main()

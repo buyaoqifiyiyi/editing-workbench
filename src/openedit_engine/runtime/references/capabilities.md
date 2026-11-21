@@ -75,7 +75,24 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 ## 非绿幕离线 AI 抠像（matting -> ProRes 4444）
 
 - 通过 `matting` 支持 **RVM**（`rvm_*.onnx` 时域循环状态）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，注意 BRIA RMBG-1.4 仅非商业用途）三类 ONNX 图结构，对图片或有界视频区间生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`。
-- **边界**：CPU 默认单线程可控边界（`--max-frames` 默认 600）；报告中 `adjacent_alpha_mad` 仅作帧间突变线索，不替代实景合入后的发丝/边缘人工检视。
+- **边界**：CPU 默认单线程可控边界（`--max-frames` 默认 600）；报告中 `adjacent_alpha_mad` 仅作帧间突变线索，不替代实景合入后的发丝/边缘人工检视；支持 `--gpu` / `--device cuda|auto` 启用 CUDA 加速。
+
+<a id="auto-reframe"></a>
+## 竖屏智能重构图（auto-reframe：16:9 ↔ 9:16）
+
+- 通过 `auto-reframe` 先用 PySceneDetect / FFmpeg 切出硬切镜头边界（保证摇镜关键帧不跨切点滑动），再按帧提取 **OpenCV YuNet 人脸检测**（MIT，自动发现 `%LOCALAPPDATA%\OpenEditTools\models\face\`）与梯度/运动显著性fallback，做镜头内曲线平滑与死区抑制。
+- 自动换算 FilmCraft `fit="cover"` 下的防黑边约束坐标，写出可直接在 FilmCraft GUI 手动精修的 `edit-plan.json` 与 `reframe.json`。
+
+<a id="rough-cut"></a>
+## 一键粗剪联动流水线（rough-cut）与快速草稿模式
+
+- `rough-cut` 将 `auto-cut`（Silero VAD / FFmpeg 去静音气口）→ `transcribe`（Whisper 词级时间戳，支持 `--gpu` CUDA 加速）→ 片段严格限域字幕 / `--karaoke-mode` 逐词高亮映射串联为一条指令，直接产出校验通过的粗剪 `edit-plan.json`。
+- `build --draft`、`export --draft` 与 `render-overlay --draft` 打通 FilmCraft `--scale 0.5`、`--gpu-rendering` 与 EffectCraft `--resolution half --quality draft`（草稿与正式版叠层缓存哈希严格隔离），显著加速前期粗剪审片。
+
+<a id="audio-master"></a>
+## 音频响度母带与 PCM 质检（audio-master）
+
+- `audio-master` 基于 FFmpeg 双遍线性 EBU R128 `loudnorm` 与 PCM16 统计，内置 `streaming`（`-14 LUFS / -1.0 dBTP`）、`podcast`（`-16 LUFS / -1.5 dBTP`）与 `broadcast`（`-23 LUFS / -1.0 dBTP`）预设，输出 `mastered.wav` 与 `loudness-report.json`（含前后积分响度、真峰值、削波采样数与 `--measure-only` 只测不写模式）。
 
 <a id="ducking"></a>
 ## 自动音频闪避（Ducking）

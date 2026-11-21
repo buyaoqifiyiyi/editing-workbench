@@ -20,7 +20,7 @@ _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 _NO_WIN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 
-def resolve_model(explicit):
+def resolve_model(explicit, *, prefer_fp16=False):
     """--model, OPENEDIT_MATTING_MODEL, or local models/matting dir; never downloads weights."""
     candidate = explicit or os.environ.get('OPENEDIT_MATTING_MODEL')
     if candidate:
@@ -28,7 +28,7 @@ def resolve_model(explicit):
         if not path.is_file():
             raise ValueError(f'Matting model is not a file: {path}')
         return path
-    discovered = runtime_paths.discover_model('matting', include_env=False)
+    discovered = runtime_paths.discover_model('matting', include_env=False, prefer_fp16=prefer_fp16)
     if discovered is not None and discovered.is_file():
         return discovered
     raise ValueError(
@@ -87,22 +87,20 @@ def inspect_session(session, requested_backend, model_path):
         'backend': backend,
         'input_name': in_meta.name,
         'input_size': (in_w, in_h),
+        'input_dtype': 'float16' if 'float16' in str(getattr(in_meta, 'type', '')) else 'float32',
     }
 
 
-def load_session(model_path, requested_backend, *, gpu=False):
-    """Create onnxruntime session on CPU (or optional CUDA/DirectML when --gpu is passed)."""
+def load_session(model_path, requested_backend, *, device='cpu', gpu=False):
+    """Create onnxruntime session on CPU or optional CUDA/DirectML when requested."""
+    if gpu or (device and device != 'cpu'):
+        runtime_paths.prepare_cuda_dlls()
     try:
         import onnxruntime as ort
     except ImportError:
         raise ValueError('Offline AI matting requires onnxruntime in this interpreter') from None
 
-    avail = ort.get_available_providers()
-    if gpu:
-        preferred = [p for p in ('CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider') if p in avail]
-        providers = preferred or ['CPUExecutionProvider']
-    else:
-        providers = ['CPUExecutionProvider']
+    providers = runtime_paths.resolve_ort_providers(ort.get_available_providers(), device=device, gpu=gpu)
     try:
         session = ort.InferenceSession(str(model_path), providers=providers)
     except Exception as exc:
@@ -168,7 +166,8 @@ class MattingRunner:
             norm = (norm - _IMAGENET_MEAN) / _IMAGENET_STD
         else:
             norm = norm - 0.5
-        tensor = np.ascontiguousarray(norm.transpose(2, 0, 1)[None], dtype=np.float32)
+        dtype = np.float16 if self.meta.get('input_dtype') == 'float16' else np.float32
+        tensor = np.ascontiguousarray(norm.transpose(2, 0, 1)[None], dtype=dtype)
         raw_out = self.session.run(None, {self.meta['input_name']: tensor})[0]
         matte = np.squeeze(raw_out).astype(np.float32)
         if matte.ndim != 2:
@@ -255,8 +254,11 @@ def run_matting(args):
     if out_cand.exists() or out_cand.is_symlink():
         raise ValueError(f'Output directory already exists; choose a new directory: {args.out}')
 
-    model_file = resolve_model(args.model)
-    session, meta, providers = load_session(model_file, args.backend, gpu=args.gpu)
+    want_gpu = bool(args.gpu or getattr(args, 'device', 'cpu') in ('cuda', 'auto'))
+    model_file = resolve_model(args.model, prefer_fp16=want_gpu)
+    session, meta, providers = load_session(
+        model_file, args.backend, device=getattr(args, 'device', 'cpu'), gpu=args.gpu,
+    )
     runner = MattingRunner(session, meta, downsample_ratio=ds_ratio, use_model_fgr=args.use_model_fgr)
     license_note = runtime_paths.model_license_note('matting', model_file)
 
@@ -490,6 +492,7 @@ def main(argv=None):
     parser.add_argument('--keep-audio', action='store_true', help='Mux bounded source audio (PCM16) into matte.mov')
     parser.add_argument('--no-video', action='store_true', help='Write RGBA/alpha preview PNGs without rendering matte.mov')
     parser.add_argument('--preview-time', type=float, default=None, help='Preview capture time within slice in seconds')
+    parser.add_argument('--device', choices=('cpu', 'cuda', 'auto'), default='cpu', help='Execution device (default cpu)')
     parser.add_argument('--gpu', action='store_true', help='Prefer CUDA/DirectML ORT provider when available')
     args = parser.parse_args(argv)
     try:

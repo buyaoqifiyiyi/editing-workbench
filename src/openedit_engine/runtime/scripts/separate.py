@@ -68,8 +68,10 @@ def model_path(explicit):
     )
 
 
-def session_for(model):
-    """Open the model, and take the segment length from its own input instead of assuming 7.8 s."""
+def session_for(model, *, device='cpu', gpu=False):
+    """Open the model on CPU or optional CUDA/DirectML, reading segment length from its input graph."""
+    if gpu or (device and device != 'cpu'):
+        runtime_paths.prepare_cuda_dlls()
     try:
         import onnxruntime as ort
     except ImportError:
@@ -77,8 +79,9 @@ def session_for(model):
             'Human voice separation needs onnxruntime in the interpreter running this script; '
             'install it there (pip install onnxruntime). This Skill never installs packages itself, '
             'and torch is not required.')
+    providers = runtime_paths.resolve_ort_providers(ort.get_available_providers(), device=device, gpu=gpu)
     try:
-        session = ort.InferenceSession(str(model), providers=['CPUExecutionProvider'])
+        session = ort.InferenceSession(str(model), providers=providers)
     except Exception as error:  # onnxruntime raises its own RuntimeError family, not OSError
         raise ValueError(f'onnxruntime could not initialize {model.name}: {error}. '
                          'A "bad allocation" here is memory pressure: close other applications and retry.')
@@ -145,7 +148,9 @@ def run_separation(args):
         raise ValueError('--overlap must be in [0, 0.5): the window needs more than half a segment')
 
     model = model_path(args.model)
-    session, segment, providers = session_for(model)
+    session, segment, providers = session_for(
+        model, device=getattr(args, 'device', 'cpu'), gpu=getattr(args, 'gpu', False),
+    )
     mix = decode(source)
     stems, chunks, elapsed = separate(mix, session, segment, args.overlap, args.verbose)
 
@@ -182,7 +187,7 @@ def run_separation(args):
                      for index, name in enumerate(STEM_NAMES)},
         'files': {path.name: path.stat().st_size for path in sorted(out.glob('*.wav'))},
         'boundaries': [
-            'CPU only, fp16 weights; both the model and onnxruntime are caller-supplied.',
+            f'Providers: {", ".join(providers)}, fp16 weights; both the model and onnxruntime are caller-supplied.',
             'Stems sum back to the mixture inside the windowed region; the padded tail is discarded.',
             'Real music was not measured here: stem order follows the demucs convention and was only '
             'cross-checked by energy on a synthetic mix (no drums, no bass).',
@@ -203,6 +208,8 @@ def main(argv=None):
     parser.add_argument('--stems', default='pair', choices=('pair', 'all'),
                         help="'pair' writes vocals + accompaniment, 'all' adds the four raw stems")
     parser.add_argument('--overlap', type=float, default=0.25, help='chunk overlap fraction, default 0.25')
+    parser.add_argument('--device', choices=('cpu', 'cuda', 'auto'), default='cpu', help='Execution device (default cpu)')
+    parser.add_argument('--gpu', action='store_true', help='Prefer CUDA/DirectML ORT provider when available')
     parser.add_argument('--verbose', action='store_true', help='chunk progress on stderr')
     args = parser.parse_args(argv)
     try:

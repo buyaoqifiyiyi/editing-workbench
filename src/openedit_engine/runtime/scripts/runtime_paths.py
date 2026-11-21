@@ -1,9 +1,13 @@
 """Portable runtime resources and external state paths; never reads credentials."""
 import os
 from pathlib import Path
+import site
+import sys
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = Path(__file__).absolute().parents[1]
+_CUDA_DLL_HANDLES = []
+_CUDA_PRELOADED = False
 
 
 def resource_skill_root():
@@ -41,6 +45,7 @@ _MODEL_ENV_VARS = {
     'whisper': ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'),
     'vad': ('OPENEDIT_VAD_MODEL',),
     'matting': ('OPENEDIT_MATTING_MODEL',),
+    'face': ('OPENEDIT_FACE_MODEL',),
 }
 _WHISPER_PREFERRED = (
     'faster-whisper-large-v3-turbo',
@@ -98,25 +103,31 @@ def _discover_whisper(root):
     return root.resolve() if _is_whisper_dir(root) else None
 
 
-def _discover_onnx_patterns(root, subdirs, patterns, *, fallback_subdir=None):
+def _discover_onnx_patterns(root, subdirs, patterns, *, fallback_subdir=None, exclude_substring=None):
     for sub in subdirs:
         base = (root / sub) if sub else root
         if not base.is_dir():
             continue
         for pat in patterns:
-            matches = sorted(p for p in base.glob(pat) if p.is_file())
+            matches = sorted(
+                p for p in base.glob(pat)
+                if p.is_file() and (not exclude_substring or exclude_substring not in p.name.lower())
+            )
             if matches:
                 return matches[0].resolve()
     if fallback_subdir:
         sub_dir = root / fallback_subdir
         if sub_dir.is_dir():
-            any_onnx = sorted(p for p in sub_dir.glob('*.onnx') if p.is_file())
+            any_onnx = sorted(
+                p for p in sub_dir.glob('*.onnx')
+                if p.is_file() and (not exclude_substring or exclude_substring not in p.name.lower())
+            )
             if any_onnx:
                 return any_onnx[0].resolve()
     return None
 
 
-def discover_model(kind, *, include_env=True):
+def discover_model(kind, *, include_env=True, prefer_fp16=False):
     """Resolve an explicit env override or auto-discover local offline AI weights; never downloads."""
     if kind not in _MODEL_ENV_VARS:
         raise ValueError(f'Unknown model kind: {kind}')
@@ -138,11 +149,22 @@ def discover_model(kind, *, include_env=True):
         return _discover_onnx_patterns(
             root, ('vad', ''), ('silero_vad.onnx', '*silero*vad*.onnx'), fallback_subdir='vad',
         )
+    if kind == 'face':
+        return _discover_onnx_patterns(
+            root, ('face', ''), ('*yunet*.onnx', '*face*.onnx'), fallback_subdir='face',
+        )
+    if prefer_fp16:
+        fp16 = _discover_onnx_patterns(
+            root, ('matting', ''), ('*birefnet*fp16*.onnx', '*fp16*.onnx'), fallback_subdir=None,
+        )
+        if fp16 is not None:
+            return fp16
     return _discover_onnx_patterns(
         root,
         ('matting', ''),
         ('rvm*.onnx', '*rvm*.onnx', 'birefnet*.onnx', '*birefnet*.onnx', 'rmbg*.onnx', '*rmbg*.onnx'),
         fallback_subdir='matting',
+        exclude_substring='fp16',
     )
 
 
@@ -154,6 +176,8 @@ def model_license_note(kind, path):
         return 'MIT (faster-whisper CTranslate2)'
     if kind == 'vad':
         return 'MIT (Silero VAD ONNX)'
+    if kind == 'face':
+        return 'MIT (OpenCV Zoo YuNet ONNX)'
     if kind == 'matting':
         stem = Path(path).stem.lower() if path else ''
         if 'rmbg' in stem:
@@ -180,7 +204,7 @@ def _whisper_model_bin_bytes(path):
 def discover_local_models():
     """Return read-only inventory of offline AI weights detected on disk."""
     inventory = {}
-    for kind in ('demucs', 'whisper', 'vad', 'matting'):
+    for kind in ('demucs', 'whisper', 'vad', 'matting', 'face'):
         cand = discover_model(kind)
         if kind == 'whisper':
             ok = bool(cand is not None and _is_whisper_dir(cand))
@@ -195,6 +219,86 @@ def discover_local_models():
             'license_note': model_license_note(kind, cand) if ok else None,
         }
     return inventory
+
+
+def prepare_cuda_dlls():
+    """Register pip-installed nvidia CUDA/cuDNN DLL folders and preload onnxruntime CUDA shared libraries."""
+    global _CUDA_PRELOADED
+    if _CUDA_PRELOADED:
+        return
+    dll_dirs = []
+    candidates = [Path(sys.prefix) / 'Lib' / 'site-packages', Path(sys.prefix) / 'lib' / 'site-packages']
+    try:
+        candidates.extend(Path(p) for p in site.getsitepackages())
+    except Exception:
+        pass
+    seen_roots = set()
+    for sp in candidates:
+        nv = sp / 'nvidia'
+        if not nv.is_dir():
+            continue
+        r = str(nv.resolve())
+        if r in seen_roots:
+            continue
+        seen_roots.add(r)
+        for dll in nv.rglob('*.dll' if os.name == 'nt' else '*.so*'):
+            p = str(dll.parent.resolve())
+            if p not in dll_dirs:
+                dll_dirs.append(p)
+    if dll_dirs:
+        if hasattr(os, 'add_dll_directory'):
+            for d in dll_dirs:
+                try:
+                    _CUDA_DLL_HANDLES.append(os.add_dll_directory(d))
+                except OSError:
+                    pass
+        cur_path = os.environ.get('PATH', '')
+        existing = set(cur_path.split(os.pathsep)) if cur_path else set()
+        missing = [d for d in dll_dirs if d not in existing]
+        if missing:
+            os.environ['PATH'] = os.pathsep.join(missing + ([cur_path] if cur_path else []))
+    try:
+        import onnxruntime as ort
+        preload = getattr(ort, 'preload_dlls', None)
+        if callable(preload):
+            preload()
+    except Exception:
+        pass
+    _CUDA_PRELOADED = True
+
+
+def _provider_entry(name):
+    if name == 'CUDAExecutionProvider':
+        # Avoid ORT's EXHAUSTIVE cuDNN search & greedy power-of-two arena that can exhaust 6 GB VRAM.
+        return (
+            'CUDAExecutionProvider',
+            {'cudnn_conv_algo_search': 'HEURISTIC', 'arena_extend_strategy': 'kSameAsRequested'},
+        )
+    return name
+
+
+def resolve_ort_providers(available_providers, *, device='cpu', gpu=False):
+    """Select deterministic onnxruntime execution providers from explicit device/gpu flags."""
+    req = (device or 'cpu').strip().lower()
+    if req not in ('cpu', 'cuda', 'dml', 'auto'):
+        raise ValueError(f'Unsupported execution device: {device}; choose cpu, cuda, dml, or auto')
+    if gpu and req == 'cpu':
+        req = 'auto'
+    avail = list(available_providers or [])
+    if req == 'cpu':
+        return ['CPUExecutionProvider']
+    if req == 'cuda':
+        if 'CUDAExecutionProvider' not in avail:
+            raise ValueError('CUDAExecutionProvider is unavailable in onnxruntime; install onnxruntime-gpu[cuda,cudnn] or use --device cpu')
+        names = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if 'CPUExecutionProvider' in avail else ['CUDAExecutionProvider']
+        return [_provider_entry(n) for n in names]
+    if req == 'dml':
+        if 'DmlExecutionProvider' not in avail:
+            raise ValueError('DmlExecutionProvider is unavailable in onnxruntime; use --device cpu or cuda')
+        return ['DmlExecutionProvider', 'CPUExecutionProvider'] if 'CPUExecutionProvider' in avail else ['DmlExecutionProvider']
+    preferred = [p for p in ('CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider') if p in avail]
+    names = preferred or ['CPUExecutionProvider']
+    return [_provider_entry(n) for n in names]
 
 
 def stock_config():
