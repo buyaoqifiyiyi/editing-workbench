@@ -53,7 +53,7 @@ def compact(plan):
     grouped = {name for spec in result['composites'] for name in spec['tracks']}
     barriers = {x['track'] for group in ('effects','filters') for x in result[group]}
     main_end = max(editor.end_us(x) for x in result['clips'] if x['track'] == 'video')
-    protected = {'video'} | grouped | {x['track'] for x in result.get('jianying_tasks', [])} | {
+    protected = {'video'} | grouped | {
         x['track'] for x in result.get('manual_tasks', [])}
     # An existing multi-clip lane may already represent a deliberate reusable
     # editing role (e.g. left page, dialogue). Preserve it instead of making

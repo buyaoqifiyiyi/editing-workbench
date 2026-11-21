@@ -106,7 +106,7 @@ def main(argv=None):
     if args.out:
         result = check(Path(args.out).resolve())
     else:
-        with tempfile.TemporaryDirectory(prefix='jianying-karaoke-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='openedit-karaoke-') as temporary:
             result = check(Path(temporary) / 'checks')
     print(editor.json.dumps(result, ensure_ascii=False, indent=2))
     return 0

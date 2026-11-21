@@ -61,7 +61,7 @@ def clip(track,start,duration,**fields):
 
 def synthetic(clips,order,composites=None,tasks=None,effects=None):
     return {'clips':clips,'audio':[],'captions':[],'effects':effects or [],'filters':[],
-            'composites':composites or [],'jianying_tasks':tasks or [],'layer_order':order}
+            'composites':composites or [],'manual_tasks':tasks or [],'layer_order':order}
 
 
 class LayoutTests(unittest.TestCase):

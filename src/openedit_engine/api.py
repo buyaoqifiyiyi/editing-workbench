@@ -19,6 +19,9 @@ _CORE = {
     'preview': 'Render PNG review frames from an existing FilmCraft .fcproj project.',
     'export': 'Export an existing FilmCraft .fcproj project and verify output streams with ffprobe and strict ffmpeg decode.',
     'render-overlay': 'Build and verify a standalone EffectCraft .ecproj, RGBA PNG, and ProRes 4444 alpha .mov overlay.',
+    'contract-check': 'Verify live FilmCraft/EffectCraft MCP tools, required commands, and a miniature E2E strict-decode build.',
+    'upstream-check': 'Read-only check of upstream FilmCraft/EffectCraft GitHub Releases against verified baselines.',
+    'upstream-upgrade': 'Download, SHA-256 verify, sandbox contract-check, and promote passing upstream Craft releases.',
     'filmcraft-exec': 'Direct JSON command escape hatch to all 718 FilmCraft engine commands.',
     'effectcraft-exec': 'Direct JSON command and AE-style JSX script escape hatch to all 308 EffectCraft effects and 763 commands.',
 }
@@ -177,6 +180,24 @@ OPERATION_SCHEMAS = {
         'out': _str_param('--out', required=True, description='New overlay output directory'),
         'no_video': _bool_param('--no-video', 'Skip ProRes 4444 MOV export and emit PNG/ecproj only'),
         'gpu': _bool_param('--gpu', 'Enable EffectCraft GPU flag during render'),
+    }},
+    'contract-check': {'params': {
+        'out': _str_param('--out', description='Optional new directory to retain regression build artifacts'),
+        'skip_e2e': _bool_param('--skip-e2e', 'Only verify MCP tool/command contracts and skip micro E2E render'),
+    }},
+    'upstream-check': {'params': {
+        'state': _str_param('--state', description='Optional JSON path storing previously seen upstream release tags'),
+        'save_state': _bool_param('--save-state', 'Persist updated upstream tags to --state on successful fetch'),
+        'timeout': _num_param('--timeout', 'integer', description='HTTP timeout in seconds (default 15)'),
+    }},
+    'upstream-upgrade': {'params': {
+        'state': _str_param('--state', description='Optional JSON path tracking verified and blocked upstream releases'),
+        'tools_dir': _str_param('--tools-dir', description='Override OpenEditTools directory (default %LOCALAPPDATA%\\OpenEditTools)'),
+        'min_age_hours': _num_param('--min-age-hours', 'integer', description='Cooldown hours since release publish before auto-upgrade'),
+        'keep_versions': _num_param('--keep-versions', 'integer', description='Number of installed version directories to keep per backend'),
+        'dry_run': _bool_param('--dry-run', 'Only inspect eligible updates without downloading or modifying files'),
+        'retry_failed': _bool_param('--retry-failed', 'Re-attempt releases previously blocked by sandbox contract-check'),
+        'timeout': _num_param('--timeout', 'integer', description='HTTP timeout in seconds (default 30)'),
     }},
     'filmcraft-exec': {'params': {
         'commands': _str_param('--commands', required=True, description='JSON array [{id, params}] or file path'),

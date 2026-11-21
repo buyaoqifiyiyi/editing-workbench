@@ -35,7 +35,7 @@ class MeshAvatarChecks(unittest.TestCase):
         subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','color=c=red@0.5:s=1280x720:r=30:d=1,format=rgba','-c:v','png','-pix_fmt','rgba',str(video)],check=True,capture_output=True)
         receipt={'video':str(video),'video_sha256':mesh_avatar.digest(video),'duration':1}
         (self.root/'receipt.json').write_text(json.dumps(receipt),encoding='utf-8')
-        plan={'schema_version':1,'name':'mesh-check','mode':'script','canvas':{'width':1280,'height':720,'fps':30},'allow_vip_effects':False,'layer_order':['video'],'clips':[{'path':'bg.png','start':0,'duration':1}]}
+        plan={'schema_version':1,'name':'mesh-check','mode':'script','canvas':{'width':1280,'height':720,'fps':30},'layer_order':['video'],'clips':[{'path':'bg.png','start':0,'duration':1}]}
         source=self.root/'base.json'; source.write_text(json.dumps(plan),encoding='utf-8'); before=source.read_bytes()
         out=self.root/'new.json'; args=SimpleNamespace(plan=source,video=video,out=out,start=0,track='avatar')
         result=mesh_avatar.attach(args)

@@ -86,7 +86,7 @@ def check(root):
     muted_report = reverse_media.execute(muted)
     assert not editor.probe(muted_report['output_media'])['has_audio']
     checks.append('explicit mute removes the source audio stream')
-    plan = {'schema_version': 1, 'name': '倒放原生草稿测试', 'mode': 'script',
+    plan = {'schema_version': 1, 'name': '倒放开源工程测试', 'mode': 'script',
             'canvas': {'width': 160, 'height': 90, 'fps': 30},
             'clips': [{'path': str(target), 'start': 0, 'duration': 1, 'source_in': 0, 'volume': 1}],
             'captions': [{'text': '倒放素材仍可剪辑', 'start': 0, 'duration': 1}]}

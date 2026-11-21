@@ -27,3 +27,9 @@
 3. **实时 stdio MCP 核验**：以独立子进程起 `openedit_engine.mcp_server` 及兼容入口 `jianying_engine.mcp_server`，完成 `initialize`、`tools/list`、`describe_operations(include_backends=True)`、`search_knowledge` 与 `read_guide`。
 4. **实机渲染与严格解码复验**：在独立临时目录编译 1080p 测试工程（含 EffectCraft ProRes 4444 透明叠层 + FilmCraft 多轨与中文字幕高亮 + 导出 MP4），核验 `ffmpeg -v error -xerror` 全解码与 PNG 预览图后清理临时目录。
 5. **外部台账归档**：向 `Skill维护层/变更/<日期-事项-版本>/` 写入变更 `README.md` 与 `hashes.txt`（实测 SHA-256），并更新外部 `任务清单.md`。
+
+## 上游版本追踪与升级复验
+
+- **只读检查上游**：运行 `openedit upstream-check [--state <路径> --save-state]` 对比本机版本、已验证基线与 GitHub Releases 最新版本；只读不下载，绝不覆盖 `OpenEditTools` 现有目录。
+- **沙箱复验新版**：将上游便携包解压到临时目录后，在新终端设置 `$env:OPENEDIT_FILMCRAFT_CLI` / `$env:OPENEDIT_EFFECTCRAFT_CLI` 指向新版二进制，运行 `openedit contract-check` 执行真实 MCP 契约与微型全特性 E2E 严格解码回归；全部通过后再移入 `OpenEditTools` 并保留上一个稳定版以便回滚。
+- **门禁式自动升级**：运行 `openedit upstream-upgrade [--min-age-hours 24 --keep-versions 2]` 自动校验官方 SHA-256、在隔离沙箱跑通真机 `contract-check` 后再原子切换进 `OpenEditTools`（同时保留旧版用于回滚，失败版本自动拦截并记录状态）。

@@ -1,8 +1,6 @@
 """Headless EffectCraft backend: .ecproj, RGBA previews, and ProRes 4444 alpha overlays."""
 import json
-import os
 from pathlib import Path
-import shutil
 import time
 
 from PIL import Image
@@ -17,35 +15,9 @@ DEFAULT_CJK_FONTS = ('Noto Sans SC', 'Microsoft YaHei', 'SimHei')
 
 def find_cli():
     """Locate effectcraft-cli executable without starting the GUI."""
-    explicit = os.environ.get('OPENEDIT_EFFECTCRAFT_CLI')
-    if explicit:
-        path = Path(os.path.expandvars(explicit)).expanduser()
-        if path.is_file():
-            return str(path.resolve())
-        raise ValueError(f'Configured OPENEDIT_EFFECTCRAFT_CLI not found: {explicit}')
+    from openedit_engine.software_detection import find_craft_cli
 
-    root_env = os.environ.get('OPENEDIT_EFFECTCRAFT_ROOT')
-    exe = 'effectcraft-cli.exe' if os.name == 'nt' else 'effectcraft-cli'
-    if root_env:
-        candidate = Path(os.path.expandvars(root_env)).expanduser() / exe
-        if candidate.is_file():
-            return str(candidate.resolve())
-
-    located = shutil.which(exe)
-    if located and Path(located).is_file():
-        return str(Path(located).resolve())
-
-    local = Path(os.environ.get('LOCALAPPDATA', Path.home()))
-    for match in sorted((local / 'OpenEditTools').glob(f'effectcraft-*/**/{exe}'), reverse=True):
-        if match.is_file():
-            return str(match.resolve())
-    for candidate in (
-        local / 'Programs' / 'ArtCraft' / 'EffectCraft' / exe,
-        Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'ArtCraft' / 'EffectCraft' / exe,
-    ):
-        if candidate.is_file():
-            return str(candidate.resolve())
-    raise ValueError('effectcraft-cli not found; install ArtCraft EffectCraft or set OPENEDIT_EFFECTCRAFT_CLI')
+    return find_craft_cli('effectcraft')
 
 
 def _pick_cjk_font(client, requested=None):
@@ -107,9 +79,17 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
         res = client.call_tool('execute_command', {'command': 'layer.newShape', 'params': shape_params})
         layer_id = res['layer']
     elif ltype == 'footage':
-        res = client.call_tool('execute_command', {'command': 'file.importFile', 'params': {'path': layer['path']}})
-        item_id = res.get('item') or res.get('id')
-        add_res = client.call_tool('execute_command', {'command': 'layer.addFootage', 'params': {'item': item_id}})
+        res = client.call_tool('execute_command', {
+            'command': 'file.import',
+            'params': {'paths': [str(Path(layer['path']).resolve())]},
+        })
+        if isinstance(res, dict) and res.get('errors'):
+            raise RuntimeError(f'EffectCraft file.import failed: {res["errors"]}')
+        items = res.get('items') if isinstance(res, dict) else None
+        item_id = items[0] if isinstance(items, list) and items else (res.get('item') or res.get('id') if isinstance(res, dict) else None)
+        if item_id is None:
+            raise RuntimeError(f'EffectCraft file.import returned no item id: {res}')
+        add_res = client.call_tool('execute_command', {'command': 'layer.addItem', 'params': {'item': item_id}})
         layer_id = add_res['layer']
     elif ltype == 'text':
         text_val = layer.get('text', 'Title')

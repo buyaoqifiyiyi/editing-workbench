@@ -11,6 +11,7 @@ import filmcraft_backend
 import media_prep
 import overlay_recipes
 import runtime_core as core
+import upstream_guard
 
 
 def doctor():
@@ -50,6 +51,8 @@ def doctor():
     if not ff_ok:
         instructions.append('缺少 ffmpeg/ffprobe；请将其加入 PATH 或设置 OPENEDIT_FFMPEG / OPENEDIT_FFPROBE。')
 
+    warnings = [backends[name]['warning'] for name in ('filmcraft', 'effectcraft') if backends[name].get('warning')]
+
     return {
         'status': 'ready' if ready else 'incomplete',
         'ready': ready,
@@ -60,6 +63,7 @@ def doctor():
         'gpu': gpu,
         'optional_ai_packages': optional,
         'instructions': instructions,
+        'warnings': warnings,
         'license_profile': 'open_source_only (MIT/Apache-2.0/BSD/LGPL)',
     }
 
@@ -219,7 +223,26 @@ def main(argv=None):
     c_ece.add_argument('--project', help='Optional existing .ecproj to open')
     c_ece.add_argument('--save-as', help='Optional destination .ecproj path')
 
+    c_cc = sub.add_parser('contract-check', help='Verify live Craft MCP contracts and micro E2E strict-decode build')
+    c_cc.add_argument('--out', help='Optional new directory to retain regression build artifacts')
+    c_cc.add_argument('--skip-e2e', action='store_true', help='Skip micro E2E render and check MCP contracts only')
+
+    c_uc = sub.add_parser('upstream-check', help='Read-only check of upstream FilmCraft/EffectCraft releases')
+    c_uc.add_argument('--state', help='Optional JSON state file for previously seen upstream tags')
+    c_uc.add_argument('--save-state', action='store_true', help='Persist fetched upstream tags into --state')
+    c_uc.add_argument('--timeout', type=int, default=15, help='HTTP timeout seconds (default 15)')
+
+    c_uu = sub.add_parser('upstream-upgrade', help='Safely stage, verify, and promote passing upstream Craft releases')
+    c_uu.add_argument('--state', help='Optional JSON state file tracking verified/blocked releases')
+    c_uu.add_argument('--tools-dir', help='Override OpenEditTools destination directory')
+    c_uu.add_argument('--min-age-hours', type=int, default=0, help='Minimum release age in hours before upgrading')
+    c_uu.add_argument('--keep-versions', type=int, default=2, help='Versions per tool to retain for rollback')
+    c_uu.add_argument('--dry-run', action='store_true', help='Check eligibility without downloading or writing files')
+    c_uu.add_argument('--retry-failed', action='store_true', help='Retry releases previously blocked by contract-check')
+    c_uu.add_argument('--timeout', type=int, default=30, help='HTTP timeout seconds (default 30)')
+
     args = parser.parse_args(argv)
+    exit_code = 0
     try:
         if args.action == 'doctor':
             result = doctor()
@@ -252,12 +275,32 @@ def main(argv=None):
         elif args.action == 'filmcraft-exec':
             cmds = _load_json_spec(args.commands)
             result = filmcraft_backend.exec_commands(cmds, project=args.project, save_as=args.save_as)
-        else:
+        elif args.action == 'effectcraft-exec':
             cmds = _load_json_spec(args.commands)
             script_code = Path(args.script).read_text(encoding='utf-8') if args.script and Path(args.script).is_file() else args.script
             result = effectcraft_backend.exec_commands(cmds, project=args.project, save_as=args.save_as, script=script_code)
+        elif args.action == 'contract-check':
+            result = upstream_guard.contract_check(out_dir=args.out, skip_e2e=args.skip_e2e)
+            if result.get('status') != 'passed':
+                exit_code = 1
+        elif args.action == 'upstream-check':
+            result = upstream_guard.upstream_check(state_path=args.state, save_state=args.save_state, timeout=args.timeout)
+            if result.get('status') == 'failed':
+                exit_code = 1
+        else:
+            result = upstream_guard.upstream_upgrade(
+                state_path=args.state,
+                tools_dir=args.tools_dir,
+                min_age_hours=args.min_age_hours,
+                keep_versions=args.keep_versions,
+                dry_run=args.dry_run,
+                retry_failed=args.retry_failed,
+                timeout=args.timeout,
+            )
+            if result.get('status') in ('failed', 'blocked'):
+                exit_code = 1
         core.emit(result)
-        return 0
+        return exit_code
     except (ValueError, RuntimeError, OSError, KeyError, TypeError) as exc:
         core.emit({'status': 'failed', 'error': str(exc)})
         return 1

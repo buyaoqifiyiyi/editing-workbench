@@ -96,6 +96,82 @@ class SoftwareDetectionTests(unittest.TestCase):
         self.assertIsNone(detection._path('relative/filmcraft-cli.exe'))
         self.assertEqual(set(detection.detect_backends()), {'filmcraft', 'effectcraft', 'ffmpeg'})
 
+    def test_openedittools_prefers_highest_semver_over_lexicographic_order(self):
+        exe = 'filmcraft-cli.exe' if os.name == 'nt' else 'filmcraft-cli'
+        self.make_file(f'OpenEditTools/filmcraft-0.9.0/{exe}')
+        self.make_file(f'OpenEditTools/filmcraft-0.20.1/{exe}')
+        cli_100 = self.make_file(f'OpenEditTools/filmcraft-0.100.0/{exe}')
+        self.make_file(f'OpenEditTools/filmcraft-0.100.0-rc.1/{exe}')
+        with patch.object(detection.shutil, 'which', return_value=None), \
+                patch.object(detection, '_query_cli_version', return_value='0.100.0'):
+            fc = detection.detect_backends()['filmcraft']
+        self.assertEqual(fc['path'], str(cli_100.resolve()))
+        self.assertGreater(detection.parse_semver('0.20.1'), detection.parse_semver('0.20.1-rc.1'))
+        self.assertGreater(detection.parse_semver('0.100.0'), detection.parse_semver('0.20.1'))
+        self.assertGreater(detection.parse_semver('0.20.1'), detection.parse_semver('0.9.0'))
+
+    def test_version_baseline_warnings_cover_verified_older_newer_and_unknown(self):
+        exe = 'filmcraft-cli.exe' if os.name == 'nt' else 'filmcraft-cli'
+        self.make_file(f'OpenEditTools/filmcraft-0.20.1/{exe}')
+        for ver, expected_status, expect_warn in (
+            ('0.20.1', 'verified', False),
+            ('0.21.0', 'unverified_newer', True),
+            ('0.19.9', 'older_than_baseline', True),
+            ('unknown', 'unknown', True),
+        ):
+            with self.subTest(ver=ver), \
+                    patch.object(detection.shutil, 'which', return_value=None), \
+                    patch.object(detection, '_query_cli_version', return_value=ver), \
+                    patch.object(detection, '_tool_path', return_value=None):
+                fc = detection.detect_backends()['filmcraft']
+            self.assertTrue(fc['selectable'])
+            self.assertEqual(fc['verified_baseline'], '0.20.1')
+            self.assertEqual(fc['version_status'], expected_status)
+            if expect_warn:
+                self.assertTrue(fc['warning'])
+            else:
+                self.assertIsNone(fc['warning'])
+
+    def test_backend_find_cli_delegates_to_find_craft_cli(self):
+        import sys
+        scripts_dir = str(detection.RUNTIME / 'scripts')
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import effectcraft_backend
+        import filmcraft_backend
+
+        exe = 'filmcraft-cli.exe' if os.name == 'nt' else 'filmcraft-cli'
+        ec_exe = 'effectcraft-cli.exe' if os.name == 'nt' else 'effectcraft-cli'
+        fc_cli = self.make_file(f'OpenEditTools/filmcraft-0.20.1/{exe}')
+        ec_cli = self.make_file(f'OpenEditTools/effectcraft-0.24.1/{ec_exe}')
+        with patch.object(detection.shutil, 'which', return_value=None):
+            self.assertEqual(filmcraft_backend.find_cli(), str(fc_cli.resolve()))
+            self.assertEqual(effectcraft_backend.find_cli(), str(ec_cli.resolve()))
+            with patch.dict(os.environ, {'OPENEDIT_FILMCRAFT_CLI': str(self.root / 'absent.exe')}):
+                with self.assertRaisesRegex(ValueError, 'OPENEDIT_FILMCRAFT_CLI'):
+                    filmcraft_backend.find_cli()
+
+    def test_runtime_verified_version_upgrades_baseline_status(self):
+        exe = 'filmcraft-cli.exe' if os.name == 'nt' else 'filmcraft-cli'
+        self.make_file(f'OpenEditTools/filmcraft-0.21.0/{exe}')
+        self.make_file('OpenEditTools/upstream-state.json').write_text(
+            '{"schema_version": 1, "verified_versions": {"filmcraft": {"version": "0.21.0"}}}',
+            encoding='utf-8',
+        )
+        with patch.object(detection.shutil, 'which', return_value=None), \
+                patch.object(detection, '_query_cli_version', return_value='0.21.0'), \
+                patch.object(detection, '_tool_path', return_value=None):
+            fc_ok = detection.detect_backends()['filmcraft']
+        self.assertEqual(fc_ok['version_status'], 'verified_runtime')
+        self.assertIsNone(fc_ok['warning'])
+
+        with patch.object(detection.shutil, 'which', return_value=None), \
+                patch.object(detection, '_query_cli_version', return_value='0.22.0'), \
+                patch.object(detection, '_tool_path', return_value=None):
+            fc_warn = detection.detect_backends()['filmcraft']
+        self.assertEqual(fc_warn['version_status'], 'unverified_newer')
+        self.assertTrue(fc_warn['warning'])
+
 
 if __name__ == '__main__':
     unittest.main()

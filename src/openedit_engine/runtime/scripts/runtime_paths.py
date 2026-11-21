@@ -37,11 +37,11 @@ def external_directory(value, label):
 
 
 def stock_config():
-    explicit = os.environ.get('JIANYING_STOCK_CONFIG')
+    explicit = os.environ.get('OPENEDIT_STOCK_CONFIG') or os.environ.get('JIANYING_STOCK_CONFIG')
     if explicit:
         path = Path(os.path.expandvars(explicit)).expanduser()
         if not path.is_absolute() or not path.is_file():
-            raise ValueError('JIANYING_STOCK_CONFIG must name an existing absolute file')
+            raise ValueError('OPENEDIT_STOCK_CONFIG / JIANYING_STOCK_CONFIG must name an existing absolute file')
         return path.resolve()
     default = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'JianyingEngine' / 'config.env'
     # A resource-path caller retains its configuration after consolidation as well.

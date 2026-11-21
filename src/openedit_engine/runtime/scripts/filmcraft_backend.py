@@ -3,7 +3,6 @@ import json
 import math
 import os
 from pathlib import Path
-import shutil
 import time
 
 import craft_rpc
@@ -16,35 +15,9 @@ TICKS_PER_SEC = core.TICKS_PER_SEC
 
 def find_cli():
     """Locate filmcraft-cli executable without starting the GUI."""
-    explicit = os.environ.get('OPENEDIT_FILMCRAFT_CLI')
-    if explicit:
-        path = Path(os.path.expandvars(explicit)).expanduser()
-        if path.is_file():
-            return str(path.resolve())
-        raise ValueError(f'Configured OPENEDIT_FILMCRAFT_CLI not found: {explicit}')
+    from openedit_engine.software_detection import find_craft_cli
 
-    root_env = os.environ.get('OPENEDIT_FILMCRAFT_ROOT')
-    exe = 'filmcraft-cli.exe' if os.name == 'nt' else 'filmcraft-cli'
-    if root_env:
-        candidate = Path(os.path.expandvars(root_env)).expanduser() / exe
-        if candidate.is_file():
-            return str(candidate.resolve())
-
-    located = shutil.which(exe)
-    if located and Path(located).is_file():
-        return str(Path(located).resolve())
-
-    local = Path(os.environ.get('LOCALAPPDATA', Path.home()))
-    for match in sorted((local / 'OpenEditTools').glob(f'filmcraft-*/**/{exe}'), reverse=True):
-        if match.is_file():
-            return str(match.resolve())
-    for candidate in (
-        local / 'Programs' / 'ArtCraft' / 'FilmCraft' / exe,
-        Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'ArtCraft' / 'FilmCraft' / exe,
-    ):
-        if candidate.is_file():
-            return str(candidate.resolve())
-    raise ValueError('filmcraft-cli not found; install ArtCraft FilmCraft or set OPENEDIT_FILMCRAFT_CLI')
+    return find_craft_cli('filmcraft')
 
 
 def _ticks(seconds):

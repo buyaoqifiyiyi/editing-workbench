@@ -1,4 +1,4 @@
-"""Offline single-ROI CSRT tracking with decoded presentation timestamps; no Jianying/UI control."""
+"""Offline single-ROI CSRT tracking with decoded presentation timestamps; no GUI/UI control."""
 import argparse
 import math
 from pathlib import Path
@@ -141,7 +141,7 @@ def execute(args):
                              'Coverage end is capped at requested end and bounded by the next real PTS or explicit final frame end.',
                              'CSRT success does not prove target identity; visual review is required.',
                              'This trajectory is not guaranteed suitable for privacy redaction.',
-                             'No native Jianying tracking, UI actions, publication, rendered video or model download.']}
+                             'No native NLE tracking, UI actions, publication, rendered video or model download.']}
     output.mkdir(parents=True, exist_ok=False)
     seen = set()
     for label, (image, box, time) in pictures.items():

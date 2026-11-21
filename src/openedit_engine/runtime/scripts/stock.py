@@ -70,9 +70,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def cache_directory(explicit=None):
-    """Explicit --cache, else the same external-data rule as templates.data_directory()."""
-    value = explicit or os.environ.get('JIANYING_STOCK_CACHE_DIR')
-    path = Path(value).expanduser() if value else Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'JianyingEditor' / 'stock-cache'
+    """Explicit --cache, or external OpenEditEngine stock-cache directory."""
+    value = explicit or os.environ.get('OPENEDIT_STOCK_CACHE_DIR') or os.environ.get('JIANYING_STOCK_CACHE_DIR')
+    path = Path(value).expanduser() if value else Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditEngine' / 'stock-cache'
     return runtime_paths.external_directory(path, 'Stock cache')
 
 
@@ -130,7 +130,7 @@ def api(provider, endpoint, params, cache, key='', check=None):
         except (ValueError, OSError):
             pass  # Unusable cache entry: fetch again and replace it.
     query = dict(params)
-    headers = {'User-Agent': 'JianyingEditorPersonal/1.1 (personal stock editing)', 'Accept': 'application/json'}
+    headers = {'User-Agent': 'OpenEditEngine/1.0 (local stock media)', 'Accept': 'application/json'}
     if provider == 'pexels':
         headers['Authorization'] = key
     elif provider == 'pixabay':
@@ -283,7 +283,7 @@ def normalize(provider, kind, data, stats=None):
 
 def search_provider(provider, args, key, cache, stats=None):
     if provider in KEYS and not key:
-        raise ValueError(f'{KEYS[provider]} is not configured; set the environment key or use the external JIANYING_STOCK_CONFIG file')
+        raise ValueError(f'{KEYS[provider]} is not configured; set the environment key or use OPENEDIT_STOCK_CONFIG / JIANYING_STOCK_CONFIG')
     if provider in ('pexels', 'pixabay') and args.kind == 'audio':
         raise ValueError('Official API used here supports images/video, not music or sound effects')
     if provider == 'openverse' and args.kind == 'video':
@@ -469,7 +469,7 @@ def fetch(args):
     limit = args.max_mb * 1024 * 1024
     with tempfile.TemporaryDirectory(prefix='.stock-', dir=root) as temp:
         staged = Path(temp) / filename
-        req = Request(item['download_url'], headers={'User-Agent': 'JianyingEditorPersonal/1.1'})
+        req = Request(item['download_url'], headers={'User-Agent': 'OpenEditEngine/1.0'})
 
         def download():
             # A retry restarts the staged file; hashing happens while writing.

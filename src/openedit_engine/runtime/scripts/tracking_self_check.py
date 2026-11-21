@@ -153,5 +153,5 @@ if __name__ == '__main__':
     if args.out:
         editor.emit(check(Path(args.out).resolve()))
     else:
-        with tempfile.TemporaryDirectory(prefix='jianying-tracking-check-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='openedit-tracking-check-') as temporary:
             editor.emit(check(Path(temporary) / 'check'))

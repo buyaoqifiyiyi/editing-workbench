@@ -22,7 +22,7 @@ _test_lock = threading.Lock()
 
 
 def config_path(path=None):
-    return Path(path or os.environ.get('JIANYING_OMNI_CONFIG') or
+    return Path(path or os.environ.get('OPENEDIT_OMNI_CONFIG') or os.environ.get('JIANYING_OMNI_CONFIG') or
                 Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share')) / 'JianyingEngine/omni.json').resolve()
 
 

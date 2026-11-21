@@ -1,4 +1,4 @@
-"""Render a bounded Mesh Avatar clip and attach it to an existing Jianying plan."""
+"""Render a bounded Mesh Avatar clip and attach it to an existing OpenEdit plan."""
 import argparse
 import hashlib
 import json
