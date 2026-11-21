@@ -172,6 +172,51 @@ class KnowledgeInterfaceTests(unittest.TestCase):
         res_chroma = api.search_knowledge('绿幕抠像 ultra_key', 5)['results']
         self.assertTrue({'reference/green-screen', 'reference/recipes'}.intersection(r['guide'] for r in res_chroma))
 
+    def test_openedit_course_manual_is_registered_untruncated_and_searchable(self):
+        self.assertIn('reference/course-techniques-openedit', api.paths()['guides'])
+        manual_text = api.read_guide('reference/course-techniques-openedit')
+        self.assertLess(len(manual_text), 131072)
+        self.assertIn('已学课程实战总手册', manual_text)
+
+        queries = [
+            ('动漫排版 人物重影', {'reference/course-techniques-openedit'}, 'ai-matting'),
+            ('超燃卡点 四角小窗', {'reference/course-techniques-openedit'}, None),
+            ('关键帧曲线 缓动 挤压拉伸', {'reference/course-techniques-openedit'}, None),
+            ('字中视频 局部调色 三色轮', {'reference/course-techniques-openedit'}, 'filmcraft-grading'),
+            ('横转竖 人脸跟拍', {'reference/course-techniques-openedit', 'reference/tutorial-library', 'capabilities'}, None),
+            ('口播一键粗剪 字幕', {'reference/course-techniques-openedit', 'reference/general-editing', 'capabilities'}, None),
+            ('响度母带 EBU R128', {'reference/course-techniques-openedit', 'reference/creative-knowledge-workflows', 'capabilities'}, None),
+            ('非绿幕 AI 抠像', {'reference/course-techniques-openedit', 'reference/green-screen', 'reference/layered-reveal', 'capabilities'}, None),
+        ]
+        for query, expected_guides, expected_hint in queries:
+            with self.subTest(query=query):
+                res = api.search_knowledge(query, 5)['results']
+                self.assertTrue(expected_guides.intersection(r['guide'] for r in res), f'{query}: {res}')
+                if expected_hint is not None:
+                    hints = {h['anchor'] for r in res for h in r.get('capability_hints', [])}
+                    self.assertIn(expected_hint, hints, f'{query}: {hints}')
+
+    def test_no_obsolete_jianying_or_stale_capability_phrases_in_runtime_docs(self):
+        runtime_root = root / 'src' / 'openedit_engine' / 'runtime'
+        stale_phrases = (
+            'preview-sequence',
+            '会员效果已授权',
+            '红色HSL/三点L曲线',
+            '非绿幕自动轮廓抠像当前未内置',
+            'EffectCraft 6 套声明式配方',
+            '内置 6 个分辨率自适应配方',
+            '没有可靠的原生动态压低接口',
+            '已有登记但封面异常',
+        )
+        hits = []
+        for md in sorted(runtime_root.rglob('*.md')):
+            rel = md.relative_to(runtime_root).as_posix()
+            text = md.read_text(encoding='utf-8-sig')
+            for phrase in stale_phrases:
+                if phrase in text:
+                    hits.append(f'{rel}: {phrase}')
+        self.assertEqual(hits, [])
+
 
 class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
     async def test_mcp_retrieves_knowledge_and_explains_endpoints(self):
@@ -180,8 +225,9 @@ class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('FilmCraft', client.instructions)
                 info = (await client.call_tool('describe_operations', {})).structured_content
                 self.assertIn('reference/creative-knowledge', info['guides'])
+                self.assertIn('reference/course-techniques-openedit', info['guides'])
                 self.assertIn('multimodal', info['operations']['music-edit'])
-                for name in GUIDES:
+                for name in GUIDES + ('reference/course-techniques-openedit',):
                     result = (await client.call_tool('read_guide', {'name': name})).structured_content
                     self.assertFalse(result.get('truncated'), name)
                     self.assertTrue(result['text'].strip(), name)

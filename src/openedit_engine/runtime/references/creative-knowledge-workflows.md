@@ -45,16 +45,17 @@
 
 | 需要解决的问题 | 可用入口 | 不能据此声称 |
 |---|---|---|
-| 查素材信息、切点候选或本地参考抽样 | `inspect`、`reference`（可选 `--detector pyscenedetect`） | 抽帧等于看完连续视频、听懂声音或还原高级转场 |
+| 查素材信息、切点候选或本地参考抽样 | `inspect`、`reference`（可选 `--detector pyscenedetect`）、`normalize-media`（批量 VFR/Hi10P → CFR） | 抽帧等于看完连续视频、听懂声音或还原高级转场 |
 | 同素材方法实操对照 | `practice-compare`：两段明确选区和已有预览，记录目标、变量及来源哈希 | 文件生成等于同素材已自动核实、原生完整混音、实际观看或审美通过 |
-| 找对白候选、试人声分离 | `transcribe`、`separate`；需调用方提供本地模型 | 转写已校对、分离已无损或模型一定已安装 |
-| 歌曲事件候选与时间映射 | `beats`、`beat-apply` | 每拍必切或模型已听懂音乐 |
+| 找对白候选、试人声分离与气口粗剪 | `transcribe`、`separate`、`auto-cut`、`rough-cut`（自动发现默认权重目录，支持 `--gpu` CUDA 加速；缺失权重时按 `doctor` 提示补齐） | 转写已校对、分离已无损或所有环境均已预置权重 |
+| 非绿幕前景抠像与竖屏智能重构图 | `matting`（RVM / MIT BiRefNet `--gpu` → ProRes 4444 RGBA）、`auto-reframe`（YuNet 人脸跟拍 16:9 ↔ 9:16） | 发丝边缘无需预览人工检视、人脸跟拍已达最终导演审美 |
+| 歌曲事件候选、按拍切镜与单目标追踪 | `beats`、`beat-apply`、`tracking`（CSRT）、`tracking-apply` | 每拍必切、完全遮挡自动重捕获或模型已听懂音乐 |
 | 指定音视频的分析/成片审片 | `music-edit` 的 `prepare`、`analyze`、`review`；后两者按配置调用服务 | 授权可跨任务、素材分析等于成片审片、模型评语等于认可 |
-| 音量避让 | `ducking`，使用符合前提的声音输入及计划 | 自动包络等于完整混音与试听 |
-| 渲染可复用动效透明配方 | `render-overlay`、`overlays[].recipe`（见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |
-| 校验并构建开源时间轴工程 | `capabilities`、`validate`、`layout-tracks`、`build` | 工程构建或严格全解码通过等于完整连续视听审美通过 |
-| 查看多帧合成预览与无头导出 | `preview`、`export`、`filmcraft-exec` | 离散预览静帧等于连续播放流畅；须结合导出播放核验 |
-| 同一文本、字幕或对话 | `captions`、`graphics.newText` 与 Subtitle 烧录轨 | 机器转写、词级时间或歌词来源已人工核对 |
+| 音量避让、FFT 降噪与 EBU R128 响度母带 | `ducking`、`denoise-audio`、`audio-master`（`streaming`/`podcast`/`broadcast` + `--measure-only`） | 自动包络或响度达标等于完成正常速度试听与全片审美验收 |
+| 渲染可复用动效透明配方 | `render-overlay`、`overlays[].recipe`（10 套配方，见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |
+| 校验并构建开源时间轴工程（含 `--draft` 快审） | `capabilities`、`validate`、`layout-tracks`、`build`（支持 `--draft` 半分辨率快审）、`reverse` | 工程构建或严格全解码通过等于完整连续视听审美通过 |
+| 查看多帧合成预览与无头导出 | `preview`、`export`（支持 `--draft`/`--scale 0.5`）、`filmcraft-exec` | 离散预览静帧等于连续播放流畅；须结合导出播放核验 |
+| 同一文本、字幕或对话 | `captions`、`graphics.newText`、`rough-cut --karaoke-mode` 与 Subtitle 烧录轨 | 机器转写、词级时间或歌词来源已人工核对 |
 
 模板与配方是方法与参数的候选，先检查素材、源时间、图层职责和当前能力边界；缺少匹配配方时直接用 `overlays[].layers` 或多轨组合原创。用户项目、原始视频、完整工程、模型、缓存和个人偏好不打入可分发知识文件。可核对方法来源见 [来源与证据](creative-knowledge-sources.md)。
 

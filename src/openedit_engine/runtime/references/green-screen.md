@@ -10,7 +10,7 @@
 |---|---|---|
 | 已有相对均匀的单色背景 | 原生色度抠除；必要时结合静态蒙版排除无关区域 | 主体有同色衣物、道具、反光时会误抠除；背景阴影、色差、压缩及运动模糊会影响边缘 |
 | 已有透明通道的原素材 | 直接作为透明前景叠加 | 实际检查透明区域；不能从 `.mov` 等扩展名推断必有透明通道 |
-| 普通复杂背景影片 | 判断原生智能抠像、自定义抠像或蒙版是否适用 | 给整幅影片铺绿色底不等于分离人物；单色键不能识别复杂背景中的人物轮廓 |
+| 普通复杂背景影片 | 先用 `openedit matting` 离线 AI 抠像生成 ProRes 4444 RGBA 透明前景，再合入多轨穿插 | 受遮挡、快速运动模糊及发丝细边影响，须按黑/灰/白三底及实际背景多帧实看检查；单色键不能用于复杂背景 |
 
 如果参与拍摄，先按主体衣物、产品、道具选幕色，尽量保持幕面照明均匀、主体与幕分开，减少投影和反射染色。后期提高强度不能自动补救差的原素材。已有片源则按实际条件挑选镜头或分段处理，不假定它可重新拍摄。要让物体从屏幕或道具里出现、或被替换时，优先用同机位、同光线的两次实拍提供真实运动：在手势接触或停顿的瞬间切换，对齐物体的大小、位置和角度，保留真实投影；只能用缩放动画替代时说明差异。
 
@@ -66,12 +66,13 @@
 
 ### 非绿幕复杂背景离线 AI 抠像（`openedit matting`）
 
-- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|rvm|birefnet|rmbg] [--model <path.onnx>] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
+- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|rvm|birefnet|rmbg] [--device auto|cpu|cuda] [--gpu] [--model <path.onnx>] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
+- **模型自动发现与 GPU 加速**：未传 `--model` 时自动扫描 `%LOCALAPPDATA%\OpenEditTools\models\matting\`；默认 CPU 稳定执行，加 `--gpu`（或 `--device cuda`）启用本机 CUDA 加速并自动优先选用 `birefnet_lite_fp16.onnx`（MIT）。
 - **输出**：视频默认输出锁定格式的 `matte.mov`（`prores_ks 4444`, `yuva444p12le`, `has_alpha: true` + `ffmpeg -v error -xerror` 全解码验证）及 `preview_rgba.png` / `preview_alpha.png` / `matting-report.json`；图片模式输出 `matte_rgba.png` 与 `matte_alpha.png`。
 - **模型兼容与许可证边界**：
-  - **RVM ONNX**（`rvm_*.onnx`，6 输入含周期状态 `r1i..r4i`）：**GPL-3.0**，逐帧保持时间隐藏状态，适合人像视频时域连贯抠像（本机如开启 `--gpu` 仅在 CUDA/DirectML provider 可用时启用，默认 CPU 稳定执行）。
-  - **BiRefNet ONNX**（`birefnet*.onnx`，ImageNet 归一化）：**MIT**，适合静态高精度与商用工程前景分离。
-  - **BRIA RMBG-1.4 ONNX**（`rmbg14_quantized.onnx`）：**仅限非商业测试/研究用途**；本机默认探针复用模型归入此项并在报告 `model.license_note` 明示，商用交付前请替换为 **MIT BiRefNet** 或 **GPL-3.0 RVM** ONNX 权重。
+  - **RVM ONNX**（`rvm_*.onnx`，6 输入含周期状态 `r1i..r4i`）：**GPL-3.0**，逐帧保持时间隐藏状态，适合人像视频时域连贯抠像（支持 CPU 与 CUDA/DirectML 加速）。
+  - **BiRefNet ONNX**（`birefnet_lite.onnx` / `birefnet_lite_fp16.onnx`，ImageNet 归一化）：**MIT**，适合商用工程与高精度前景分离。
+  - **BRIA RMBG-1.4 ONNX**（`rmbg14_quantized.onnx`）：**仅限非商业测试/研究用途**；商用交付前请确认使用 **MIT BiRefNet** 或 **GPL-3.0 RVM** 权重（并在报告 `model.license_note` 核对）。
 - **验收边界**：`matting-report.json` 记录 `adjacent_alpha_mad` 作为相邻帧突变线索指标（无法替代人眼检查发丝边缘、快速运动残影与实际背景叠加效果），交付前须将 `matte.mov` 叠放至目标底图并用 `preview` 抽帧与完整播放核查。
 
 所有效果优先以明文 `.fcproj` / `.ecproj` 可编辑结构生成，保留用户在 FilmCraft GUI 二次微调的余地。采用额外素材仍按 [素材来源流程](stock-sources.md) 核对来源；公开教程不自动授权其人物、图形或示例成片用于交付。

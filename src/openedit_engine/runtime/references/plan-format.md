@@ -97,7 +97,7 @@
 ```
 
 - 每项必须唯一命名 `name`（1..64 安全字符），指定 `start`、`duration`（`0.04..3600`s），可覆盖 `width`/`height`/`fps`（否则继承画布设置），默认进入 `track: "overlay"`。
-- 必须提供 `recipe`（推荐，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text`，含 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。内置 6 个分辨率自适应配方 `title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner` 详见 [动效配方与手法映射](recipes.md)。
+- 必须提供 `recipe`（推荐，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text`，含 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。内置 10 个分辨率自适应配方 `title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition` 详见 [动效配方与手法映射](recipes.md)。
 - 构建时自动由 EffectCraft 无头渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)`，经完整 Alpha 与严格解码校验后置于 FilmCraft 对应视频轨。
 
 ## 嵌套合成组：`composites[]`

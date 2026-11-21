@@ -24,10 +24,10 @@
 |---|---|---|
 | 选段与精剪 | 选择动作/信息发生、反应和结束的源范围，删除冗余，逐切点调整入出 | clips的source_in/start/duration，核对素材范围及主轨连续性 |
 | 节奏与段落 | 自行安排镜头长短、顺序、停留和变化；同一素材不同段落可不同处理 | clips及现有固定speed；曲线变速等未接入能力仍保留缺口 |
-| 声音组织 | 选择有意义的原声、对白、BGM和音效源段，跨画面切点连接声音，按试听调整分段音量和淡化 | audio的源范围、固定增益、淡化与源时间映射的音量关键帧；算法分离与自动 ducking 用 [离线人声分离](capabilities.md#separation)（自备权重）与 [离线自动闪避](capabilities.md#ducking) 替代，原生声部分离仍未接入 |
-| 构图与图层 | 按主体及信息重点设计裁切、大小、位置、层序，直接创建需要的多轨与局部强调 | fit/transform/layer_order，以及当前已支持的蒙版、色键和混合字段 |
-| 文字与运动 | 写有镜头依据的文字，确定层级、位置和停留，自行设计入场、到位及释放 | captions/style、支持的动画与关键帧；自定义字体等按能力边界判断 |
-| 局部视觉处理 | 决定何处需要过渡、滤镜或特效，以及作用层和时段，直接查询可靠枚举并写参数 | 原生effects/filters/transition及已测独立模糊动画、红色HSL/三点L曲线；其他调色、效果蒙版与任意参数动画仍有边界 |
+| 声音组织 | 选择有意义的原声、对白、BGM和音效源段，跨画面切点连接声音，按试听调整分段音量和淡化 | `audio[]` 源范围、增益、`fade_in`/`fade_out`、`loudness` 与 `keyframes`；结合 [离线人声分离](capabilities.md#separation)（`separate --gpu`）、[自动闪避](capabilities.md#ducking)（`ducking`）、[FFT 降噪](capabilities.md#offline-denoise)（`denoise-audio`）与 [响度母带](capabilities.md#audio-master)（`audio-master`）；独立多段参量 EQ 未单设 CLI |
+| 构图与图层 | 按主体及信息重点设计裁切、大小、位置、层序，直接创建需要的多轨与局部强调 | fit/transform/layer_order，以及当前已支持的蒙版、色键、AI 抠像和混合字段 |
+| 文字与运动 | 写有镜头依据的文字，确定层级、位置和停留，自行设计入场、到位及释放 | `captions[]`（含 `highlights`/`font_path`/`keyframes`）、`rough-cut --karaoke-mode` 与 [透明叠层配方](recipes.md) |
+| 局部视觉处理 | 决定何处需要过渡、滤镜、调色或透视叠层，直接查询可靠枚举并写参数 | FilmCraft 完整 Lumetri（曲线/色轮/HSL/LUT/`local_circle`）、`composites[]` 统调、`effects`/`filters` 与 [透明叠层](capabilities.md#effectcraft-overlays)（308 特效/JSX 表达式/10 套配方）；非线性曲线变速坡道与光流补帧未内置自动管线 |
 
 以上是可按内容选用的操作范围，不是每部作品必须逐项添加的清单。能力与单位统一查 [计划格式](plan-format.md)、[纯开源手法映射与配方](recipes.md) 与 [能力状态](capabilities.md)；后台生成明文 `.fcproj` / `.ecproj` 即可完整编辑参数，亦可随时用 FilmCraft / EffectCraft GUI 打开精修。
 
@@ -109,7 +109,7 @@
 
 先判断短片是解释、观点、表演、展示还是情绪表达，再借用讲解、纪实、商业或混剪分区。竖屏与短时长是交付条件，不构成必须快闪、巨字或强钩子的风格。
 
-以清楚的发言/行动为骨架，删冗余时保留必要条件、上下文和语义。标题、发言字幕、例证画面各有职责；字幕应忠实于实际语言，不凭声音波形猜词。FilmCraft 尚需离线或外部语音文本输入，可用 [离线转写](capabilities.md#transcription) 从素材实际音频拿逐段文字与段级时间（要自备 faster-whisper 模型）；没有转写结果时使用已提供文稿与核实时间，并明确识别缺口。
+以清楚的发言/行动为骨架，删冗余时保留必要条件、上下文和语义。标题、发言字幕、例证画面各有职责；字幕应忠实于实际语言，不凭声音波形猜词。口播粗剪可直接调用 [一键粗剪](capabilities.md#rough-cut)（`openedit rough-cut --gpu --karaoke-mode` 自动串接 `auto-cut` 去静音与 Whisper 转写）、横屏转竖屏调用 [竖屏重构图](capabilities.md#auto-reframe)（`openedit auto-reframe`）、配音与成品音量均衡调用 [响度母带](capabilities.md#audio-master)（`openedit audio-master`），前期可加 `--draft` 快速出图；若当前环境缺失本地语音权重或需核对专有名词，应基于用户提供文稿人工校对并标明缺口。
 
 手机画幅重点核对脸部、产品、演示区域、字幕及平台界面可能遮挡的位置，不给所有平台套固定安全区数值。景别、短标题、少量补画面和节奏变化已能帮助表达时，不必硬套复杂包装配方。
 
@@ -148,4 +148,4 @@
 
 来源知识可含用途、素材前提、层序、时间与参数。生产能力以当前实现及证据为准：读过来源、查看命令枚举、完成后台编译导出与全解码、用户实际观看成片，是不同阶段。当前能力唯一查看 [能力状态](capabilities.md)、[动效配方库](recipes.md) 和 [计划格式](plan-format.md)。
 
-维护全能型Skill时优先补跨类型的决策缺口、可靠参数样本和可验证的执行路径。新增模板索引不解除高级功能暂存，不把来源数量作为能力达成率；用户最终导出与检查的分工保持不变。
+维护全能型引擎知识库时优先补跨类型的决策缺口、可靠参数样本和可验证的执行路径，不把来源数量当作能力达成率；无头导出与严格解码通过后，用户最终视听与审美终审的分工保持不变。

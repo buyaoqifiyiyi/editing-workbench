@@ -758,14 +758,18 @@ _KNOWLEDGE_SYNONYMS = (
     (('重点词', '逐词高亮', 'karaoke', 'highlights'), ('重点词', 'highlights', '逐词', 'karaoke')),
     (('互操作', 'otio', 'fcpxml', 'aaf', 'filmcraft'), ('otio', 'fcpxml', 'aaf', 'filmcraft')),
     (('预览', '审片', '导出', '验收'), ('预览', '审片', '导出', '验证', 'decode')),
+    (('动漫排版', '人物重影', '双层立体字', '错峰入场', '立体字'), ('动漫人物', '透明前景', '重影', '双层偏移', '错峰', '排版', 'matting')),
+    (('超燃卡点', '四角小窗', '穿屏', '照片墙', '轮播'), ('超燃卡点', '四角', '窄条', '闪白', '穿屏', '照片墙', '轮播', 'beat_flash')),
+    (('关键帧曲线', '缓动', '贝塞尔', '挤压拉伸', '弹跳', 'bezier'), ('关键帧曲线', '斜率', '挤压', '拉伸', '弹跳', 'easeout', 'bezier')),
+    (('字中视频', '局部调色', '三色轮', '四角透视', '3d运镜'), ('字中', 'local_circle', 'wheels', 'composites', '透视', '3d')),
 )
 _KNOWLEDGE_STOP = frozenset(('如何', '怎么', '这个', '那个', '一个', '我们', '需要', '可以', '应该', '一下', '问题', '什么'))
 _ANCHOR_RE = re.compile(r'^<a\s+id=["\']([^"\']+)["\']\s*>\s*</a>\s*$')
 
 _CAPABILITY_TOPIC_ANCHORS = (
     ('filmcraft-editing', ('剪辑', '时间轴', '多轨', '转场', 'filmcraft')),
-    ('effectcraft-overlays', ('动效', '特效', '透明', 'prores', 'effectcraft', 'overlay', '配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条')),
-    ('filmcraft-grading', ('调色', 'lumetri', 'hsl', '曲线', 'lut')),
+    ('effectcraft-overlays', ('动效', '特效', '透明', 'prores', 'effectcraft', 'overlay', '配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条', '四角透视', '3d运镜', '双层立体字')),
+    ('filmcraft-grading', ('调色', 'lumetri', 'hsl', '曲线', 'lut', '三色轮', '局部调色', 'local_circle', 'wheels')),
     ('filmcraft-blend', ('混合模式', 'blend', 'mix_mode', '绿幕', '抠像', '色键', 'ultra_key', 'color_key', '蒙版', 'mask', '嵌套', 'composites')),
     ('text-highlights', ('重点词', 'highlights', '逐词高亮', 'karaoke', '字幕')),
     ('media-prep', ('vfr', '转码', 'normalize', 'ffmpeg')),
@@ -776,7 +780,7 @@ _CAPABILITY_TOPIC_ANCHORS = (
     ('beat-editing', ('按拍切镜', 'beats', 'beat-apply')),
     ('offline-tracking', ('单目标跟踪', 'tracking')),
     ('auto-cut', ('气口', '粗剪', '静音', 'auto-cut', 'silero', 'vad')),
-    ('ai-matting', ('人像抠像', 'matting', 'rvm', 'birefnet', 'rmbg', '非绿幕')),
+    ('ai-matting', ('人像抠像', 'matting', 'rvm', 'birefnet', 'rmbg', '非绿幕', '人物重影', '穿屏')),
     ('auto-reframe', ('竖屏重构图', '横转竖', 'auto-reframe', 'yunet')),
     ('rough-cut', ('一键粗剪', 'rough-cut', '快速草稿', 'draft')),
     ('audio-master', ('响度母带', 'loudnorm', 'lufs', 'audio-master')),

@@ -8,7 +8,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版授权限制：
 
 - **FilmCraft（主剪辑 / 调色 / 字幕 / 导出）**：承接多轨 V/A 时间轴、硬切与转场、变速/倒放、Lumetri 曲线/色轮/HSL/LUT、26 种混合模式、富文本多色重点词高亮与烧录字幕、OTIO/FCPXML 交换与 H.264/HEVC/ProRes 导出。
 - **EffectCraft（高级动效 / 特效 / 透明叠层）**：当仅用 FilmCraft 基础运动/调色不足以完成高级文字动画、图层样式、复杂遮罩、表达式或 3D 合成时，通过 `overlays[]` / `render-overlay` 输出 **ProRes 4444 RGBA (.mov)** 叠层自动合入主时间轴，或通过 `effectcraft-exec` 直通调用。
-- **FFmpeg 与离线 AI 工具（白名单辅助）**：`inspect` / `normalize-media` 处理 VFR 转码与流探测；`beats`/`ducking`/`transcribe`/`separate`/`denoise-audio`/`tracking` 仅按具体需要调用，不为了堆技术而强制启用。
+- **FFmpeg 与离线 AI 工具（白名单辅助）**：`inspect` / `normalize-media` 处理 VFR 转码与流探测；`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` 仅按具体需要调用（支持 `--gpu` CUDA 加速与 `--draft` 半分辨率快审），不为了堆技术而强制启用。
 
 ## 创作判断流程
 

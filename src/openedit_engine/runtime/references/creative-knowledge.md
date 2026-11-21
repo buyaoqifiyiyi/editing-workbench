@@ -24,10 +24,11 @@ openedit guide reference/creative-knowledge-techniques
 |---|---|---|
 | 有片段但看不出故事、人物动机或结果 | `reference/creative-knowledge-story`：事件、信息缺口、结构选择 | [通用剪辑](general-editing.md)、[漫剪](styles/anime-mix.md) |
 | 情绪/节奏太平、镜头只是在接龙 | `reference/creative-knowledge-story`：变化和反差；`reference/creative-knowledge-techniques`：连接 | [创作修订](creative-review.md)、[音乐与动作](styles/anime-mix.md) |
-| 学过手法却未用、转场或画面接管单一 | `reference/creative-knowledge-techniques`：按连接问题比较可执行方法 | [教程方法索引](tutorial-library.md)、[组合方法](technique-combinations.md)、[分层揭示](layered-reveal.md) |
-| 对白被淹没、转写不可靠、音乐不贴 | `reference/creative-knowledge-audio`：原声、分离、音乐和听审 | [音乐编排](music-edit.md)、[节拍](beat-marking.md) |
+| 学过手法却未用、转场或画面接管单一 | `reference/creative-knowledge-techniques`：按连接问题比较可执行方法 | [已学课程实战总手册](course-techniques-openedit.md)、[教程方法索引](tutorial-library.md)、[组合方法](technique-combinations.md) |
+| 对白被淹没、转写不可靠、音乐不贴 | `reference/creative-knowledge-audio`：原声、分离、音乐和听审 | [音乐编排](music-edit.md)、[声音处理与粗剪](course-techniques-openedit.md#声音处理字幕高亮与口播粗剪一条龙)、[节拍](beat-marking.md) |
 | 用户说重复、小窗无意义、文字或叙事突兀 | `reference/creative-knowledge-workflows`：反馈与对照模板 | [创作修订](creative-review.md)、[镜头去重](general-editing.md) |
-| 想用动效配方、标题卡、文字或特殊效果 | `reference/creative-knowledge-workflows`：工具与配方 | [动效配方库](recipes.md)、[文字融景](text-in-scene.md)、[主体与图形](subject-graphic-interleave.md) |
+| 想用关键帧曲线、动漫排版、卡点、调色或动效配方 | [已学课程实战总手册](course-techniques-openedit.md) 与 `reference/creative-knowledge-workflows` | [动效配方库](recipes.md)、[文字融景](text-in-scene.md)、[主体与图形](subject-graphic-interleave.md) |
+| 口播一键粗剪、横转竖跟拍、响度母带或快速草稿 | [已学课程实战总手册](course-techniques-openedit.md#声音处理字幕高亮与口播粗剪一条龙) 与 `capabilities` | [竖屏重构图](capabilities.md#auto-reframe)、[一键粗剪](capabilities.md#rough-cut)、[响度母带](capabilities.md#audio-master) |
 | 纪录、产品、解说或旅行等不同片型 | [纪录](styles/documentary.md)、[商业](styles/commercial.md)、[解说](styles/explainer.md)、[Vlog](styles/vlog.md) 中对应段落 | 按实际内容补查声音、文字或连接，不把剧情结构套给所有任务 |
 | 不确定开源后端能否做、如何校验或预览 | `reference/creative-knowledge-workflows`：工具与证据 | [能力状态](capabilities.md)、[计划格式](plan-format.md)、[剪辑执行流程](../guides/editing.md) |
 | 想追查知识来自哪里、是否真正观看 | `reference/creative-knowledge-sources` | 各主题引用的来源和项目外验收记录 |
