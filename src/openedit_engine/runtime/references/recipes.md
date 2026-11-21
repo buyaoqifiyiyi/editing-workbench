@@ -14,15 +14,19 @@
 | 卡点闪白 / 切点提亮冲击 | `overlays[].recipe: "beat_flash"` | `peak_time`, `peak_opacity`, `blend_mode: "Add"` | 在切点/重音峰值叠 `Add`/`Screen` 混合模式 |
 | 影院黑边遮幅（入画 / 收回） | `overlays[].recipe: "cinematic_bars"` | `bar_ratio`, `animate_in`, `animate_out` | 位于高轨，避免压住关键脸部与底栏字幕 |
 | 教程 / 章节进度条 | `overlays[].recipe: "progress_banner"` | `label`, `progress_start`, `progress_end`, `position` | 随段时长线性 `Linear Wipe` 推进 |
+| 章节大标题开场（编号徽标 + 分隔线） | `overlays[].recipe: "chapter_opener"` | `title`, `badge`, `subtitle`, `card_style`, `highlights` | 居中卡片或极简悬浮风，带发光/投影与渐退 |
+| 透明内框画中画边框（PiP 边框） | `overlays[].recipe: "pip_card"` | `corner`, `title`, `width_ratio`, `aspect`, `border_color` | 内框 100% 透明 Alpha，兼容横屏与竖屏四角安全区 |
+| 双栏 / 三栏透明分屏分割线与角标 | `overlays[].recipe: "split_screen_frame"` | `layout: "vertical_2 \| horizontal_2 \| vertical_3"`, `labels` | 面板内保持全透明 Alpha，仅绘制分割线与可选角标 |
+| 双色斜切擦除转场 | `overlays[].recipe: "wipe_transition"` | `direction`, `angle_offset`, `feather`, `peak_hold` | 双重 `Linear Wipe` 透明→全遮挡→透明过渡 |
 | 渐进分屏与几何窗口揭示 | FilmCraft `clips[].mask` + `keyframes` | `shape`, `center`, `size`, `feather`, `keyframes` | 传 `feather: 0` 覆盖 FilmCraft 默认 10px 羽化 |
-| 绿幕 / 蓝幕 / 单色键合成与前后穿插 | FilmCraft `clips[].chroma` + 复制前景同源上轨 + `mask` | `method: "ultra_key" \| "color_key"`, `key_color`, `spill` | 复杂非单色背景人物不强行用色键代替轮廓抠像 |
+| 绿幕 / 蓝幕 / 单色键合成与前后穿插 | FilmCraft `clips[].chroma` + 复制前景同源上轨 + `mask` | `method: "ultra_key" \| "color_key"`, `key_color`, `spill` | 复杂非单色背景人物用 `openedit matting` 转 ProRes 4444 RGBA |
 | 多轨成组旋转、缩放与统一调色 | FilmCraft `composites[]` 或 EffectCraft 合成叠层 | `tracks`, `transform`, `keyframes`, `grading`, `mask` | 在 `clip.nest` 嵌套片段外层统一施加运动与校色 |
 | 一级/二级调色、色轮与局部校色 | FilmCraft `clips[].grading` | `saturation`, `wheels`, `red_hsl`, `hue_vs_*`, `local_circle` | `local_circle` 自动挂载至 Lumetri 椭圆遮罩 |
 | 自动拍点标记、BGM 闪避与响度统一 | `beats` / `beat-apply` / `ducking` + FilmCraft 原生字段 | `audio[].beat_marks`, `fade_in`, `fade_out`, `loudness` | `loudness` 经 `essentialSound.setType` + `autoMatch` |
 
 ---
 
-## 6 个内置 EffectCraft 声明式配方（`overlays[].recipe`）
+## 10 个内置 EffectCraft 声明式配方（`overlays[].recipe`）
 
 在 `edit-plan.json` 的 `overlays[]`（或 `render-overlay --spec ...`）中直接声明 `recipe` 与 `params`，无需手写长 `layers` 数组或 JSX 脚本；注意**不能与 `layers` 或 `script` 混用**，且画布尺寸/安全区按当前项目 `width` / `height` 自适应缩放。
 
@@ -83,6 +87,34 @@
 ### 6. `progress_banner` — 章节进度条
 
 - **可选**：`label`（`<= 120` 字符）、`progress_start` / `progress_end`（`0..1`，默认 `0.0` → `1.0`）、`bar_color`（`#38BDF8`）、`track_color`（`#1E293B`）、`text_color`（`#FFFFFF`）、`position`（`top` | `bottom`，默认 `bottom`）。
+
+### 7. `chapter_opener` — 章节大标题开场
+
+- **必填**：`title`（`<= 120` 字符）
+- **可选**：`badge`（`<= 24`，默认 `"01"`）、`subtitle`（`<= 200`）、`highlights`、`card_style`（`card` | `minimal`，默认 `card`）、`accent_color`、`text_color`、`bg_color`、`bg_opacity`（`78`）、`glow`、`text_preset`、`position_y`（`0.15..0.85`）。
+
+### 8. `pip_card` — 透明内框 PiP 装饰框
+
+- 用于画中画（PiP）悬浮窗边框装饰。**可选**：`title`（角标标题，`<= 80`）、`corner`（`top_left` | `top_right` | `bottom_left` | `bottom_right`，默认 `bottom_right`）、`width_ratio`（`0.18..0.65`，默认 `0.32`）、`aspect`（`0.4..2.5`，默认 `1.7778`）、`border_color`、`border_width`（`1..24`，默认 `6`）、`bg_color`、`text_color`、`glow`（默认 `false`）。框内保持 `alpha=0`，不遮挡下方视频轨。
+
+### 9. `split_screen_frame` — 多栏分屏分割框
+
+- **可选**：`layout`（`vertical_2` | `horizontal_2` | `vertical_3`，默认 `vertical_2`）、`divider_color`（`#FFFFFF`）、`divider_width`（`2..32`，默认 `6`）、`labels`（与栏数匹配的 `2` 或 `3` 项文字数组，每项 `<= 40` 字符）、`badge_color`、`text_color`、`animate_in`。
+
+### 10. `wipe_transition` — 双色斜切擦除转场叠层
+
+- **可选**：`direction`（`left` | `right` | `up` | `down`，默认 `left`）、`color`（主色 `#0F172A`）、`accent_color`（先导条色 `#38BDF8`）、`angle_offset`（`-35..35` 度，默认 `12`）、`feather`（`0..100`，默认 `16`）、`peak_hold`（中点满屏覆盖比例 `0..0.5`，默认 `0.12`）。
+
+```json
+{
+  "name": "chap_01",
+  "track": "overlay",
+  "start": 0.0,
+  "duration": 2.2,
+  "recipe": "chapter_opener",
+  "params": {"badge": "PART 01", "title": "开源剪辑工作流", "subtitle": "支持 10 套透明配方"}
+}
+```
 
 ---
 

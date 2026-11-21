@@ -42,6 +42,8 @@ _SCRIPTS = {
     'captions': ('captions.py', 'Map transcript or SRT cues into editable captions and optional karaoke highlights.'),
     'tracking': ('tracking.py', 'Offline single-object ROI tracking via OpenCV CSRT.'),
     'tracking-apply': ('tracking_apply.py', 'Apply tracked trajectory into position keyframes on an edit plan.'),
+    'auto-cut': ('auto_cut.py', 'Remove silence via Silero VAD ONNX or FFmpeg silencedetect and generate a validated rough-cut plan.'),
+    'matting': ('matting.py', 'Offline non-green-screen AI video/image matting (RVM / BiRefNet / RMBG ONNX) -> ProRes 4444 RGBA.'),
     'stock': ('stock.py', 'Explicit online stock media search/download with provenance.'),
     'checks': ('run_checks.py', 'Run registered open-source self-checks in isolated temporary directories.'),
 }
@@ -112,8 +114,12 @@ def _bool_param(flag, description=''):
     return spec
 
 
-def _list_param(flag, item_type='string', *, required=False, description=''):
+def _list_param(flag, item_type='string', *, required=False, repeat=False, length=None, description=''):
     spec = {'flag': flag, 'type': f'{item_type}_list', 'required': required}
+    if repeat:
+        spec['repeat'] = True
+    if length is not None:
+        spec['length'] = length
     if description:
         spec['description'] = description
     return spec
@@ -136,17 +142,22 @@ OPERATION_SCHEMAS = {
         'out': _str_param('--out', required=True, description='New reference output directory'),
         'start': _num_param('--start'),
         'duration': _num_param('--duration'),
-        'threshold': _num_param('--threshold'),
+        'detector': _str_param('--detector', choices=('ffmpeg', 'pyscenedetect')),
+        'threshold': _num_param('--threshold', description='FFmpeg scene threshold in [0.01, 1.0] (ffmpeg detector only)'),
+        'content_threshold': _num_param('--content-threshold', description='PySceneDetect ContentDetector threshold (default 27.0)'),
+        'min_scene_seconds': _num_param('--min-scene-seconds', description='PySceneDetect minimum scene length in seconds (default 0.3)'),
         'max_frames': _num_param('--max-frames', 'integer', description='Integer in [2, 96]'),
     }},
     'normalize-media': {'params': {
-        'input': _str_param('--input', required=True),
-        'out': _str_param('--out', required=True),
+        'input': _str_param('--input', required=True, description='Source video file or media folder for batch preparation'),
+        'out': _str_param('--out', required=True, description='Output file path (single file) or new folder (batch mode)'),
         'fps': _num_param('--fps'),
         'width': _num_param('--width', 'integer'),
         'height': _num_param('--height', 'integer'),
         'codec': _str_param('--codec', choices=('h264', 'prores')),
         'crf': _num_param('--crf', 'integer'),
+        'force': _bool_param('--force', 'Re-encode already-compliant 8-bit CFR files in batch directory mode'),
+        'max_files': _num_param('--max-files', 'integer', description='Max video files scanned in batch directory mode (default 200)'),
     }},
     'validate': {'params': {
         'plan': _str_param('--plan', required=True, description='Edit plan JSON path'),
@@ -159,6 +170,7 @@ OPERATION_SCHEMAS = {
         'hardware_encoding': _str_param('--hardware-encoding', choices=('off', 'auto')),
         'export_otio': _str_param('--export-otio', description='Optional OTIO output path'),
         'export_fcpxml': _str_param('--export-fcpxml', description='Optional FCPXML output path'),
+        'no_overlay_cache': _bool_param('--no-overlay-cache', 'Disable content-addressed EffectCraft overlay cache'),
     }},
     'preview': {'params': {
         'project': _str_param('--project', required=True, description='Path to .fcproj file'),
@@ -180,6 +192,7 @@ OPERATION_SCHEMAS = {
         'out': _str_param('--out', required=True, description='New overlay output directory'),
         'no_video': _bool_param('--no-video', 'Skip ProRes 4444 MOV export and emit PNG/ecproj only'),
         'gpu': _bool_param('--gpu', 'Enable EffectCraft GPU flag during render'),
+        'no_cache': _bool_param('--no-cache', 'Disable content-addressed EffectCraft overlay cache'),
     }},
     'contract-check': {'params': {
         'out': _str_param('--out', description='Optional new directory to retain regression build artifacts'),
@@ -291,12 +304,200 @@ OPERATION_SCHEMAS = {
         'min_speech': _num_param('--min-speech'),
         'merge_gap': _num_param('--merge-gap'),
     }},
+    'layout-tracks': {'params': {
+        'plan': _str_param('--plan', required=True, description='Input edit plan JSON path'),
+        'out': _str_param('--out', required=True, description='New compacted output plan JSON path'),
+    }},
+    'denoise-audio': {'params': {
+        'input': _str_param('--input', required=True, description='Local audio/video source path'),
+        'start': _num_param('--start'),
+        'duration': _num_param('--duration', required=True),
+        'noise_floor': _num_param('--noise-floor', required=True, description='White-noise floor estimate in dB (-80..-20)'),
+        'reduction': _num_param('--reduction', required=True, description='Reduction amount in dB (3..24)'),
+        'out': _str_param('--out', required=True, description='New output directory'),
+    }},
+    'reverse': {'params': {
+        'input': _str_param('--input', required=True, description='Local video source path'),
+        'start': _num_param('--start'),
+        'duration': _num_param('--duration', required=True),
+        'audio': _str_param('--audio', required=True, choices=('reverse', 'mute')),
+        'out': _str_param('--out', required=True, description='New output directory'),
+    }},
+    'migrate': {'params': {
+        'plan': _str_param('--plan', description='Source edit-plan.json path (optional; omit to run doctor-only check)'),
+        'map': _list_param('--map', 'string', repeat=True, description='List of old_root=new_root mappings'),
+        'out': _str_param('--out', description='New output edit plan JSON path'),
+    }},
+    'transcribe': {'params': {
+        'input': _str_param('--input', required=True, description='Local media path'),
+        'out': _str_param('--out', required=True, description='New output directory'),
+        'model': _str_param('--model', description='Local faster-whisper model directory (else OPENEDIT_WHISPER_MODEL)'),
+        'language': _str_param('--language', description="'auto' or language code such as zh / en"),
+        'beam_size': _num_param('--beam-size', 'integer'),
+        'compute_type': _str_param('--compute-type', choices=('int8', 'int8_float32', 'float32')),
+        'threads': _num_param('--threads', 'integer'),
+        'no_vad': _bool_param('--no-vad'),
+        'word_timestamps': _bool_param('--word-timestamps'),
+        'max_seconds': _num_param('--max-seconds'),
+        'verbose': _bool_param('--verbose'),
+    }},
+    'separate': {'params': {
+        'input': _str_param('--input', required=True, description='Local media path'),
+        'out': _str_param('--out', required=True, description='New output directory'),
+        'model': _str_param('--model', description='Local Demucs ONNX weights path (else OPENEDIT_DEMUCS_MODEL)'),
+        'stems': _str_param('--stems', choices=('pair', 'all')),
+        'overlap': _num_param('--overlap'),
+        'verbose': _bool_param('--verbose'),
+    }},
+    'tracking': {'params': {
+        'input': _str_param('--input', required=True, description='Local video source path'),
+        'bbox': _list_param('--bbox', 'integer', required=True, length=4, description='Pixel ROI [X, Y, W, H]'),
+        'start': _num_param('--start'),
+        'duration': _num_param('--duration', required=True),
+        'out': _str_param('--out', required=True, description='New output directory'),
+    }},
+    'tracking-apply': {'params': {
+        'plan': _str_param(None, required=True, positional=True, description='Input edit plan JSON path'),
+        'tracking': _str_param('--tracking', required=True, description='tracking.json path from tracking'),
+        'source_index': _num_param('--source-index', 'integer', required=True),
+        'target_index': _num_param('--target-index', 'integer', description='Target clip index (mutually exclusive with caption_index)'),
+        'caption_index': _num_param('--caption-index', 'integer', description='Target caption index (mutually exclusive with target_index)'),
+        'offset_x': _num_param('--offset-x'),
+        'offset_y': _num_param('--offset-y'),
+        'out': _str_param('--out', required=True, description='New output plan JSON path'),
+    }},
+    'auto-cut': {'params': {
+        'input': _str_param('--input', required=True, description='Local video or audio file with an audio stream'),
+        'out': _str_param('--out', required=True, description='New output directory for cuts.json and edit-plan.json'),
+        'detector': _str_param('--detector', choices=('auto', 'silero', 'ffmpeg')),
+        'vad_model': _str_param('--vad-model', description='Optional Silero VAD ONNX model path'),
+        'threshold': _num_param('--threshold', description='Speech prob in [0.05, 0.95] for silero or dB in [-80, -5] for ffmpeg'),
+        'min_silence': _num_param('--min-silence'),
+        'min_speech': _num_param('--min-speech'),
+        'pad': _num_param('--pad'),
+        'fade': _num_param('--fade'),
+        'name': _str_param('--name'),
+        'width': _num_param('--width', 'integer'),
+        'height': _num_param('--height', 'integer'),
+        'fps': _num_param('--fps'),
+    }},
+    'matting': {'params': {
+        'input': _str_param('--input', required=True, description='Local video or image file'),
+        'out': _str_param('--out', required=True, description='New output directory for matte.mov and previews'),
+        'backend': _str_param('--backend', choices=('auto', 'rvm', 'birefnet', 'rmbg')),
+        'model': _str_param('--model', description='ONNX matting model path (else OPENEDIT_MATTING_MODEL / auto-discovery)'),
+        'start': _num_param('--start'),
+        'duration': _num_param('--duration'),
+        'max_frames': _num_param('--max-frames', 'integer'),
+        'downsample_ratio': _num_param('--downsample-ratio', description='RVM downsample ratio in [0.1, 1.0]'),
+        'alpha_feather': _num_param('--alpha-feather'),
+        'alpha_erode': _num_param('--alpha-erode', 'integer'),
+        'threshold': _num_param('--threshold'),
+        'temporal_ema': _num_param('--temporal-ema'),
+        'use_model_fgr': _bool_param('--use-model-fgr'),
+        'keep_audio': _bool_param('--keep-audio'),
+        'no_video': _bool_param('--no-video'),
+        'preview_time': _num_param('--preview-time'),
+        'gpu': _bool_param('--gpu'),
+    }},
+    'stock': {
+        'params': {},
+        'subcommands': {
+            'status': {},
+            'search': {
+                'provider': _str_param('--provider', choices=('auto', 'pexels', 'pixabay', 'openverse', 'commons')),
+                'kind': _str_param('--kind', choices=('image', 'video', 'audio')),
+                'query': _str_param('--query', required=True),
+                'orientation': _str_param('--orientation', choices=('any', 'portrait', 'landscape')),
+                'lang': _str_param('--lang', choices=('en-US', 'zh-CN')),
+                'limit': _num_param('--limit', 'integer'),
+                'cache': _str_param('--cache'),
+                'out': _str_param('--out', required=True),
+            },
+            'fetch': {
+                'results': _str_param('--results', required=True),
+                'id': _str_param('--id', required=True),
+                'out': _str_param('--out', required=True),
+                'max_mb': _num_param('--max-mb', 'integer'),
+                'review_note': _str_param('--review-note', required=True),
+                'allow_sharealike': _bool_param('--allow-sharealike'),
+            },
+            'register': {
+                'input': _str_param('--input', required=True),
+                'provider': _str_param('--provider', required=True, choices=('pexels', 'pixabay', 'openverse', 'commons', 'mixkit')),
+                'source': _str_param('--source', required=True),
+                'creator': _str_param('--creator', required=True),
+                'title': _str_param('--title'),
+                'license': _str_param('--license', required=True),
+                'license_url': _str_param('--license-url', required=True),
+                'review_note': _str_param('--review-note', required=True),
+                'allow_sharealike': _bool_param('--allow-sharealike'),
+            },
+        },
+    },
+    'mesh-avatar': {
+        'params': {},
+        'subcommands': {
+            'configure': {'studio': _str_param('--studio', required=True)},
+            'inspect-video': {
+                'video': _str_param('--video', required=True),
+                'out': _str_param('--out', required=True),
+                'start': _num_param('--start'),
+                'duration': _num_param('--duration'),
+                'samples': _num_param('--samples', 'integer'),
+            },
+            'prepare-character': {
+                'studio': _str_param('--studio'),
+                'image': _str_param('--image', required=True),
+                'video': _str_param('--video', required=True),
+                'times': _list_param('--times', 'number', required=True),
+                'name': _str_param('--name'),
+            },
+            'prepare-variants': {
+                'studio': _str_param('--studio'),
+                'project': _str_param('--project', required=True),
+            },
+            'plan-variants': {
+                'studio': _str_param('--studio'),
+                'project': _str_param('--project', required=True),
+                'selection': _str_param('--selection', required=True),
+            },
+            'build-character': {
+                'studio': _str_param('--studio'),
+                'project': _str_param('--project', required=True),
+            },
+            'pack-character': {
+                'studio': _str_param('--studio'),
+                'project': _str_param('--project', required=True),
+                'out': _str_param('--out', required=True),
+                'require_sprites': _bool_param('--require-sprites'),
+            },
+            'render': {
+                'studio': _str_param('--studio'),
+                'avatar': _str_param('--avatar', required=True),
+                'out': _str_param('--out', required=True),
+                'frames': _num_param('--frames', 'integer', required=True),
+                'keyframes': _str_param('--keyframes'),
+                'browser': _str_param('--browser'),
+            },
+            'attach': {
+                'plan': _str_param('--plan', required=True),
+                'video': _str_param('--video', required=True),
+                'out': _str_param('--out', required=True),
+                'start': _num_param('--start', required=True),
+                'track': _str_param('--track'),
+            },
+        },
+    },
     'checks': {'params': {
         'only': _list_param('--only', 'string'),
         'keep': _str_param('--keep'),
         'timeout': _num_param('--timeout', 'integer'),
         'demucs_model': _str_param('--demucs-model'),
         'whisper_model': _str_param('--whisper-model'),
+        'vad_model': _str_param('--vad-model'),
+        'matting_model': _str_param('--matting-model'),
+        'no_auto_models': _bool_param('--no-auto-models'),
     }},
 }
 
@@ -376,11 +577,21 @@ def _compile_param_specs(values, specs):
             item_kind = kind[:-5]
             if not isinstance(val, list) or not val:
                 raise ValueError(f'Parameter {name} must be a non-empty list')
+            if 'length' in spec and len(val) != spec['length']:
+                raise ValueError(f'Parameter {name} must contain exactly {spec["length"]} items')
             item_spec = {'type': item_kind}
             if 'choices' in spec:
                 item_spec['choices'] = spec['choices']
-            flagged.append(spec['flag'])
-            flagged.extend(_format_scalar(name, item, item_spec) for item in val)
+            if spec.get('repeat'):
+                for item in val:
+                    text = _format_scalar(name, item, item_spec)
+                    if text.startswith('-'):
+                        flagged.append(f"{spec['flag']}={text}")
+                    else:
+                        flagged.extend([spec['flag'], text])
+            else:
+                flagged.append(spec['flag'])
+                flagged.extend(_format_scalar(name, item, item_spec) for item in val)
         else:
             text = _format_scalar(name, val, spec)
             if text.startswith('-'):
@@ -456,8 +667,11 @@ _KNOWLEDGE_SYNONYMS = (
     (('音乐', '配乐', '背景乐', 'bgm'), ('音乐', '配乐', 'bgm', '乐句', '重音', '声音')),
     (('字幕', '文字', '排版', '标题'), ('字幕', '文字', '排版', '阅读', '标题', '字体')),
     (('动效', '特效', '透明', 'overlay', 'effectcraft'), ('动效', '特效', '透明', 'prores', 'effectcraft')),
-    (('配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条'), ('配方', 'recipe', '标题卡', '下三分之一', 'effectcraft', 'overlays')),
+    (('配方', 'recipe', '标题卡', '下三分之一', '闪白', '遮幅', '进度条', 'chapter_opener', 'pip_card', 'split_screen_frame', 'wipe_transition'),
+     ('配方', 'recipe', '标题卡', '下三分之一', 'effectcraft', 'overlays', 'chapter_opener', 'pip_card', 'split_screen_frame', 'wipe_transition')),
     (('绿幕', '抠像', '色键', 'ultra_key', 'color_key'), ('绿幕', '抠像', '色键', 'ultra_key', 'color_key')),
+    (('人像抠像', '非绿幕', '背景分离', 'matting', 'rvm', 'birefnet', 'rmbg'), ('matting', 'prores', 'alpha', 'rvm', 'birefnet', '背景分离')),
+    (('气口', '粗剪', '静音剪辑', 'silero', 'auto-cut', 'autocut', 'vad'), ('auto-cut', '静音', 'silero', 'vad', 'edit-plan')),
     (('蒙版', 'mask', '嵌套', 'composites'), ('蒙版', 'mask', '嵌套', 'composites')),
     (('调色', 'lumetri', '曲线', '色轮', 'hsl'), ('调色', 'lumetri', 'hsl', '曲线', '色轮')),
     (('混合模式', 'blend', '滤色', '正片叠底', '叠加'), ('混合模式', 'blend', '滤色', '正片叠底')),
@@ -484,26 +698,33 @@ _CAPABILITY_TOPIC_ANCHORS = (
     ('offline-denoise', ('降噪', 'denoise')),
     ('beat-editing', ('按拍切镜', 'beats', 'beat-apply')),
     ('offline-tracking', ('单目标跟踪', 'tracking')),
+    ('auto-cut', ('气口', '粗剪', '静音', 'auto-cut', 'silero', 'vad')),
+    ('ai-matting', ('人像抠像', 'matting', 'rvm', 'birefnet', 'rmbg', '非绿幕')),
 )
 
 
-def _tokenize_text(text):
+def _tokenize_text(text, *, split_hyphens=True):
     normalized = unicodedata.normalize('NFKC', text).casefold()
     tokens = []
+    hyphen_parts = []
     for tok in re.findall(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', normalized):
         tokens.append(tok)
         if '-' in tok:
-            tokens.extend(part for part in tok.split('-') if part)
+            parts = [part for part in tok.split('-') if part]
+            if split_hyphens:
+                tokens.extend(parts)
+            else:
+                hyphen_parts.extend(part for part in parts if len(part) >= 2)
     for run in re.findall(r'[\u3400-\u9fff]+', normalized):
         if 2 <= len(run) <= 6:
             tokens.append(run)
         for idx in range(len(run) - 1):
             tokens.append(run[idx:idx + 2])
-    return normalized, tokens
+    return (normalized, tokens) if split_hyphens else (normalized, tokens, hyphen_parts)
 
 
 def _knowledge_terms(query):
-    normalized, tokens = _tokenize_text(query)
+    normalized, tokens, hyphen_parts = _tokenize_text(query, split_hyphens=False)
     terms, seen = [], set()
     for term in tokens:
         if term in _KNOWLEDGE_STOP or term in seen:
@@ -512,7 +733,7 @@ def _knowledge_terms(query):
         terms.append(term)
     groups = [targets for triggers, targets in _KNOWLEDGE_SYNONYMS
               if any(trigger in normalized for trigger in triggers)]
-    return normalized, terms, groups
+    return normalized, terms, groups, hyphen_parts
 
 
 def _knowledge_match(term, text):
@@ -617,7 +838,7 @@ def search_knowledge(query, limit=5):
         raise ValueError('query must be non-empty text of at most 256 characters')
     if type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError('limit must be an integer from 1 to 20')
-    normalized, terms, groups = _knowledge_terms(query.strip())
+    normalized, terms, groups, hyphen_parts = _knowledge_terms(query.strip())
     if not terms and not groups:
         return {'query': query, 'results': [], 'scope': 'bundled editing guides only'}
 
@@ -641,6 +862,10 @@ def search_knowledge(query, limit=5):
         return {'query': query, 'results': [], 'scope': 'bundled editing guides only'}
 
     query_syn_terms, seen_syn = [], set(terms)
+    for tok in hyphen_parts:
+        if tok not in _KNOWLEDGE_STOP and tok not in seen_syn:
+            seen_syn.add(tok)
+            query_syn_terms.append(tok)
     for group in groups:
         for candidate in group:
             _, syn_tokens = _tokenize_text(candidate)
@@ -691,7 +916,7 @@ def search_knowledge(query, limit=5):
             if tf_h:
                 score += 2.2 * idf * (tf_h * (k1 + 1.0)) / (tf_h + k1 * (1.0 - b + b * (sec['head_len'] / avg_head_len)))
         if direct_hits and terms:
-            score += 1.5 * (direct_hits / len(terms))
+            score += 4.5 * (direct_hits / len(terms))
         for tok in query_syn_terms:
             idf = _idf(tok)
             tf_b, tf_h = body_counts.get(tok, 0), head_counts.get(tok, 0)

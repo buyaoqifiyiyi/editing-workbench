@@ -20,6 +20,7 @@ import file_hash
 import numpy as np
 
 import editor
+import runtime_paths
 
 RATE = 16000
 COMPUTE_TYPES = ('int8', 'int8_float32', 'float32')
@@ -45,15 +46,20 @@ def decode(path):
 
 
 def resolve_model(explicit):
-    """--model, then OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL; a HF cache directory or a directory holding model.bin."""
+    """--model, env vars, or %LOCALAPPDATA%\\OpenEditTools\\models; HF cache or directory holding model.bin."""
     candidate = explicit or os.environ.get('OPENEDIT_WHISPER_MODEL') or os.environ.get('JIANYING_WHISPER_MODEL')
-    if not candidate:
-        listing = ', '.join(f'{name} (model.bin {size:,} B)' for name, size in MODEL_CACHES)
-        raise ValueError(
-            'Offline transcription needs a local faster-whisper model: pass --model DIR or set '
-            f'OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL. This Skill ships no weights; the caches measured here are {listing}, '
-            'either the HF cache directory or its snapshot directory.')
-    root = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
+    if candidate:
+        root = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
+    else:
+        root = runtime_paths.discover_model('whisper', include_env=False)
+        if root is None:
+            listing = ', '.join(f'{name} (model.bin {size:,} B)' for name, size in MODEL_CACHES)
+            raise ValueError(
+                'Offline transcription needs a local faster-whisper model: pass --model DIR, set '
+                'OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL, or place weights under %LOCALAPPDATA%\\OpenEditTools\\models\\. '
+                f'This Skill ships no weights; the caches measured here are {listing}, '
+                'either the HF cache directory or its snapshot directory.'
+            )
     if not root.is_dir():
         raise ValueError(f'Whisper model directory does not exist: {root}')
     snapshots = root / 'snapshots'
@@ -229,7 +235,7 @@ def run_transcription(args):
         'out': str(out),
         'offline': {'HF_HUB_OFFLINE': os.environ.get('HF_HUB_OFFLINE'),
                     'TRANSFORMERS_OFFLINE': os.environ.get('TRANSFORMERS_OFFLINE'), 'local_files_only': True},
-        'model': {'requested': str(args.model or os.environ.get('JIANYING_WHISPER_MODEL')),
+        'model': {'requested': str(args.model or os.environ.get('OPENEDIT_WHISPER_MODEL') or os.environ.get('JIANYING_WHISPER_MODEL') or model_dir),
                   'resolved': str(model_dir), 'files': files, 'model_bin_bytes': model_bin.stat().st_size,
                   'model_bin_sha256': next(item['sha256'] for item in files if item['file'] == 'model.bin'),
                   'device': 'cpu', 'compute_type': args.compute_type, 'load_seconds': round(load_seconds, 3)},
@@ -275,7 +281,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--input', required=True, help='media ffmpeg can decode')
     parser.add_argument('--out', required=True, help='new directory for the transcript, cues and report')
-    parser.add_argument('--model', help='faster-whisper model directory, else JIANYING_WHISPER_MODEL')
+    parser.add_argument('--model', help='faster-whisper model directory, else OPENEDIT_WHISPER_MODEL / JIANYING_WHISPER_MODEL')
     parser.add_argument('--language', default='zh', help="'auto' or a code such as zh / en; default zh")
     parser.add_argument('--beam-size', type=int, default=5)
     parser.add_argument('--compute-type', default='int8',

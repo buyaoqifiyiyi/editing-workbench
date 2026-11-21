@@ -142,6 +142,23 @@ def check(root, model):
     assert code == 0 and report['status'] == 'passed' and report['model']['path'] == str(model), report
     checks.append('model discovery: JIANYING_DEMUCS_MODEL is honored when --model is absent')
 
+    auto_root = model.parent.parent if model.parent.name == 'demucs' else model.parent
+    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL')}
+    try:
+        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL'):
+            os.environ.pop(k, None)
+        os.environ['OPENEDIT_MODELS_DIR'] = str(auto_root)
+        if separate.runtime_paths.discover_model('demucs') == model:
+            code, auto_report = run_main(['--input', mix_file, '--out', root / 'stems-auto'])
+            assert code == 0 and auto_report['status'] == 'passed' and auto_report['model']['path'] == str(model), auto_report
+            checks.append('model auto-discovery: OPENEDIT_MODELS_DIR locates demucs weights when --model is absent')
+    finally:
+        for k, v in saved_auto.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
     poster = root / 'poster.png'
     editor.run([editor.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
                 '-f', 'lavfi', '-i', 'testsrc=s=640x360', '-frames:v', '1', str(poster)])
@@ -154,7 +171,20 @@ def check(root, model):
         'input has no audio stream': ['--input', poster, '--out', root / 'r5', '--model', model],
     }
     for label, arguments in refusals.items():
-        code, report = run_main(arguments)
+        saved_env = {}
+        if label == 'no model at all':
+            for key in ('OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
+                saved_env[key] = os.environ.pop(key, None)
+            os.environ['OPENEDIT_NO_AUTO_MODELS'] = '1'
+        try:
+            code, report = run_main(arguments)
+        finally:
+            if label == 'no model at all':
+                for key, val in saved_env.items():
+                    if val is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = val
         assert code == 1 and report['status'] == 'failed' and report.get('error'), (label, report)
         checks.append(f'refused: {label} -> {report["error"][:90]}')
     for name in ('r1', 'r2', 'r3', 'r4', 'r5'):

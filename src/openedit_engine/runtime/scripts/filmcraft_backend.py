@@ -652,6 +652,7 @@ def build_project(
     *,
     probes=None,
     render_overlays=True,
+    use_overlay_cache=True,
     preview_times=None,
     export_path=None,
     hardware_encoding='off',
@@ -692,6 +693,7 @@ def build_project(
                 height=canvas['height'],
                 fps=canvas['fps'],
                 render_video=True,
+                use_cache=use_overlay_cache,
             )
             compiled_overlays.append({
                 'spec': ov,

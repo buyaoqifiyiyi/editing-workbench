@@ -11,6 +11,7 @@ import filmcraft_backend
 import media_prep
 import overlay_recipes
 import runtime_core as core
+import runtime_paths
 import upstream_guard
 
 
@@ -61,6 +62,7 @@ def doctor():
         'runtime_root': str(core.SKILL_ROOT),
         'backends': backends,
         'gpu': gpu,
+        'local_models': runtime_paths.discover_local_models(),
         'optional_ai_packages': optional,
         'instructions': instructions,
         'warnings': warnings,
@@ -95,9 +97,11 @@ def capabilities(query=None, live=False):
             'caveat': 'WebM VP9 default CLI export drops alpha; ProRes 4444 (.mov) is locked as the verified alpha interchange',
         },
         'offline_ai_and_media': [
+            'auto-cut (Silero VAD ONNX + FFmpeg silencedetect rough cut)',
+            'matting (RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA alpha .mov)',
             'beats / beat-apply (librosa)', 'transcribe (faster-whisper)', 'separate (Demucs ONNX)',
             'denoise-audio (FFT)', 'ducking', 'captions / karaoke', 'tracking / tracking-apply (OpenCV CSRT)',
-            'reverse', 'practice-compare', 'normalize-media (FFmpeg VFR -> CFR)',
+            'reverse', 'practice-compare', 'normalize-media (FFmpeg single & batch VFR/Hi10P -> CFR)',
         ],
     }
     if live:
@@ -119,7 +123,7 @@ def capabilities(query=None, live=False):
     return caps
 
 
-def build(plan_path, out_dir, *, export_path=None, preview_times=None, hardware_encoding='off', export_otio=None, export_fcpxml=None):
+def build(plan_path, out_dir, *, export_path=None, preview_times=None, hardware_encoding='off', export_otio=None, export_fcpxml=None, use_overlay_cache=True):
     plan, probes, warnings = core.validate_plan(plan_path)
     report = filmcraft_backend.build_project(
         plan,
@@ -130,6 +134,7 @@ def build(plan_path, out_dir, *, export_path=None, preview_times=None, hardware_
         hardware_encoding=hardware_encoding,
         export_otio=export_otio,
         export_fcpxml=export_fcpxml,
+        use_overlay_cache=use_overlay_cache,
     )
     if warnings:
         report['warnings'] = warnings
@@ -162,15 +167,18 @@ def main(argv=None):
     c_insp.add_argument('--frames', type=int, default=3)
     c_insp.add_argument('--max-files', type=int, default=200)
 
-    c_ref = sub.add_parser('reference', help='Extract scene-change reference frames via FFmpeg')
+    c_ref = sub.add_parser('reference', help='Extract scene-change reference frames via FFmpeg or PySceneDetect')
     c_ref.add_argument('--input', required=True)
     c_ref.add_argument('--out', required=True)
     c_ref.add_argument('--start', type=float, default=0.0)
     c_ref.add_argument('--duration', type=float)
-    c_ref.add_argument('--threshold', type=float, default=0.35)
+    c_ref.add_argument('--detector', choices=('ffmpeg', 'pyscenedetect'), default='ffmpeg')
+    c_ref.add_argument('--threshold', type=float, default=None)
+    c_ref.add_argument('--content-threshold', type=float, default=None)
+    c_ref.add_argument('--min-scene-seconds', type=float, default=None)
     c_ref.add_argument('--max-frames', type=int, default=24)
 
-    c_norm = sub.add_parser('normalize-media', help='Normalize VFR or exotic-codec media to CFR H.264/AAC or ProRes')
+    c_norm = sub.add_parser('normalize-media', help='Normalize single file or batch folder of VFR/Hi10P media to CFR H.264/AAC or ProRes')
     c_norm.add_argument('--input', required=True)
     c_norm.add_argument('--out', required=True)
     c_norm.add_argument('--fps', type=float, default=30.0)
@@ -178,6 +186,8 @@ def main(argv=None):
     c_norm.add_argument('--height', type=int)
     c_norm.add_argument('--codec', choices=('h264', 'prores'), default='h264')
     c_norm.add_argument('--crf', type=int, default=16)
+    c_norm.add_argument('--force', action='store_true', help='Re-encode compliant CFR clips too in batch directory mode')
+    c_norm.add_argument('--max-files', type=int, default=200, help='Maximum scanned video files in batch directory mode')
 
     c_val = sub.add_parser('validate', help='Validate an open edit-plan.json and probe media')
     c_val.add_argument('--plan', required=True)
@@ -190,6 +200,7 @@ def main(argv=None):
     c_build.add_argument('--hardware-encoding', choices=('off', 'auto'), default='off')
     c_build.add_argument('--export-otio', help='Optional OTIO interchange output path')
     c_build.add_argument('--export-fcpxml', help='Optional FCPXML interchange output path')
+    c_build.add_argument('--no-overlay-cache', action='store_true', help='Disable EffectCraft overlay cache')
 
     c_prev = sub.add_parser('preview', help='Render PNG review frames from an existing .fcproj')
     c_prev.add_argument('--project', required=True)
@@ -211,6 +222,7 @@ def main(argv=None):
     c_ov.add_argument('--out', required=True)
     c_ov.add_argument('--no-video', action='store_true')
     c_ov.add_argument('--gpu', action='store_true')
+    c_ov.add_argument('--no-cache', action='store_true', help='Disable content-addressed overlay cache')
 
     c_fce = sub.add_parser('filmcraft-exec', help='Direct JSON command escape hatch to FilmCraft engine')
     c_fce.add_argument('--commands', required=True, help='JSON array [{id, params}] or JSON file path')
@@ -251,9 +263,17 @@ def main(argv=None):
         elif args.action == 'inspect':
             result = media_prep.inspect_media(args.input, args.out, frames=args.frames, max_files=args.max_files)
         elif args.action == 'reference':
-            result = media_prep.extract_reference(args.input, args.out, start=args.start, duration=args.duration, threshold=args.threshold, max_frames=args.max_frames)
+            result = media_prep.extract_reference(
+                args.input, args.out, start=args.start, duration=args.duration,
+                detector=args.detector, threshold=args.threshold,
+                content_threshold=args.content_threshold, min_scene_seconds=args.min_scene_seconds,
+                max_frames=args.max_frames,
+            )
         elif args.action == 'normalize-media':
-            result = media_prep.normalize_media(args.input, args.out, fps=args.fps, width=args.width, height=args.height, codec=args.codec, crf=args.crf)
+            result = media_prep.normalize_media(
+                args.input, args.out, fps=args.fps, width=args.width, height=args.height,
+                codec=args.codec, crf=args.crf, force=args.force, max_files=args.max_files,
+            )
         elif args.action == 'validate':
             plan, probes, warnings = core.validate_plan(args.plan)
             result = {'status': 'valid', 'name': plan['name'], 'canvas': plan['canvas'],
@@ -262,7 +282,8 @@ def main(argv=None):
                       'probes': probes, 'warnings': warnings}
         elif args.action == 'build':
             result = build(args.plan, args.out, export_path=args.export_path, preview_times=args.preview_times,
-                           hardware_encoding=args.hardware_encoding, export_otio=args.export_otio, export_fcpxml=args.export_fcpxml)
+                           hardware_encoding=args.hardware_encoding, export_otio=args.export_otio, export_fcpxml=args.export_fcpxml,
+                           use_overlay_cache=not args.no_overlay_cache)
         elif args.action == 'preview':
             result = filmcraft_backend.preview_project(args.project, args.out, args.times, max_side=args.max_side)
         elif args.action == 'export':
@@ -271,7 +292,7 @@ def main(argv=None):
                                                       burn_captions=not args.no_burn_captions, audio=not args.no_audio)
         elif args.action == 'render-overlay':
             spec = _load_json_spec(args.spec)
-            result = effectcraft_backend.build_overlay(spec, args.out, render_video=not args.no_video, gpu=args.gpu)
+            result = effectcraft_backend.build_overlay(spec, args.out, render_video=not args.no_video, gpu=args.gpu, use_cache=not args.no_cache)
         elif args.action == 'filmcraft-exec':
             cmds = _load_json_spec(args.commands)
             result = filmcraft_backend.exec_commands(cmds, project=args.project, save_as=args.save_as)

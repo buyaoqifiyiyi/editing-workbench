@@ -20,6 +20,7 @@ import editor
 import run_checks
 import runtime_common
 import runtime_core
+import runtime_paths
 
 
 class RuntimeSafety(unittest.TestCase):
@@ -72,6 +73,39 @@ class RuntimeSafety(unittest.TestCase):
                                         SimpleNamespace(demucs_model=None, whisper_model=None))
         self.assertIsNotNone(reason)
         self.assertIn('--demucs-model', reason)
+
+    def test_runtime_paths_model_discovery_and_isolation(self):
+        with tempfile.TemporaryDirectory(prefix='oe-models-') as folder:
+            root = Path(folder)
+            (root / 'demucs').mkdir()
+            (root / 'vad').mkdir()
+            (root / 'matting').mkdir()
+            (root / 'faster-whisper-tiny').mkdir()
+            (root / 'faster-whisper-base').mkdir()
+            (root / 'faster-whisper-tiny' / 'model.bin').write_bytes(b'tiny')
+            (root / 'faster-whisper-base' / 'model.bin').write_bytes(b'base')
+            (root / 'demucs' / 'htdemucs_fp16weights.onnx').write_bytes(b'dm')
+            (root / 'vad' / 'silero_vad.onnx').write_bytes(b'vd')
+            (root / 'matting' / 'birefnet_general.onnx').write_bytes(b'bf')
+            (root / 'matting' / 'rmbg14_quantized.onnx').write_bytes(b'rm')
+            clean_env = {
+                'OPENEDIT_MODELS_DIR': str(root),
+                'OPENEDIT_NO_AUTO_MODELS': '',
+                'OPENEDIT_DEMUCS_MODEL': '',
+                'JIANYING_DEMUCS_MODEL': '',
+                'OPENEDIT_WHISPER_MODEL': '',
+                'JIANYING_WHISPER_MODEL': '',
+                'OPENEDIT_VAD_MODEL': '',
+                'OPENEDIT_MATTING_MODEL': '',
+            }
+            with patch.dict(editor.os.environ, clean_env, clear=False):
+                inv = runtime_paths.discover_local_models()
+                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting')))
+                self.assertEqual(Path(inv['whisper']['path']).name, 'faster-whisper-base')
+                self.assertEqual(Path(inv['matting']['path']).name, 'birefnet_general.onnx')
+                with patch.dict(editor.os.environ, {'OPENEDIT_NO_AUTO_MODELS': '1'}):
+                    self.assertIsNone(runtime_paths.discover_model('demucs'))
+                    self.assertIsNone(runtime_paths.discover_model('whisper'))
 
     def test_runtime_common_locks_and_validators(self):
         with tempfile.TemporaryDirectory(prefix='oe-common-') as folder:

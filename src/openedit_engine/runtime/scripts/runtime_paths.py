@@ -36,6 +36,170 @@ def external_directory(value, label):
     return resolved
 
 
+_MODEL_ENV_VARS = {
+    'demucs': ('OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL'),
+    'whisper': ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'),
+    'vad': ('OPENEDIT_VAD_MODEL',),
+    'matting': ('OPENEDIT_MATTING_MODEL',),
+}
+_WHISPER_PREFERRED = (
+    'faster-whisper-large-v3-turbo',
+    'faster-whisper-large-v3',
+    'faster-whisper-medium',
+    'faster-whisper-small',
+    'faster-whisper-base',
+    'faster-whisper-tiny',
+)
+
+
+def models_root():
+    """Return local offline models directory, or None when auto-discovery is disabled."""
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    if 'OPENEDIT_MODELS_DIR' in os.environ:
+        raw = os.environ['OPENEDIT_MODELS_DIR'].strip()
+        if not raw:
+            return None
+        return Path(os.path.expandvars(raw)).expanduser().resolve()
+    return (Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools' / 'models').resolve()
+
+
+def _is_whisper_dir(path):
+    if not path.is_dir():
+        return False
+    if (path / 'model.bin').is_file():
+        return True
+    snapshots = path / 'snapshots'
+    return snapshots.is_dir() and any((snap / 'model.bin').is_file() for snap in snapshots.iterdir() if snap.is_dir())
+
+
+def _whisper_rank(name):
+    lower = name.lower()
+    for idx, tag in enumerate(('large-v3-turbo', 'large-v3', 'medium', 'small', 'base', 'tiny')):
+        if tag in lower:
+            return (0, idx, lower)
+    return (1, 99, lower)
+
+
+def _discover_whisper(root):
+    for parent in (root, root / 'whisper'):
+        if not parent.is_dir():
+            continue
+        for name in _WHISPER_PREFERRED:
+            cand = parent / name
+            if _is_whisper_dir(cand):
+                return cand.resolve()
+        hf_dirs = sorted((p for p in parent.glob('models--*faster-whisper*') if _is_whisper_dir(p)),
+                         key=lambda p: _whisper_rank(p.name))
+        if hf_dirs:
+            return hf_dirs[0].resolve()
+        other = sorted((p for p in parent.iterdir() if p.is_dir() and 'whisper' in p.name.lower() and _is_whisper_dir(p)),
+                       key=lambda p: _whisper_rank(p.name))
+        if other:
+            return other[0].resolve()
+    return root.resolve() if _is_whisper_dir(root) else None
+
+
+def _discover_onnx_patterns(root, subdirs, patterns, *, fallback_subdir=None):
+    for sub in subdirs:
+        base = (root / sub) if sub else root
+        if not base.is_dir():
+            continue
+        for pat in patterns:
+            matches = sorted(p for p in base.glob(pat) if p.is_file())
+            if matches:
+                return matches[0].resolve()
+    if fallback_subdir:
+        sub_dir = root / fallback_subdir
+        if sub_dir.is_dir():
+            any_onnx = sorted(p for p in sub_dir.glob('*.onnx') if p.is_file())
+            if any_onnx:
+                return any_onnx[0].resolve()
+    return None
+
+
+def discover_model(kind, *, include_env=True):
+    """Resolve an explicit env override or auto-discover local offline AI weights; never downloads."""
+    if kind not in _MODEL_ENV_VARS:
+        raise ValueError(f'Unknown model kind: {kind}')
+    if include_env:
+        for env_key in _MODEL_ENV_VARS[kind]:
+            raw = os.environ.get(env_key)
+            if raw and raw.strip():
+                return Path(os.path.expandvars(raw.strip())).expanduser().resolve()
+    root = models_root()
+    if root is None or not root.is_dir():
+        return None
+    if kind == 'whisper':
+        return _discover_whisper(root)
+    if kind == 'demucs':
+        return _discover_onnx_patterns(
+            root, ('demucs', ''), ('htdemucs_fp16weights.onnx', '*demucs*.onnx'), fallback_subdir='demucs',
+        )
+    if kind == 'vad':
+        return _discover_onnx_patterns(
+            root, ('vad', ''), ('silero_vad.onnx', '*silero*vad*.onnx'), fallback_subdir='vad',
+        )
+    return _discover_onnx_patterns(
+        root,
+        ('matting', ''),
+        ('rvm*.onnx', '*rvm*.onnx', 'birefnet*.onnx', '*birefnet*.onnx', 'rmbg*.onnx', '*rmbg*.onnx'),
+        fallback_subdir='matting',
+    )
+
+
+def model_license_note(kind, path):
+    """Describe known license boundaries for auto-discovered offline ONNX/CT2 weights."""
+    if kind == 'demucs':
+        return 'MIT (htdemucs ONNX)'
+    if kind == 'whisper':
+        return 'MIT (faster-whisper CTranslate2)'
+    if kind == 'vad':
+        return 'MIT (Silero VAD ONNX)'
+    if kind == 'matting':
+        stem = Path(path).stem.lower() if path else ''
+        if 'rmbg' in stem:
+            return 'BRIA RMBG-1.4 non-commercial only (swap in MIT BiRefNet or GPL-3.0 RVM for commercial delivery)'
+        if 'birefnet' in stem:
+            return 'MIT (BiRefNet ONNX)'
+        if 'rvm' in stem:
+            return 'GPL-3.0 (RobustVideoMatting ONNX)'
+        return 'caller-supplied ONNX matting weights'
+    return 'caller-supplied weights'
+
+
+def _whisper_model_bin_bytes(path):
+    if (path / 'model.bin').is_file():
+        return (path / 'model.bin').stat().st_size
+    snapshots = path / 'snapshots'
+    if snapshots.is_dir():
+        bins = sorted((s / 'model.bin' for s in snapshots.iterdir() if (s / 'model.bin').is_file()))
+        if bins:
+            return bins[-1].stat().st_size
+    return None
+
+
+def discover_local_models():
+    """Return read-only inventory of offline AI weights detected on disk."""
+    inventory = {}
+    for kind in ('demucs', 'whisper', 'vad', 'matting'):
+        cand = discover_model(kind)
+        if kind == 'whisper':
+            ok = bool(cand is not None and _is_whisper_dir(cand))
+            size_bytes = _whisper_model_bin_bytes(cand) if ok else None
+        else:
+            ok = bool(cand is not None and cand.is_file())
+            size_bytes = cand.stat().st_size if ok else None
+        inventory[kind] = {
+            'available': ok,
+            'path': str(cand) if ok else None,
+            'size_bytes': size_bytes,
+            'license_note': model_license_note(kind, cand) if ok else None,
+        }
+    return inventory
+
+
 def stock_config():
     explicit = os.environ.get('OPENEDIT_STOCK_CONFIG') or os.environ.get('JIANYING_STOCK_CONFIG')
     if explicit:

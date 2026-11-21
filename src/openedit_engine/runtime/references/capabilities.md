@@ -22,8 +22,8 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 - **开源后端**：ArtCraft **EffectCraft**（Rust 内核，MIT/Apache-2.0，明文 `.ecproj` JSON 工程）。
 - **已验证能力**：
   - 覆盖 308 种内置特效、9 种图层样式、形状层/纯色层/文字层（含 `highlights` 区间高亮与 `text_preset` 动画器预设）/外部素材层、67 种内置入退场与行为预设、表达式、蒙版、3D 相机/灯光及 AE 风格 JSX 脚本（`effectcraft-exec` 与 `overlays[]` 声明式规范）。
-  - **声明式可复用配方库（`overlays[].recipe`）**：内置 6 个分辨率自适应配方（`title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`），支持通过少量业务参数一键展开为标准 EffectCraft 多层工程，详见 [纯开源手法映射与配方库](recipes.md)。
-  - **透明通道中间件锁定**：在 1080p 实机验证中，CLI 默认 WebM VP9 导出会丢失 Alpha 通道；**`ProRes 4444 RGBA (.mov, yuva444p12le)`** 已实测保留完整可用 Alpha，并与 RGBA PNG 首尾协同。`render-overlay` 与 `build` 中的 `overlays` 均固定渲染 ProRes 4444 `.mov` 并自动挂载到 FilmCraft 上层视频轨合成。
+  - **声明式可复用配方库（`overlays[].recipe`）**：内置 **10 个** 分辨率自适应配方（`title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition`），支持通过少量业务参数一键展开为标准 EffectCraft 多层工程，详见 [纯开源手法映射与配方库](recipes.md)。
+  - **透明通道中间件锁定与内容寻址缓存**：在 1080p 实机验证中，CLI 默认 WebM VP9 导出会丢失 Alpha 通道；**`ProRes 4444 RGBA (.mov, yuva444p12le)`** 已实测保留完整可用 Alpha，并与 RGBA PNG 首尾协同。`render-overlay` 与 `build` 中的 `overlays` 均固定渲染 ProRes 4444 `.mov` 并自动挂载到 FilmCraft 上层视频轨合成；声明式/配方叠层默认按图层内容、画布、素材 SHA-256 与 CLI 指纹缓存在 `%LOCALAPPDATA%\OpenEditEngine\overlay-cache`（支持 `--no-cache` / `--no-overlay-cache` 绕过）。
 
 <a id="filmcraft-grading"></a>
 ## 调色与 Lumetri
@@ -49,8 +49,8 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 <a id="media-prep"></a>
 ## 媒体探测与 VFR 标准化
 
-- `inspect` 与 `reference` 基于 `ffprobe` / `ffmpeg`（已验证至 FFmpeg 9.0.2，使用现代 `-fps_mode vfr` 抽取参考帧与镜头切换候选）探测本地音视频与图片流参数、像素格式 Alpha 通道及 VFR 标志。
-- `normalize-media` 将手机录制的可变帧率（VFR）或非标准封装转为恒定帧率（CFR）H.264/AAC 或 ProRes，保障多轨剪辑声画对齐与帧同步。
+- `inspect` 与 `reference` 基于 `ffprobe` / `ffmpeg`（已验证至 FFmpeg 9.0.2，使用现代 `-fps_mode vfr` 抽取参考帧与镜头切换候选）探测本地音视频与图片流参数、像素格式 Alpha 通道及 VFR 标志；`reference` 同时支持显式 `--detector pyscenedetect`（基于已装 PySceneDetect 0.7.2 `ContentDetector` 提取 `scenes`/`cuts`/中位镜头时长等切点候选，与 FFmpeg `--threshold` 严格隔离）。
+- `normalize-media` 将手机录制的可变帧率（VFR）或 10-bit Hi10P 编码转为恒定帧率（CFR）8-bit H.264/AAC 或 ProRes；传入文件夹时自动进入**批量模式**，跳过已合规的 8-bit CFR 素材，仅转换 VFR/Hi10P 异常文件并输出可直接用于 `migrate --map` 的 `path_map` 与 `prepare-report.json`（加 `--force` 强制重编全部文件）。
 - **素材来源核查（`.provenance.json`）**：构建前优先于落盘目录强制检查同目录 sidecar `*.provenance.json`，核对 `license_verification == "agent_review_recorded"`、`review_note` 与实测 `sha256`，校验不通过立即中止生成，并在成果目录写出 `素材来源.md` 与 `素材来源.json`。
 
 <a id="transcription"></a>
@@ -63,7 +63,19 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 ## 离线人声与伴奏分离（Demucs）
 
 - 通过 `separate` 调用本地 `onnxruntime` 运行 Demucs ONNX 权重，分离人声（vocals）与伴奏（accompaniment）。
-- **边界**：需调用方自备并通过 `--model` 传入 Demucs ONNX 模型文件；缺权重时跳过对应自检。
+- **边界**：需调用方自备并通过 `--model`、`OPENEDIT_DEMUCS_MODEL` 或默认 `%LOCALAPPDATA%\OpenEditTools\models\demucs\` 自动发现传入 Demucs ONNX 权重（`doctor` 会在 `local_models` 中报告已发现的本地模型）。
+
+<a id="auto-cut"></a>
+## 离线气口 / 静音粗剪（auto-cut）
+
+- 通过 `auto-cut` 自动移除停顿与静音，按 `silero_vad.onnx`（512 采样点 + 64 上下文 Silero VAD v5 推理）或内置 **FFmpeg `silencedetect` 回退**识别语音段，生成带安全首尾 padding、可选无咔嗒声 `voice` 音频淡入淡出的已校验 `edit-plan.json` 与 `cuts.json`。
+- **边界**：纯静音输入不会写出空片段无效计划（返回 `kept_count=0, plan_path=null`）；若需自然呼吸停顿节奏，应结合 `cuts.json` 边界时间戳审阅微调 `--threshold` / `--min-silence`。
+
+<a id="ai-matting"></a>
+## 非绿幕离线 AI 抠像（matting -> ProRes 4444）
+
+- 通过 `matting` 支持 **RVM**（`rvm_*.onnx` 时域循环状态）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，注意 BRIA RMBG-1.4 仅非商业用途）三类 ONNX 图结构，对图片或有界视频区间生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`。
+- **边界**：CPU 默认单线程可控边界（`--max-frames` 默认 600）；报告中 `adjacent_alpha_mad` 仅作帧间突变线索，不替代实景合入后的发丝/边缘人工检视。
 
 <a id="ducking"></a>
 ## 自动音频闪避（Ducking）

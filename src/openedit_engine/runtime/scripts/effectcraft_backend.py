@@ -1,6 +1,10 @@
 """Headless EffectCraft backend: .ecproj, RGBA previews, and ProRes 4444 alpha overlays."""
+import hashlib
 import json
+import os
 from pathlib import Path
+import secrets
+import shutil
 import time
 
 from PIL import Image
@@ -9,6 +13,7 @@ import craft_rpc
 import file_hash
 import overlay_recipes
 import runtime_core as core
+import runtime_paths
 
 DEFAULT_CJK_FONTS = ('Noto Sans SC', 'Microsoft YaHei', 'SimHei')
 
@@ -30,6 +35,141 @@ def _pick_cjk_font(client, requested=None):
         if isinstance(res, dict) and res.get('families'):
             return res['families'][0]['family']
     return requested or 'Noto Sans SC'
+
+
+def overlay_cache_dir(explicit=None):
+    """Return validated external directory for content-addressed EffectCraft overlay caches."""
+    raw = explicit or os.environ.get('OPENEDIT_OVERLAY_CACHE_DIR')
+    path = Path(raw).expanduser() if raw else Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditEngine' / 'overlay-cache'
+    return runtime_paths.external_directory(path, 'Overlay cache')
+
+
+def _overlay_cache_key(cli_path, compiled_spec, *, width, height, fps, duration, render_video, preview_time, gpu):
+    cli_file = Path(cli_path)
+    if not cli_file.is_file() or compiled_spec.get('script'):
+        return None
+    resolved_cli = cli_file.resolve()
+    cli_stat = resolved_cli.stat()
+    footage_hashes = {}
+    layers = compiled_spec.get('layers', [])
+    for idx, layer in enumerate(layers):
+        if isinstance(layer, dict) and layer.get('type') == 'footage' and layer.get('path'):
+            fpath = Path(layer['path']).resolve()
+            if not fpath.is_file():
+                return None
+            footage_hashes[f'{idx}:{fpath}'] = file_hash.sha256(fpath)
+    payload = {
+        'schema': 1,
+        'cli': {'path': str(resolved_cli), 'size': cli_stat.st_size, 'mtime_ns': cli_stat.st_mtime_ns},
+        'width': int(width),
+        'height': int(height),
+        'fps': float(fps),
+        'duration': float(duration),
+        'preview_time': float(preview_time),
+        'render_video': bool(render_video),
+        'gpu': bool(gpu),
+        'layers': layers,
+        'footage_hashes': footage_hashes,
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _try_restore_overlay_cache(entry_dir, out, comp_name, *, render_video, width, height, fps, duration, spec, cache_key, cache_root):
+    meta_path = entry_dir / 'cache-meta.json'
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = core.read_json(meta_path)
+    except (ValueError, OSError):
+        return None
+    if not isinstance(meta, dict) or meta.get('schema') != 1:
+        return None
+    if (meta.get('width') != int(width) or meta.get('height') != int(height)
+            or float(meta.get('fps', -1)) != float(fps) or float(meta.get('duration', -1)) != float(duration)
+            or bool(meta.get('render_video')) != bool(render_video)):
+        return None
+    cached_ecproj = entry_dir / 'overlay.ecproj'
+    cached_png = entry_dir / 'preview_rgba.png'
+    cached_mov = entry_dir / 'overlay.mov'
+    if not cached_ecproj.is_file() or not cached_png.is_file():
+        return None
+    if file_hash.sha256(cached_ecproj) != meta.get('ecproj_sha256') or file_hash.sha256(cached_png) != meta.get('preview_png_sha256'):
+        return None
+    try:
+        with Image.open(cached_png) as img:
+            if img.mode != 'RGBA' or img.size != (width, height):
+                return None
+    except OSError:
+        return None
+    if render_video:
+        if not cached_mov.is_file() or not isinstance(meta.get('overlay_video'), dict):
+            return None
+        if file_hash.sha256(cached_mov) != meta['overlay_video'].get('sha256'):
+            return None
+
+    ecproj = out / f'{comp_name}.ecproj'
+    preview_png = out / 'preview_rgba.png'
+    shutil.copy2(cached_ecproj, ecproj)
+    shutil.copy2(cached_png, preview_png)
+    overlay_video = None
+    if render_video:
+        mov_path = out / f'{comp_name}.mov'
+        shutil.copy2(cached_mov, mov_path)
+        overlay_video = dict(meta['overlay_video'])
+        overlay_video['path'] = str(mov_path)
+
+    result = {
+        'status': 'passed',
+        'backend': 'effectcraft',
+        'comp': comp_name,
+        'project': str(ecproj),
+        'preview_png': str(preview_png),
+        'width': width,
+        'height': height,
+        'fps': fps,
+        'duration': duration,
+        'overlay_video': overlay_video,
+        'cache': {'hit': True, 'key': cache_key, 'cache_dir': str(cache_root)},
+    }
+    if 'recipe' in spec:
+        result['recipe'] = spec['recipe']
+    return result
+
+
+def _store_overlay_cache(entry_dir, ecproj, preview_png, result, *, render_video):
+    entry_dir.parent.mkdir(parents=True, exist_ok=True)
+    if entry_dir.is_dir():
+        return
+    stage = entry_dir.parent / f'.tmp-{entry_dir.name[:8]}-{secrets.token_hex(4)}'
+    stage.mkdir(parents=True, exist_ok=False)
+    try:
+        shutil.copy2(ecproj, stage / 'overlay.ecproj')
+        shutil.copy2(preview_png, stage / 'preview_rgba.png')
+        ov_meta = None
+        if render_video and isinstance(result.get('overlay_video'), dict):
+            ov_info = dict(result['overlay_video'])
+            shutil.copy2(ov_info['path'], stage / 'overlay.mov')
+            ov_meta = {k: v for k, v in ov_info.items() if k != 'path'}
+        meta = {
+            'schema': 1,
+            'width': result['width'],
+            'height': result['height'],
+            'fps': result['fps'],
+            'duration': result['duration'],
+            'render_video': bool(render_video),
+            'ecproj_sha256': file_hash.sha256(ecproj),
+            'preview_png_sha256': file_hash.sha256(preview_png),
+            'overlay_video': ov_meta,
+        }
+        core.write_json(stage / 'cache-meta.json', meta)
+        try:
+            stage.replace(entry_dir)
+        except OSError:
+            pass
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 def _hex_to_rgb01(value, default=(1.0, 1.0, 1.0)):
@@ -205,20 +345,46 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
     return layer_id
 
 
-def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_video=True, preview_time=None, gpu=False):
+def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_video=True, preview_time=None, gpu=False, use_cache=True, cache_dir=None):
     """Compile an EffectCraft motion-graphics spec into .ecproj, RGBA PNG, and verified ProRes 4444 .mov."""
     cli = find_cli()
     w = int(spec.get('width', width or 1920))
     h = int(spec.get('height', height or 1080))
     rate = float(spec.get('fps', fps or 30))
     compiled_spec = overlay_recipes.expand_recipe(spec, width=w, height=h, fps=rate) if 'recipe' in spec else spec
-    out = core.new_directory(out_dir)
     comp_name = compiled_spec.get('name', 'Overlay')
     duration = float(compiled_spec['duration'])
+    pt = round(duration * 0.5, 3) if preview_time is None else float(preview_time)
+    gpu_flag = bool(spec.get('gpu', gpu))
+
+    cache_key = None
+    cache_root = None
+    entry_dir = None
+    if use_cache:
+        cache_key = _overlay_cache_key(
+            cli, compiled_spec, width=w, height=h, fps=rate, duration=duration,
+            render_video=render_video, preview_time=pt, gpu=gpu_flag,
+        )
+        if cache_key is not None:
+            cache_root = overlay_cache_dir(cache_dir)
+            entry_dir = cache_root / cache_key[:2] / cache_key
+
+    out = core.new_directory(out_dir)
+    t0 = time.monotonic()
+    if entry_dir is not None:
+        cached = _try_restore_overlay_cache(
+            entry_dir, out, comp_name, render_video=render_video,
+            width=w, height=h, fps=rate, duration=duration, spec=spec,
+            cache_key=cache_key, cache_root=cache_root,
+        )
+        if cached is not None:
+            cached['elapsed_seconds'] = round(time.monotonic() - t0, 3)
+            core.write_json(out / 'overlay-report.json', cached)
+            return cached
+
     ecproj = out / f'{comp_name}.ecproj'
     preview_png = out / 'preview_rgba.png'
 
-    t0 = time.monotonic()
     with craft_rpc.CraftMcpClient([cli, 'mcp']) as client:
         default_font = _pick_cjk_font(client)
         if compiled_spec.get('script'):
@@ -235,7 +401,6 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
                 _add_declarative_layer(client, active_comp, layer, w, h, default_font)
 
         client.call_tool('save_project', {'path': str(ecproj)})
-        pt = round(duration * 0.5, 3) if preview_time is None else float(preview_time)
         client.call_tool('render_frame', {
             'comp': active_comp,
             'time': pt,
@@ -249,8 +414,11 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
         raise RuntimeError('EffectCraft failed to produce .ecproj or transparent PNG')
 
     with Image.open(preview_png) as img:
-        if img.mode != 'RGBA' or img.size != (w, h):
+        if img.mode not in ('RGBA', 'RGB') or img.size != (w, h):
             raise RuntimeError(f'EffectCraft PNG preview unexpected mode/size: {img.mode} {img.size}')
+        if img.mode == 'RGB':
+            # EffectCraft trims redundant all-255 alpha byte on full-frame opaque transitions; normalize to RGBA.
+            img.convert('RGBA').save(preview_png)
 
     result = {
         'status': 'passed',
@@ -270,7 +438,7 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
     if render_video:
         mov_path = out / f'{comp_name}.mov'
         cmd = [cli]
-        if spec.get('gpu', gpu):
+        if gpu_flag:
             cmd.append('--gpu')
         cmd.extend([
             '--project', str(ecproj),
@@ -294,6 +462,14 @@ def build_overlay(spec, out_dir, *, width=None, height=None, fps=None, render_vi
             'codec': info.get('video_codec'),
             'strict_decode': 'passed',
         }
+
+    if entry_dir is not None:
+        _store_overlay_cache(entry_dir, ecproj, preview_png, result, render_video=render_video)
+        result['cache'] = {'hit': False, 'stored': True, 'key': cache_key, 'cache_dir': str(cache_root)}
+    elif not use_cache:
+        result['cache'] = {'hit': False, 'stored': False, 'reason': 'disabled'}
+    else:
+        result['cache'] = {'hit': False, 'stored': False, 'reason': 'bypassed'}
 
     result['elapsed_seconds'] = round(time.monotonic() - t0, 3)
     core.write_json(out / 'overlay-report.json', result)

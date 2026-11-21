@@ -8,6 +8,7 @@ import tempfile
 import time
 
 import editor
+import runtime_paths
 
 SCRIPTS = Path(__file__).resolve().parent
 SRC_ROOT = Path(__file__).resolve().parents[3]
@@ -34,6 +35,8 @@ CHECKS = {
     'tracking': ('tracking_self_check.py', 'out'),
     'tracking_apply': ('tracking_apply_self_check.py', 'out'),
     'offline_denoise': ('offline_denoise_self_check.py', 'out'),
+    'auto_cut': ('auto_cut_self_check.py', 'vad'),
+    'matting': ('matting_self_check.py', 'matting'),
 }
 
 
@@ -44,6 +47,18 @@ def arguments(kind, out, options):
         return ['--out', str(out), '--model', str(options.demucs_model)]
     if kind == 'whisper':
         return ['--out', str(out), '--model', str(options.whisper_model)]
+    if kind == 'vad':
+        args = ['--out', str(out)]
+        vad_model = getattr(options, 'vad_model', None)
+        if vad_model:
+            try:
+                import onnxruntime  # noqa: F401
+                args.extend(['--vad-model', str(vad_model)])
+            except ImportError:
+                pass
+        return args
+    if kind == 'matting':
+        return ['--out', str(out), '--model', str(options.matting_model)]
     raise ValueError(kind)
 
 
@@ -78,6 +93,14 @@ def skip_reason(name, spec, options):
             import faster_whisper  # noqa: F401
         except ImportError:
             return 'faster-whisper is not importable in this interpreter; offline transcription stays unverified here'
+    if kind == 'matting':
+        if not getattr(options, 'matting_model', None):
+            return 'needs --matting-model (RVM / BiRefNet / RMBG ONNX weights; engine ships none)'
+        try:
+            import cv2  # noqa: F401
+            import onnxruntime  # noqa: F401
+        except ImportError:
+            return 'onnxruntime and cv2 are required for AI matting check'
     try:
         editor.tool('ffmpeg')
         editor.tool('ffprobe')
@@ -93,12 +116,24 @@ def main(argv=None):
     parser.add_argument('--timeout', type=int, default=1200)
     parser.add_argument('--demucs-model', type=Path, default=None, help='htdemucs ONNX weights directory for separation check')
     parser.add_argument('--whisper-model', type=Path, default=None, help='faster-whisper model directory for transcription check')
+    parser.add_argument('--vad-model', type=Path, default=None, help='Optional Silero VAD ONNX weights for auto-cut check')
+    parser.add_argument('--matting-model', type=Path, default=None, help='Matting ONNX weights for matting check')
+    parser.add_argument('--no-auto-models', action='store_true', help='Disable local model auto-discovery in %LOCALAPPDATA%\\OpenEditTools\\models')
     options = parser.parse_args(argv)
 
-    for dest in ('demucs_model', 'whisper_model'):
+    for dest in ('demucs_model', 'whisper_model', 'vad_model', 'matting_model'):
         val = getattr(options, dest)
         if val is not None:
             setattr(options, dest, val.resolve())
+    if not options.no_auto_models:
+        if options.demucs_model is None:
+            options.demucs_model = runtime_paths.discover_model('demucs')
+        if options.whisper_model is None:
+            options.whisper_model = runtime_paths.discover_model('whisper')
+        if options.vad_model is None:
+            options.vad_model = runtime_paths.discover_model('vad')
+        if options.matting_model is None:
+            options.matting_model = runtime_paths.discover_model('matting')
 
     holder = None
     if options.keep:

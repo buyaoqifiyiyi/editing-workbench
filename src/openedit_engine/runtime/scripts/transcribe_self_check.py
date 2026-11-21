@@ -135,7 +135,20 @@ def check(root, model):
                                      '--max-seconds', '99'],
     }
     for label, arguments in refusals.items():
-        code, refused = run_main(arguments)
+        saved_env = {}
+        if label == 'no model at all':
+            for key in ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
+                saved_env[key] = os.environ.pop(key, None)
+            os.environ['OPENEDIT_NO_AUTO_MODELS'] = '1'
+        try:
+            code, refused = run_main(arguments)
+        finally:
+            if label == 'no model at all':
+                for key, val in saved_env.items():
+                    if val is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = val
         assert code == 1 and refused['status'] == 'failed' and refused.get('error'), (label, refused)
         checks.append(f'refused: {label} -> {refused["error"][:80]}')
     for name in ('r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9'):
@@ -147,6 +160,24 @@ def check(root, model):
     code, short = run_main(['--input', tone, '--out', trimmed, '--model', model, '--max-seconds', '1.0'])
     assert code == 0 and short['audio']['seconds'] == 1.0, short['audio']
     checks.append('max-seconds: audio actually trimmed to 1.0 s before decoding further')
+
+    cand_dir = model.parent.parent if model.parent.name == 'snapshots' else model
+    auto_root = cand_dir.parent
+    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL')}
+    try:
+        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'):
+            os.environ.pop(k, None)
+        os.environ['OPENEDIT_MODELS_DIR'] = str(auto_root)
+        if transcribe.runtime_paths.discover_model('whisper') == cand_dir.resolve():
+            code, auto_t = run_main(['--input', silent, '--out', root / 'auto-whisper'])
+            assert code == 0 and auto_t['status'] == 'passed' and auto_t['model']['resolved'] == str(resolved), auto_t
+            checks.append('model auto-discovery: OPENEDIT_MODELS_DIR locates whisper weights when --model is absent')
+    finally:
+        for k, v in saved_auto.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
     model_words = [{'start': 1, 'end': 3, 'text': ' Hello, 世界', 'words': [
         {'start': 1, 'end': 1.8, 'word': ' Hello,', 'probability': .8},

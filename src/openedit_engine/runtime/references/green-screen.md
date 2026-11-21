@@ -62,7 +62,17 @@
 | `spill` / `spill_luma` / `desaturate` | `ultra_key` 专用抑色与去溢色控制（`0..100`） |
 | `setting` / `output` | `Default|Relaxed|Aggressive|Custom`；输出模式 `Composite|Alpha Channel|Color Channel` |
 
-纯开源后端无商业宿主曾存在的会员锁、离散参数白名单或分辨率限制；上述字段能真实写入 `.fcproj` 并参与预览与成片渲染。但边缘干净度、半透明发丝及反光仍高度依赖原拍摄光线与幕面均匀度，必须结合多时刻 `preview` 抽帧与最终播放实测核查；对于非单色复杂背景的人像分离，如无可用独立 Alpha 通道或前景资产，需如实记录边界而非误用单色键强抠。
+纯开源后端无商业宿主曾存在的会员锁、离散参数白名单或分辨率限制；上述字段能真实写入 `.fcproj` 并参与预览与成片渲染。但边缘干净度、半透明发丝及反光仍高度依赖原拍摄光线与幕面均匀度，必须结合多时刻 `preview` 抽帧与最终播放实测核查；对于**非单色复杂背景**的人像/前景分离，现在可直接通过 `openedit matting` 离线 AI 抠像生成带直通道 Alpha 的 `ProRes 4444 RGBA` `.mov`（`yuva444p12le`）后再合入 FilmCraft V2+ 轨道。
+
+### 非绿幕复杂背景离线 AI 抠像（`openedit matting`）
+
+- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|rvm|birefnet|rmbg] [--model <path.onnx>] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
+- **输出**：视频默认输出锁定格式的 `matte.mov`（`prores_ks 4444`, `yuva444p12le`, `has_alpha: true` + `ffmpeg -v error -xerror` 全解码验证）及 `preview_rgba.png` / `preview_alpha.png` / `matting-report.json`；图片模式输出 `matte_rgba.png` 与 `matte_alpha.png`。
+- **模型兼容与许可证边界**：
+  - **RVM ONNX**（`rvm_*.onnx`，6 输入含周期状态 `r1i..r4i`）：**GPL-3.0**，逐帧保持时间隐藏状态，适合人像视频时域连贯抠像（本机如开启 `--gpu` 仅在 CUDA/DirectML provider 可用时启用，默认 CPU 稳定执行）。
+  - **BiRefNet ONNX**（`birefnet*.onnx`，ImageNet 归一化）：**MIT**，适合静态高精度与商用工程前景分离。
+  - **BRIA RMBG-1.4 ONNX**（`rmbg14_quantized.onnx`）：**仅限非商业测试/研究用途**；本机默认探针复用模型归入此项并在报告 `model.license_note` 明示，商用交付前请替换为 **MIT BiRefNet** 或 **GPL-3.0 RVM** ONNX 权重。
+- **验收边界**：`matting-report.json` 记录 `adjacent_alpha_mad` 作为相邻帧突变线索指标（无法替代人眼检查发丝边缘、快速运动残影与实际背景叠加效果），交付前须将 `matte.mov` 叠放至目标底图并用 `preview` 抽帧与完整播放核查。
 
 所有效果优先以明文 `.fcproj` / `.ecproj` 可编辑结构生成，保留用户在 FilmCraft GUI 二次微调的余地。采用额外素材仍按 [素材来源流程](stock-sources.md) 核对来源；公开教程不自动授权其人物、图形或示例成片用于交付。
 

@@ -62,6 +62,46 @@ class ReferenceAndPracticeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(out.exists())
 
+    def test_reference_pyscenedetect_detects_cuts_and_enforces_detector_thresholds(self):
+        out = self.root / 'psd-ref'
+        result = invoke(
+            'reference', '--input', self.video, '--out', out,
+            '--start', '1', '--duration', '4', '--detector', 'pyscenedetect',
+            '--content-threshold', '27', '--min-scene-seconds', '0.3', '--max-frames', '6',
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads((out / 'reference.json').read_text(encoding='utf-8'))
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual(report['detector'], 'pyscenedetect')
+        self.assertEqual(report['scene_count'], 3)
+        self.assertEqual(report['cut_count'], 2)
+        self.assertEqual(len(report['cuts']), 2)
+        self.assertAlmostEqual(report['cuts'][0], 2.0, delta=0.15)
+        self.assertAlmostEqual(report['cuts'][1], 4.0, delta=0.15)
+        self.assertGreater(report['median_scene_seconds'], 0.5)
+        self.assertGreater(report['cuts_per_minute'], 0.0)
+        self.assertEqual(len(report['frames']), 3)
+        for frame in report['frames']:
+            self.assertTrue(Path(frame).is_file())
+            self.assertTrue(Path(frame).resolve().is_relative_to(out.resolve()))
+        self.assertEqual(hashlib.sha256(self.video.read_bytes()).hexdigest(), self.original)
+
+        for bad_idx, extra_args in enumerate((
+            ('--detector', 'pyscenedetect', '--threshold', '0.2'),
+            ('--detector', 'ffmpeg', '--content-threshold', '27'),
+        )):
+            bad_out = self.root / f'bad-detector-{bad_idx}'
+            bad_res = invoke('reference', '--input', self.video, '--out', bad_out, *extra_args)
+            self.assertNotEqual(bad_res.returncode, 0)
+            self.assertFalse(bad_out.exists())
+
+        missing_env = dict(os.environ, OPENEDIT_PYSCENEDETECT_DIR=str(self.root / 'missing-psd'))
+        missing_out = self.root / 'missing-psd-out'
+        missing_res = invoke('reference', '--input', self.video, '--out', missing_out,
+                             '--detector', 'pyscenedetect', env=missing_env)
+        self.assertNotEqual(missing_res.returncode, 0)
+        self.assertFalse(missing_out.exists())
+
     def test_real_comparison_preserves_side_assignment_audio_and_inputs(self):
         out = self.root / 'comparison'
         args = ('practice-compare', '--left', self.video, '--right', self.video,

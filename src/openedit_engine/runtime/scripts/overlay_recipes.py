@@ -178,6 +178,68 @@ def _validate_params(recipe_name, raw_params, duration):
         if pos not in ('top', 'bottom'):
             raise ValueError('params.position must be top or bottom')
         p['position'] = pos
+    elif recipe_name == 'chapter_opener':
+        if 'title' not in p:
+            raise ValueError('overlay recipe chapter_opener requires params.title')
+        p['title'] = _check_text(p['title'], 'params.title', 120)
+        p['badge'] = _check_text(p['badge'], 'params.badge', 24) if p.get('badge') is not None else '01'
+        p['subtitle'] = _check_text(p['subtitle'], 'params.subtitle', 200, allow_empty=True) if p.get('subtitle') is not None else ''
+        p['highlights'] = _check_highlights(p.get('highlights', []), p['title'], 'params.highlights') if 'highlights' in p else []
+        p['accent_color'] = _check_hex(p.get('accent_color', '#38BDF8'), 'params.accent_color')
+        p['text_color'] = _check_hex(p.get('text_color', '#FFFFFF'), 'params.text_color')
+        p['bg_color'] = _check_hex(p.get('bg_color', '#0B1220'), 'params.bg_color')
+        p['bg_opacity'] = _check_num(p.get('bg_opacity', 78.0), 'params.bg_opacity', 0.0, 100.0)
+        cs = p.get('card_style', 'card')
+        if cs not in ('card', 'minimal'):
+            raise ValueError('params.card_style must be card or minimal')
+        p['card_style'] = cs
+        p['glow'] = _check_bool(p.get('glow', True), 'params.glow')
+        tp = p.get('text_preset', 'fadeUpCharacters')
+        if tp not in VALID_TEXT_PRESETS:
+            raise ValueError(f'params.text_preset must be one of {sorted(VALID_TEXT_PRESETS)}')
+        p['text_preset'] = tp
+        p['position_y'] = _check_num(p.get('position_y', 0.5), 'params.position_y', 0.15, 0.85)
+    elif recipe_name == 'pip_card':
+        p['title'] = _check_text(p['title'], 'params.title', 80, allow_empty=True) if p.get('title') is not None else ''
+        corner = p.get('corner', 'bottom_right')
+        if corner not in ('top_left', 'top_right', 'bottom_left', 'bottom_right'):
+            raise ValueError('params.corner must be top_left, top_right, bottom_left, or bottom_right')
+        p['corner'] = corner
+        p['width_ratio'] = _check_num(p.get('width_ratio', 0.32), 'params.width_ratio', 0.18, 0.65)
+        p['aspect'] = _check_num(p.get('aspect', 1.7778), 'params.aspect', 0.4, 2.5)
+        p['border_color'] = _check_hex(p.get('border_color', '#38BDF8'), 'params.border_color')
+        p['border_width'] = _check_num(p.get('border_width', 6.0), 'params.border_width', 1.0, 24.0)
+        p['bg_color'] = _check_hex(p.get('bg_color', '#0F172A'), 'params.bg_color')
+        p['text_color'] = _check_hex(p.get('text_color', '#FFFFFF'), 'params.text_color')
+        p['glow'] = _check_bool(p.get('glow', False), 'params.glow')
+    elif recipe_name == 'split_screen_frame':
+        layout = p.get('layout', 'vertical_2')
+        if layout not in ('vertical_2', 'horizontal_2', 'vertical_3'):
+            raise ValueError('params.layout must be vertical_2, horizontal_2, or vertical_3')
+        p['layout'] = layout
+        p['divider_color'] = _check_hex(p.get('divider_color', '#FFFFFF'), 'params.divider_color')
+        p['divider_width'] = _check_num(p.get('divider_width', 6.0), 'params.divider_width', 2.0, 32.0)
+        expected_panels = 3 if layout == 'vertical_3' else 2
+        if 'labels' in p and p['labels'] is not None:
+            raw_labels = p['labels']
+            if not isinstance(raw_labels, list) or len(raw_labels) != expected_panels:
+                raise ValueError(f'params.labels for {layout} must be an array of {expected_panels} strings')
+            p['labels'] = [_check_text(item, f'params.labels[{i}]', 40) for i, item in enumerate(raw_labels)]
+        else:
+            p['labels'] = []
+        p['badge_color'] = _check_hex(p.get('badge_color', '#0F172A'), 'params.badge_color')
+        p['text_color'] = _check_hex(p.get('text_color', '#FFFFFF'), 'params.text_color')
+        p['animate_in'] = _check_num(p.get('animate_in', min(0.35, round(duration * 0.25, 3))), 'params.animate_in', 0.0, duration)
+    elif recipe_name == 'wipe_transition':
+        direction = p.get('direction', 'left')
+        if direction not in ('left', 'right', 'up', 'down'):
+            raise ValueError('params.direction must be left, right, up, or down')
+        p['direction'] = direction
+        p['color'] = _check_hex(p.get('color', '#0F172A'), 'params.color')
+        p['accent_color'] = _check_hex(p.get('accent_color', '#38BDF8'), 'params.accent_color')
+        p['angle_offset'] = _check_num(p.get('angle_offset', 12.0), 'params.angle_offset', -35.0, 35.0)
+        p['feather'] = _check_num(p.get('feather', 16.0), 'params.feather', 0.0, 100.0)
+        p['peak_hold'] = _check_num(p.get('peak_hold', 0.12), 'params.peak_hold', 0.0, 0.5)
     return p
 
 
@@ -537,6 +599,315 @@ def _expand_progress_banner(p, w, h, dur):
     return layers
 
 
+def _expand_chapter_opener(p, w, h, dur):
+    unit = min(w, h)
+    title_sz = round(max(28.0, min(92.0, unit * 0.066)))
+    sub_sz = round(max(18.0, title_sz * 0.45))
+    badge_sz = round(max(16.0, title_sz * 0.34))
+    has_sub = bool(p['subtitle'])
+    cx = round(w * 0.5, 2)
+    cy = round(h * p['position_y'], 2)
+    wipe_in = round(min(0.45, dur * 0.25), 3)
+    fade_out = round(min(0.35, dur * 0.2), 3)
+    out_keys = _fade_out_keys(dur, fade_out) if dur >= 0.4 else []
+
+    title_units = _text_visual_units(p['title'])
+    sub_units = _text_visual_units(p['subtitle']) if has_sub else 0.0
+    content_w = max(title_units * title_sz, sub_units * sub_sz, badge_sz * 4.0) + title_sz * 2.2
+    card_w = round(min(w * 0.90, max(w * 0.46, content_w)))
+    card_h = round(badge_sz * 2.3 + title_sz * 1.85 + (sub_sz * 1.65 if has_sub else 0.0))
+
+    layers = []
+    if p['card_style'] == 'card':
+        layers.append({
+            'type': 'shape',
+            'kind': 'rounded',
+            'name': 'chapter_card_bg',
+            'size': [card_w, card_h],
+            'position': [cx, cy],
+            'fill': p['bg_color'],
+            'fillOpacity': p['bg_opacity'],
+            'stroke': p['accent_color'],
+            'strokeWidth': 2.5,
+            'effects': [{'name': 'Linear Wipe', 'values': {'completion': 100.0, 'angle': -90.0, 'feather': 24.0}}],
+            'keyframes': [
+                {'path': 'effects/#1/completion', 'keys': [{'time': 0.0, 'value': 100.0}, {'time': wipe_in, 'value': 0.0}], 'interpolation': 'easyEaseOut'},
+                *([{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}] if out_keys else []),
+            ],
+        })
+
+    badge_w = round(max(badge_sz * (_text_visual_units(p['badge']) + 1.8), badge_sz * 3.2))
+    badge_h = round(badge_sz * 1.75)
+    badge_cy = round(cy - card_h * 0.31, 2)
+    layers.append({
+        'type': 'shape',
+        'kind': 'rounded',
+        'name': 'chapter_badge_bg',
+        'size': [badge_w, badge_h],
+        'position': [cx, badge_cy],
+        'fill': p['accent_color'],
+        'fillOpacity': 96.0,
+        'strokeWidth': 0.0,
+        'keyframes': [
+            {'path': 'transform/scale', 'keys': [{'time': 0.0, 'value': [0.0, 0.0]}, {'time': round(min(0.28, dur * 0.2), 3), 'value': [100.0, 100.0]}], 'interpolation': 'easyEaseOut'},
+            *([{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}] if out_keys else []),
+        ],
+    })
+    layers.append({
+        'type': 'text',
+        'name': 'chapter_badge_text',
+        'text': p['badge'],
+        'size': badge_sz,
+        'color': '#0B1220',
+        'stroke': False,
+        'stroke_width': 0.0,
+        'justify': 'center',
+        'position': [cx, round(badge_cy + badge_sz * 0.34, 2)],
+        **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+    })
+
+    line_w = round(min(card_w * 0.56, max(120.0, card_w * 0.42)))
+    line_y = round(badge_cy + badge_h * 0.72, 2)
+    layers.append({
+        'type': 'shape',
+        'kind': 'rect',
+        'name': 'chapter_divider',
+        'size': [line_w, max(3, round(unit * 0.0045))],
+        'position': [cx, line_y],
+        'fill': p['accent_color'],
+        'fillOpacity': 95.0,
+        'strokeWidth': 0.0,
+        'keyframes': [
+            {'path': 'transform/scale', 'keys': [{'time': 0.0, 'value': [0.0, 100.0]}, {'time': wipe_in, 'value': [100.0, 100.0]}], 'interpolation': 'easyEaseOut'},
+            *([{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}] if out_keys else []),
+        ],
+    })
+
+    title_cy = cy + title_sz * (0.05 if has_sub else 0.16)
+    title_kfs = []
+    if p['text_preset'] != 'none':
+        title_kfs.append({
+            'path': 'text/animators/#1/selectors/#1/offset',
+            'keys': [{'time': 0.0, 'value': -100.0}, {'time': round(min(0.65, dur * 0.38), 3), 'value': 100.0}],
+            'interpolation': 'easyEaseOut',
+        })
+    if out_keys:
+        title_kfs.append({'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'})
+    layers.append({
+        'type': 'text',
+        'name': 'chapter_title',
+        'text': p['title'],
+        'size': title_sz,
+        'color': p['text_color'],
+        'stroke_color': '#0B1220',
+        'stroke_width': max(2.0, round(title_sz * 0.055, 1)),
+        'justify': 'center',
+        'position': [cx, round(title_cy + title_sz * 0.34, 2)],
+        'styles': ['dropShadow'],
+        'effects': [{'name': 'Glow', 'values': {'threshold': 55.0, 'radius': 20.0, 'intensity': 1.1}}] if p['glow'] else [],
+        **({'highlights': p['highlights']} if p['highlights'] else {}),
+        **({'text_preset': p['text_preset']} if p['text_preset'] != 'none' else {}),
+        **({'keyframes': title_kfs} if title_kfs else {}),
+    })
+
+    if has_sub:
+        sub_cy = title_cy + title_sz * 0.92
+        layers.append({
+            'type': 'text',
+            'name': 'chapter_subtitle',
+            'text': p['subtitle'],
+            'size': sub_sz,
+            'color': p['accent_color'],
+            'stroke_color': '#0B1220',
+            'stroke_width': max(1.5, round(sub_sz * 0.05, 1)),
+            'justify': 'center',
+            'position': [cx, round(sub_cy + sub_sz * 0.34, 2)],
+            'styles': ['dropShadow'],
+            'keyframes': [
+                {'path': 'transform/opacity', 'keys': [
+                    {'time': 0.0, 'value': 0.0},
+                    {'time': round(min(0.32, dur * 0.25), 3), 'value': 100.0},
+                    *([k for k in out_keys[1:]] if out_keys else []),
+                ], 'interpolation': 'easeOut'},
+            ],
+        })
+    return layers
+
+
+def _expand_pip_card(p, w, h, dur):
+    unit = min(w, h)
+    margin_x = round(w * 0.055, 2)
+    margin_y = round(h * 0.065, 2)
+    has_title = bool(p['title'])
+    pill_h = round(max(28.0, min(52.0, unit * 0.048))) if has_title else 0
+    box_w = round(w * p['width_ratio'])
+    box_h = round(min(h * 0.70, max(80.0, box_w / p['aspect'])))
+
+    is_left = p['corner'].endswith('left')
+    is_top = p['corner'].startswith('top')
+    cx = round(margin_x + box_w * 0.5, 2) if is_left else round(w - margin_x - box_w * 0.5, 2)
+    top_guard = margin_y + (pill_h + 6 if is_top and has_title else 0)
+    cy = round(top_guard + box_h * 0.5, 2) if is_top else round(h - margin_y - box_h * 0.5, 2)
+
+    fade_out = round(min(0.3, dur * 0.18), 3)
+    out_keys = _fade_out_keys(dur, fade_out) if dur >= 0.4 else []
+    pop_in = round(min(0.28, dur * 0.22), 3)
+
+    layers = [{
+        'type': 'shape',
+        'kind': 'rounded',
+        'name': 'pip_frame',
+        'size': [box_w, box_h],
+        'position': [cx, cy],
+        'fillType': 'none',
+        'fillOpacity': 0.0,
+        'stroke': p['border_color'],
+        'strokeWidth': p['border_width'],
+        'styles': ['dropShadow'],
+        'effects': [{'name': 'Glow', 'values': {'threshold': 55.0, 'radius': 18.0, 'intensity': 1.0}}] if p['glow'] else [],
+        'keyframes': [
+            {'path': 'transform/scale', 'keys': [{'time': 0.0, 'value': [92.0, 92.0]}, {'time': pop_in, 'value': [100.0, 100.0]}], 'interpolation': 'easyEaseOut'},
+            *([{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}] if out_keys else []),
+        ],
+    }]
+
+    if has_title:
+        lbl_sz = round(max(16.0, pill_h * 0.52))
+        pill_w = round(min(box_w, max(pill_h * 2.5, (_text_visual_units(p['title']) + 1.8) * lbl_sz)))
+        pill_cx = round(cx - box_w * 0.5 + pill_w * 0.5, 2) if is_left else round(cx + box_w * 0.5 - pill_w * 0.5, 2)
+        pill_cy = round(cy - box_h * 0.5 - pill_h * 0.35, 2)
+        layers.append({
+            'type': 'shape',
+            'kind': 'rounded',
+            'name': 'pip_header_bg',
+            'size': [pill_w, pill_h],
+            'position': [pill_cx, pill_cy],
+            'fill': p['bg_color'],
+            'fillOpacity': 92.0,
+            'stroke': p['border_color'],
+            'strokeWidth': max(1.5, round(p['border_width'] * 0.4, 1)),
+            **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+        })
+        layers.append({
+            'type': 'text',
+            'name': 'pip_header_text',
+            'text': p['title'],
+            'size': lbl_sz,
+            'color': p['text_color'],
+            'stroke': False,
+            'stroke_width': 0.0,
+            'justify': 'center',
+            'position': [pill_cx, round(pill_cy + lbl_sz * 0.34, 2)],
+            **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+        })
+    return layers
+
+
+def _expand_split_screen_frame(p, w, h, dur):
+    dw = p['divider_width']
+    anim = p['animate_in']
+    fade_out = round(min(0.28, dur * 0.18), 3)
+    out_keys = _fade_out_keys(dur, fade_out) if dur >= 0.4 else []
+    layers = []
+
+    if p['layout'] == 'vertical_2':
+        bar_specs = [('split_divider_1', [dw, h + 4], [round(w * 0.5, 2), round(h * 0.5, 2)], [100.0, 0.0])]
+        anchors = [(round(w * 0.08, 2), round(h * 0.08, 2)), (round(w * 0.58, 2), round(h * 0.08, 2))]
+    elif p['layout'] == 'horizontal_2':
+        bar_specs = [('split_divider_1', [w + 4, dw], [round(w * 0.5, 2), round(h * 0.5, 2)], [0.0, 100.0])]
+        anchors = [(round(w * 0.08, 2), round(h * 0.08, 2)), (round(w * 0.08, 2), round(h * 0.56, 2))]
+    else:
+        bar_specs = [
+            ('split_divider_1', [dw, h + 4], [round(w / 3.0, 2), round(h * 0.5, 2)], [100.0, 0.0]),
+            ('split_divider_2', [dw, h + 4], [round(w * 2.0 / 3.0, 2), round(h * 0.5, 2)], [100.0, 0.0]),
+        ]
+        anchors = [(round(w * 0.06, 2), round(h * 0.08, 2)), (round(w * 0.39, 2), round(h * 0.08, 2)), (round(w * 0.72, 2), round(h * 0.08, 2))]
+
+    for name, size, pos, start_scale in bar_specs:
+        kfs = []
+        if anim > 0:
+            kfs.append({'path': 'transform/scale', 'keys': [{'time': 0.0, 'value': start_scale}, {'time': anim, 'value': [100.0, 100.0]}], 'interpolation': 'easyEaseOut'})
+        if out_keys:
+            kfs.append({'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'})
+        layers.append({
+            'type': 'shape',
+            'kind': 'rect',
+            'name': name,
+            'size': size,
+            'position': pos,
+            'fill': p['divider_color'],
+            'fillOpacity': 100.0,
+            'strokeWidth': 0.0,
+            'styles': ['dropShadow'],
+            **({'keyframes': kfs} if kfs else {}),
+        })
+
+    if p['labels']:
+        lbl_sz = round(max(16.0, min(38.0, min(w, h) * 0.032)))
+        pill_h = round(lbl_sz * 1.65)
+        for idx, (lbl, (ax, ay)) in enumerate(zip(p['labels'], anchors)):
+            pill_w = round(max(pill_h * 2.2, (_text_visual_units(lbl) + 1.8) * lbl_sz))
+            cx = round(ax + pill_w * 0.5, 2)
+            cy = round(ay + pill_h * 0.5, 2)
+            layers.append({
+                'type': 'shape',
+                'kind': 'rounded',
+                'name': f'split_label_bg_{idx}',
+                'size': [pill_w, pill_h],
+                'position': [cx, cy],
+                'fill': p['badge_color'],
+                'fillOpacity': 84.0,
+                'stroke': p['divider_color'],
+                'strokeWidth': 1.5,
+                **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+            })
+            layers.append({
+                'type': 'text',
+                'name': f'split_label_text_{idx}',
+                'text': lbl,
+                'size': lbl_sz,
+                'color': p['text_color'],
+                'stroke': False,
+                'stroke_width': 0.0,
+                'justify': 'center',
+                'position': [cx, round(cy + lbl_sz * 0.34, 2)],
+                **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+            })
+    return layers
+
+
+def _expand_wipe_transition(p, w, h, dur):
+    del w, h
+    base_in = {'left': -90.0, 'right': 90.0, 'up': 180.0, 'down': 0.0}[p['direction']]
+    angle_in = round(base_in + p['angle_offset'], 2)
+    angle_out = round(angle_in + 180.0, 2)
+    hold_half = p['peak_hold'] * 0.5
+    t_mid = dur * 0.5
+    t_in_end = round(max(0.02, t_mid - dur * hold_half), 4)
+    t_out_start = round(min(dur - 0.02, t_mid + dur * hold_half), 4)
+    lead_shift = round(min(dur * 0.08, t_in_end * 0.25), 4)
+
+    def _wipe_layer(name, color, in_end, out_start, out_end):
+        return {
+            'type': 'solid',
+            'name': name,
+            'color': color,
+            'effects': [
+                {'name': 'Linear Wipe', 'values': {'completion': 100.0, 'angle': angle_in, 'feather': p['feather']}},
+                {'name': 'Linear Wipe', 'values': {'completion': 0.0, 'angle': angle_out, 'feather': p['feather']}},
+            ],
+            'keyframes': [
+                {'path': 'effects/#1/completion', 'keys': [{'time': 0.0, 'value': 100.0}, {'time': in_end, 'value': 0.0}], 'interpolation': 'easeOut'},
+                {'path': 'effects/#2/completion', 'keys': [{'time': out_start, 'value': 0.0}, {'time': out_end, 'value': 100.0}], 'interpolation': 'easeIn'},
+            ],
+        }
+
+    return [
+        _wipe_layer('wipe_accent', p['accent_color'], max(0.02, round(t_in_end - lead_shift, 4)), t_out_start, round(dur, 4)),
+        _wipe_layer('wipe_main', p['color'], t_in_end, max(t_in_end, round(t_out_start - lead_shift, 4)), max(t_out_start, round(dur - lead_shift, 4))),
+    ]
+
+
 RECIPES = {
     'title_card': {
         'description': 'Centered rounded backdrop + accent line + main/subtitle text with wipe reveal, highlights, and drop shadow.',
@@ -617,6 +988,64 @@ RECIPES = {
             'position': 'top | bottom (default bottom)',
         },
         'builder': _expand_progress_banner,
+    },
+    'chapter_opener': {
+        'description': 'Full-featured chapter opener with top number badge, animated divider, bold title, optional subtitle, and drop shadow.',
+        'params': {
+            'title': 'required str (<=120)',
+            'badge': 'optional str (<=24, default 01)',
+            'subtitle': 'optional str (<=200)',
+            'highlights': 'optional [{start, end, color}] within title',
+            'accent_color': 'hex color (default #38BDF8)',
+            'text_color': 'hex color (default #FFFFFF)',
+            'bg_color': 'hex color (default #0B1220)',
+            'bg_opacity': '0..100 (default 78)',
+            'card_style': 'card | minimal (default card)',
+            'glow': 'bool (default true)',
+            'text_preset': 'text preset or none (default fadeUpCharacters)',
+            'position_y': '0.15..0.85 normalized vertical center (default 0.5)',
+        },
+        'builder': _expand_chapter_opener,
+    },
+    'pip_card': {
+        'description': 'Transparent-interior rounded picture-in-picture border frame with optional attached corner header pill.',
+        'params': {
+            'title': 'optional str (<=80)',
+            'corner': 'top_left | top_right | bottom_left | bottom_right (default bottom_right)',
+            'width_ratio': '0.18..0.65 frame width fraction (default 0.32)',
+            'aspect': '0.4..2.5 width/height aspect ratio (default 1.7778)',
+            'border_color': 'hex color (default #38BDF8)',
+            'border_width': '1..24 px (default 6)',
+            'bg_color': 'hex color (default #0F172A)',
+            'text_color': 'hex color (default #FFFFFF)',
+            'glow': 'bool (default false)',
+        },
+        'builder': _expand_pip_card,
+    },
+    'split_screen_frame': {
+        'description': 'Animated 2- or 3-panel split-screen divider overlay with optional panel corner labels and transparent interiors.',
+        'params': {
+            'layout': 'vertical_2 | horizontal_2 | vertical_3 (default vertical_2)',
+            'divider_color': 'hex color (default #FFFFFF)',
+            'divider_width': '2..32 px (default 6)',
+            'labels': 'optional list of 2 (or 3 for vertical_3) panel strings',
+            'badge_color': 'hex color (default #0F172A)',
+            'text_color': 'hex color (default #FFFFFF)',
+            'animate_in': '0..duration seconds (default min(0.35, duration*0.25))',
+        },
+        'builder': _expand_split_screen_frame,
+    },
+    'wipe_transition': {
+        'description': 'Two-tone angled directional wipe transition sweeping cleanly from transparent -> full coverage -> transparent.',
+        'params': {
+            'direction': 'left | right | up | down (default left)',
+            'color': 'hex color (default #0F172A)',
+            'accent_color': 'hex color (default #38BDF8)',
+            'angle_offset': '-35..35 degrees (default 12)',
+            'feather': '0..100 px (default 16)',
+            'peak_hold': '0..0.5 midpoint hold fraction (default 0.12)',
+        },
+        'builder': _expand_wipe_transition,
     },
 }
 

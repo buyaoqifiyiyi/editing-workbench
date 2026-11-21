@@ -23,6 +23,7 @@ import file_hash
 import numpy as np
 
 import editor
+import runtime_paths
 
 RATE = 44100
 CHANNELS = 2
@@ -50,17 +51,21 @@ def decode(path):
 
 
 def model_path(explicit):
-    """--model, then OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL; the Skill does not ship the weights."""
+    """--model, env vars, or %LOCALAPPDATA%\\OpenEditTools\\models\\demucs; never downloads weights."""
     candidate = explicit or os.environ.get('OPENEDIT_DEMUCS_MODEL') or os.environ.get('JIANYING_DEMUCS_MODEL')
-    if not candidate:
-        raise ValueError(
-            f'Offline separation needs the demucs ONNX model: pass --model PATH or set OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL. '
-            f'This Skill ships no weights; the file measured here is {MODEL_NAME} '
-            f'({MODEL_BYTES:,} B) from {MODEL_SOURCE}.')
-    path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
-    if not path.is_file():
-        raise ValueError(f'Demucs model is not a file: {path}')
-    return path
+    if candidate:
+        path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
+        if not path.is_file():
+            raise ValueError(f'Demucs model is not a file: {path}')
+        return path
+    discovered = runtime_paths.discover_model('demucs', include_env=False)
+    if discovered is not None and discovered.is_file():
+        return discovered
+    raise ValueError(
+        f'Offline separation needs the demucs ONNX model: pass --model PATH, set OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL, '
+        f'or place {MODEL_NAME} under %LOCALAPPDATA%\\OpenEditTools\\models\\demucs\\. '
+        f'This Skill ships no weights; the file measured here is {MODEL_NAME} ({MODEL_BYTES:,} B) from {MODEL_SOURCE}.'
+    )
 
 
 def session_for(model):
@@ -194,7 +199,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--input', required=True, help='media ffmpeg can decode')
     parser.add_argument('--out', required=True, help='new directory for the stems and report')
-    parser.add_argument('--model', help=f'demucs ONNX weights, else JIANYING_DEMUCS_MODEL (e.g. {MODEL_NAME})')
+    parser.add_argument('--model', help=f'demucs ONNX weights, else OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL (e.g. {MODEL_NAME})')
     parser.add_argument('--stems', default='pair', choices=('pair', 'all'),
                         help="'pair' writes vocals + accompaniment, 'all' adds the four raw stems")
     parser.add_argument('--overlap', type=float, default=0.25, help='chunk overlap fraction, default 0.25')

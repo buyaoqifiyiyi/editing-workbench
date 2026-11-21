@@ -50,10 +50,12 @@ class EngineInterfaceTests(unittest.TestCase):
         schemas = api.operation_schemas()
         self.assertTrue(set(schemas).issubset(api.operations()))
         for name in ('validate', 'build', 'preview', 'export', 'render-overlay',
-                     'filmcraft-exec', 'effectcraft-exec', 'captions', 'music-edit', 'ducking'):
+                     'filmcraft-exec', 'effectcraft-exec', 'captions', 'music-edit', 'ducking',
+                     'layout-tracks', 'denoise-audio', 'reverse', 'migrate', 'transcribe',
+                     'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting', 'stock', 'mesh-avatar'):
             self.assertIn(name, schemas)
+        self.assertEqual(set(schemas), set(api.operations()))
         self.assertEqual(api.operation_schemas('validate'), schemas['validate'])
-        self.assertIsNone(api.operation_schemas('reverse'))
         with self.assertRaises(ValueError):
             api.operation_schemas('nonexistent-op')
 
@@ -77,9 +79,55 @@ class EngineInterfaceTests(unittest.TestCase):
         self.assertEqual(me_tokens, ['--config', 'cfg.json', 'compile', '--bundle', 'b',
                                      '--out', 'o.json', '--backend', 'filmcraft', '--width', '1920'])
 
+        valid_cases = [
+            ('layout-tracks', {'plan': 'p.json', 'out': 'out.json'},
+             ['--plan', 'p.json', '--out', 'out.json']),
+            ('denoise-audio', {'input': 'in.wav', 'duration': 2.5, 'noise_floor': -45, 'reduction': 12, 'out': 'o'},
+             ['--input', 'in.wav', '--duration', '2.5', '--noise-floor=-45', '--reduction', '12', '--out', 'o']),
+            ('reverse', {'input': 'a.mp4', 'duration': 1.0, 'audio': 'mute', 'out': 'o'},
+             ['--input', 'a.mp4', '--duration', '1.0', '--audio', 'mute', '--out', 'o']),
+            ('migrate', {'plan': 'p.json', 'map': ['D:/a=E:/a', 'D:/b=E:/b'], 'out': 'm.json'},
+             ['--plan', 'p.json', '--map', 'D:/a=E:/a', '--map', 'D:/b=E:/b', '--out', 'm.json']),
+            ('transcribe', {'input': 'a.wav', 'out': 'o', 'compute_type': 'int8', 'word_timestamps': True},
+             ['--input', 'a.wav', '--out', 'o', '--compute-type', 'int8', '--word-timestamps']),
+            ('separate', {'input': 'a.wav', 'out': 'o', 'stems': 'pair', 'overlap': 0.25},
+             ['--input', 'a.wav', '--out', 'o', '--stems', 'pair', '--overlap', '0.25']),
+            ('tracking', {'input': 'a.mp4', 'bbox': [10, 20, 100, 120], 'duration': 2.0, 'out': 'o'},
+             ['--input', 'a.mp4', '--bbox', '10', '20', '100', '120', '--duration', '2.0', '--out', 'o']),
+            ('tracking-apply', {'plan': 'p.json', 'tracking': 't.json', 'source_index': 0,
+                                'caption_index': 0, 'offset_x': -12.5, 'out': 'o.json'},
+             ['p.json', '--tracking', 't.json', '--source-index', '0', '--caption-index', '0', '--offset-x=-12.5', '--out', 'o.json']),
+            ('stock', {'subcommand': 'search', 'provider': 'openverse', 'kind': 'audio', 'query': 'rain', 'limit': 5, 'out': 's.json'},
+             ['search', '--provider', 'openverse', '--kind', 'audio', '--query', 'rain', '--limit', '5', '--out', 's.json']),
+            ('mesh-avatar', {'subcommand': 'attach', 'plan': 'p.json', 'video': 'v.mov', 'out': 'o.json', 'start': 1.25},
+             ['attach', '--plan', 'p.json', '--video', 'v.mov', '--out', 'o.json', '--start', '1.25']),
+            ('reference', {'input': 'r.mp4', 'out': 'o', 'detector': 'pyscenedetect', 'content_threshold': 27, 'min_scene_seconds': 0.3},
+             ['--input', 'r.mp4', '--out', 'o', '--detector', 'pyscenedetect', '--content-threshold', '27', '--min-scene-seconds', '0.3']),
+            ('build', {'plan': 'p.json', 'out': 'o', 'no_overlay_cache': True},
+             ['--plan', 'p.json', '--out', 'o', '--no-overlay-cache']),
+            ('render-overlay', {'spec': 's.json', 'out': 'o', 'no_cache': True},
+             ['--spec', 's.json', '--out', 'o', '--no-cache']),
+            ('normalize-media', {'input': 'clips_dir', 'out': 'prep_out', 'force': True, 'max_files': 50},
+             ['--input', 'clips_dir', '--out', 'prep_out', '--force', '--max-files', '50']),
+            ('auto-cut', {'input': 'talk.mp4', 'out': 'ac_out', 'detector': 'silero', 'threshold': 0.5, 'min_silence': 0.4},
+             ['--input', 'talk.mp4', '--out', 'ac_out', '--detector', 'silero', '--threshold', '0.5', '--min-silence', '0.4']),
+            ('matting', {'input': 'fg.mp4', 'out': 'm_out', 'backend': 'birefnet', 'alpha_feather': 0.5, 'alpha_erode': -1, 'keep_audio': True},
+             ['--input', 'fg.mp4', '--out', 'm_out', '--backend', 'birefnet', '--alpha-feather', '0.5', '--alpha-erode=-1', '--keep-audio']),
+            ('checks', {'only': ['auto_cut', 'matting'], 'no_auto_models': True},
+             ['--only', 'auto_cut', 'matting', '--no-auto-models']),
+        ]
+        for op, params, expected_tokens in valid_cases:
+            with self.subTest(op=op):
+                tokens = api.arguments_from_params(op, params)
+                self.assertEqual(tokens, expected_tokens)
+                self.assertTrue(api.command_for(op, tokens))
+
         bad_cases = [
             ('unknown-op', {}),
             ('reverse', {}),
+            ('tracking', {'input': 'a.mp4', 'bbox': [1, 2, 3], 'duration': 1.0, 'out': 'o'}),
+            ('stock', {'subcommand': 'search'}),
+            ('mesh-avatar', {'subcommand': 'unknown'}),
             ('validate', 'not-a-dict'),
             ('validate', {}),
             ('validate', {'plan': 'p.json', 'extra': '1'}),
@@ -88,6 +136,8 @@ class EngineInterfaceTests(unittest.TestCase):
             ('reference', {'input': 'a', 'out': 'b', 'start': float('nan')}),
             ('preview', {'project': 'p.fcproj', 'out': 'o', 'times': []}),
             ('music-edit', {'subcommand': 'configure'}),
+            ('auto-cut', {'input': 'talk.mp4', 'out': 'o', 'detector': 'bogus'}),
+            ('matting', {'input': 'fg.mp4', 'out': 'o', 'backend': 'bogus'}),
         ]
         for op, params in bad_cases:
             with self.subTest(op=op, params=params):

@@ -480,7 +480,11 @@ class OpenEngineTests(unittest.TestCase):
         recipes_meta = overlay_recipes.list_recipes()
         self.assertEqual(
             set(recipes_meta),
-            {'title_card', 'lower_third', 'keyword_callout', 'beat_flash', 'cinematic_bars', 'progress_banner'},
+            {
+                'title_card', 'lower_third', 'keyword_callout', 'beat_flash',
+                'cinematic_bars', 'progress_banner', 'chapter_opener',
+                'pip_card', 'split_screen_frame', 'wipe_transition',
+            },
         )
         sample_specs = [
             ('title_card', (1920, 1080), {
@@ -506,6 +510,22 @@ class OpenEngineTests(unittest.TestCase):
             ('progress_banner', (1920, 1080), {
                 'name': 'r_prog', 'duration': 2.0, 'recipe': 'progress_banner',
                 'params': {'label': '第一章 架构总览', 'progress_start': 0.1, 'progress_end': 0.9, 'position': 'top'},
+            }),
+            ('chapter_opener', (1920, 1080), {
+                'name': 'r_chap', 'duration': 2.2, 'recipe': 'chapter_opener',
+                'params': {'badge': '02', 'title': '核心特性深度拆解', 'subtitle': '10-bit 保护与批量制备', 'highlights': [{'start': 0, 'end': 4, 'color': '#FACC15'}]},
+            }),
+            ('pip_card', (1080, 1920), {
+                'name': 'r_pip', 'duration': 2.0, 'recipe': 'pip_card',
+                'params': {'title': '实机演示', 'corner': 'top_right', 'width_ratio': 0.42},
+            }),
+            ('split_screen_frame', (1920, 1080), {
+                'name': 'r_split', 'duration': 2.0, 'recipe': 'split_screen_frame',
+                'params': {'layout': 'vertical_3', 'labels': ['原片', '抠像', '成片']},
+            }),
+            ('wipe_transition', (1920, 1080), {
+                'name': 'r_wipe', 'duration': 1.0, 'recipe': 'wipe_transition',
+                'params': {'direction': 'left', 'angle_offset': 10.0, 'peak_hold': 0.15},
             }),
         ]
         all_calls = []
@@ -551,6 +571,9 @@ class OpenEngineTests(unittest.TestCase):
             lambda d: d['overlays'][0]['params'].pop('title'),
             lambda d: d['overlays'][0]['params'].update(bg_opacity=150),
             lambda d: d['overlays'][0].update(layers=[{'type': 'text', 'text': 'conflict'}]),
+            lambda d: d['overlays'][0].update(recipe='pip_card', params={'corner': 'center'}),
+            lambda d: d['overlays'][0].update(recipe='split_screen_frame', params={'layout': 'vertical_2', 'labels': ['A', 'B', 'C']}),
+            lambda d: d['overlays'][0].update(recipe='wipe_transition', params={'angle_offset': 60}),
         ]
         for idx, mutate in enumerate(invalid_overlay_cases):
             broken = json.loads(json.dumps(valid_plan))
@@ -653,6 +676,31 @@ class OpenEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'normalize-media'):
             filmcraft_backend.build_project(norm, self.root / 'hi10p_out', probes=probes)
         self.assertFalse((self.root / 'hi10p_out').exists())
+
+    def test_batch_normalize_media_skips_compliant_and_converts_hi10p(self):
+        batch_src = self.root / 'batch_src'
+        nested = batch_src / 'sub'
+        nested.mkdir(parents=True)
+        good_clip = batch_src / 'ok_cfr.mp4'
+        bad_clip = nested / 'hi10p.mp4'
+        core.run([core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                  '-f', 'lavfi', '-i', 'color=c=blue:s=128x96:r=30:d=0.5',
+                  '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', str(good_clip)])
+        core.run([core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                  '-f', 'lavfi', '-i', 'testsrc2=s=128x96:r=24:d=0.5',
+                  '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le', str(bad_clip)])
+
+        report = media_prep.normalize_media(batch_src, self.root / 'batch_out', fps=30)
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual(report['mode'], 'batch')
+        self.assertEqual(report['summary'], {'scanned': 2, 'normalized': 1, 'skipped_compliant': 1})
+        self.assertEqual(len(report['path_map']), 1)
+        out_clip = Path(report['path_map'][str(bad_clip.resolve())])
+        self.assertEqual(core.probe(out_clip)['pix_fmt'], 'yuv420p')
+        self.assertTrue((self.root / 'batch_out' / 'prepare-report.json').is_file())
+
+        forced = media_prep.normalize_media(batch_src, self.root / 'batch_forced', fps=30, force=True)
+        self.assertEqual(forced['summary'], {'scanned': 2, 'normalized': 2, 'skipped_compliant': 0})
 
 
 def main():
