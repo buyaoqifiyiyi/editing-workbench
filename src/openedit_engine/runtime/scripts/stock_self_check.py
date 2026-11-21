@@ -82,14 +82,18 @@ def check(root):
     for invalid in ('relative.env', str(root / 'absent.env')):
         with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': invalid}):
             refuses(stock.credentials)
-    with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': '', 'LOCALAPPDATA': str(root / 'local')}):
-        assert runtime_paths.stock_config() == root / 'local/JianyingEngine/config.env'
+    with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': '', 'OPENEDIT_STOCK_CONFIG': '', 'LOCALAPPDATA': str(root / 'local')}):
+        assert runtime_paths.stock_config() == root / 'local/OpenEditEngine/config.env'
         legacy = root / 'legacy/skills/jianying-editor'
         legacy.mkdir(parents=True)
         (legacy / 'config.env').write_text('PEXELS_API_KEY=fake-legacy', encoding='utf-8')
         with patch.object(runtime_paths, 'RAW_ROOT', legacy):
             assert runtime_paths.stock_config() == legacy / 'config.env'
-        external = root / 'local/JianyingEngine/config.env'
+        legacy_jy = root / 'local/JianyingEngine/config.env'
+        legacy_jy.parent.mkdir(parents=True)
+        legacy_jy.write_text('PEXELS_API_KEY=fake-legacy-jy', encoding='utf-8')
+        assert runtime_paths.stock_config() == legacy_jy
+        external = root / 'local/OpenEditEngine/config.env'
         external.parent.mkdir(parents=True)
         external.write_text('PEXELS_API_KEY=fake-external', encoding='utf-8')
         with patch.object(runtime_paths, 'RAW_ROOT', legacy):

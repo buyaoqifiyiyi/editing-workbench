@@ -15,7 +15,7 @@
 ## 可选视听多模态服务（`music-edit`）
 
 - 当任务指定背景音乐（BGM）并需要基于真实画面内容、情绪起伏与动作卡点进行选段或成片审片时，可使用 `music-edit prepare` / `analyze` / `review` / `compile`。
-- 协议支持 `openai-compatible`（`{base_url}/chat/completions`）与 `gemini`（原生 `generateContent`），服务地址、模型 ID 与 API 密钥全部由使用者在外部配置文件或环境变量显式配置（默认专用配置位于 `%LOCALAPPDATA%\JianyingEngine\omni.json`，支持 `JIANYING_OMNI_CONFIG` / `--config` 覆盖及已保存的 Windows DPAPI `omni.key`）。
+- 协议支持 `openai-compatible`（`{base_url}/chat/completions`）与 `gemini`（原生 `generateContent`），服务地址、模型 ID 与 API 密钥全部由使用者在外部配置文件或环境变量显式配置（默认专用配置位于 `%LOCALAPPDATA%\OpenEditEngine\omni.json`，支持 `OPENEDIT_OMNI_CONFIG` / `JIANYING_OMNI_CONFIG` / `--config` 覆盖及已保存的 Windows DPAPI `omni.key`）。
 - 完整说明与媒体大小限制见 [原生视听与音乐编排](../src/openedit_engine/runtime/references/music-edit.md)。
 
 ## 接入端到端验证核对

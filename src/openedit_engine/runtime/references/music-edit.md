@@ -13,7 +13,7 @@
 
 Qwen3.8-Omni-Flash的官方JSON Mode示例使用高级参数 `{"reasoning_effort":"none"}` 关闭思考模式；需要该模式时由用户配置保留，通用引擎不按模型名称强行添加参数。
 
-专用配置为 `%LOCALAPPDATA%/JianyingEngine/omni.json`，可由 `OPENEDIT_OMNI_CONFIG`（兼容别名 `JIANYING_OMNI_CONFIG`）或 CLI 全局 `--config` 指定包外文件。普通配置只存 enabled、protocol、model、base_url、api_key_env 和 request_options。已保存的 `omni.key` 由 Windows 当前用户 DPAPI 加密，引擎仍可直接读取。新配置可使用进程环境变量密钥；两者同时存在时优先使用已保存密钥。旧格式缺协议和模型时须在专用配置补齐。API 根地址与密钥区域须由用户自己的控制台确认。密钥留在专用环境或加密文件中。
+专用配置为 `%LOCALAPPDATA%/OpenEditEngine/omni.json`，可由 `OPENEDIT_OMNI_CONFIG`（兼容别名 `JIANYING_OMNI_CONFIG`）或 CLI 全局 `--config` 指定包外文件。普通配置只存 enabled、protocol、model、base_url、api_key_env 和 request_options。已保存的 `omni.key` 由 Windows 当前用户 DPAPI 加密，引擎仍可直接读取。新配置可使用进程环境变量密钥；两者同时存在时优先使用已保存密钥。旧格式缺协议和模型时须在专用配置补齐。API 根地址与密钥区域须由用户自己的控制台确认。密钥留在专用环境或加密文件中。
 
 ```powershell
 & '<引擎Python>' -m openedit_engine music-edit configure --protocol openai-compatible --model '<兼容服务的模型 ID>' --base-url '<服务的兼容 API 根地址>' --api-key-env MULTIMODAL_API_KEY

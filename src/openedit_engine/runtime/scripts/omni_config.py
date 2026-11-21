@@ -22,8 +22,15 @@ _test_lock = threading.Lock()
 
 
 def config_path(path=None):
-    return Path(path or os.environ.get('OPENEDIT_OMNI_CONFIG') or os.environ.get('JIANYING_OMNI_CONFIG') or
-                Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share')) / 'JianyingEngine/omni.json').resolve()
+    explicit = path or os.environ.get('OPENEDIT_OMNI_CONFIG') or os.environ.get('JIANYING_OMNI_CONFIG')
+    if explicit:
+        return Path(explicit).resolve()
+    base = Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share'))
+    primary = base / 'OpenEditEngine/omni.json'
+    legacy = base / 'JianyingEngine/omni.json'
+    if not primary.is_file() and legacy.is_file():
+        return legacy.resolve()
+    return primary.resolve()
 
 
 def validate(value, allow_incomplete=False):

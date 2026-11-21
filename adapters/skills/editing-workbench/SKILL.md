@@ -28,7 +28,7 @@ metadata:
 没有 MCP 或需命令行直调时，优先使用 `openedit`（兼容别名 `jianying-engine`）或以下绝对解释器：
 
 ```powershell
-$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe' }
+$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
 & $enginePython -m openedit_engine paths
 & $enginePython -m openedit_engine doctor
 & $enginePython -m openedit_engine backends

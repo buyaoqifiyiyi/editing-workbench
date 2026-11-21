@@ -24,7 +24,7 @@
 建议使用 Windows 与 64 位 Python 3.12+，确保本机可用 `ffmpeg`/`ffprobe` 及 ArtCraft `filmcraft-cli` / `effectcraft-cli`：
 
 ```powershell
-$engineVenv = Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv'
+$engineVenv = Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv'
 py -3.12 -m venv $engineVenv
 $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 

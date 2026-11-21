@@ -83,21 +83,18 @@ def _whisper_rank(name):
 
 
 def _discover_whisper(root):
+    candidates = []
     for parent in (root, root / 'whisper'):
         if not parent.is_dir():
             continue
-        for name in _WHISPER_PREFERRED:
-            cand = parent / name
-            if _is_whisper_dir(cand):
-                return cand.resolve()
-        hf_dirs = sorted((p for p in parent.glob('models--*faster-whisper*') if _is_whisper_dir(p)),
-                         key=lambda p: _whisper_rank(p.name))
-        if hf_dirs:
-            return hf_dirs[0].resolve()
-        other = sorted((p for p in parent.iterdir() if p.is_dir() and 'whisper' in p.name.lower() and _is_whisper_dir(p)),
-                       key=lambda p: _whisper_rank(p.name))
-        if other:
-            return other[0].resolve()
+        for child in parent.iterdir():
+            if child.is_dir() and 'whisper' in child.name.lower() and _is_whisper_dir(child):
+                pref = _WHISPER_PREFERRED.index(child.name) if child.name in _WHISPER_PREFERRED else len(_WHISPER_PREFERRED)
+                layout = 0 if not child.name.startswith('models--') else 1
+                candidates.append((_whisper_rank(child.name), layout, pref, child.name, child))
+    if candidates:
+        candidates.sort(key=lambda item: item[:4])
+        return candidates[0][4].resolve()
     return root.resolve() if _is_whisper_dir(root) else None
 
 
@@ -207,10 +204,14 @@ def stock_config():
         if not path.is_absolute() or not path.is_file():
             raise ValueError('OPENEDIT_STOCK_CONFIG / JIANYING_STOCK_CONFIG must name an existing absolute file')
         return path.resolve()
-    default = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'JianyingEngine' / 'config.env'
+    base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
+    default = base / 'OpenEditEngine' / 'config.env'
+    legacy_jy = base / 'JianyingEngine' / 'config.env'
     # A resource-path caller retains its configuration after consolidation as well.
     # __file__ preserves the lexical internal directory when launched through its junction.
     legacy = RAW_ROOT / 'config.env'
     if resource_skill_root() is not None and legacy.is_file():
         return legacy
+    if not default.is_file() and legacy_jy.is_file():
+        return legacy_jy
     return default

@@ -10,7 +10,7 @@
 {
   "mcpServers": {
     "openedit-engine": {
-      "command": "C:/Users/MECHREVO/AppData/Local/JianyingEngine/venv/Scripts/python.exe",
+      "command": "C:/Users/MECHREVO/AppData/Local/OpenEditEngine/venv/Scripts/python.exe",
       "args": ["-m", "openedit_engine.mcp_server"]
     }
   }

@@ -3,7 +3,7 @@
 明确维护请求才使用本入口。当前引擎已全面转向纯开源架构（**FilmCraft** + **EffectCraft** + **FFmpeg** + 离线开源 AI 组件），唯一正式源码位于仓库 `src/openedit_engine/`（`src/jianying_engine/` 仅为向后兼容薄垫片）。通过 MCP 调用 `read_guide("maintenance")`，或执行：
 
 ```powershell
-$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'JianyingEngine\venv\Scripts\python.exe' }
+$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
 & $enginePython -m openedit_engine paths
 & $enginePython -m openedit_engine guide maintenance
 ```
