@@ -1,4 +1,4 @@
-"""Offline non-green-screen AI video/image matting (RVM / BiRefNet / RMBG ONNX) -> ProRes 4444 RGBA."""
+"""Offline non-green-screen AI video/image matting (MatAnyone 2 / RVM / BiRefNet / RMBG) -> ProRes 4444 RGBA."""
 import argparse
 import json
 import math
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 import numpy as np
@@ -18,10 +19,49 @@ import runtime_paths
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 _NO_WIN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+_WORKER_SCRIPT = Path(__file__).resolve().with_name('matanyone2_worker.py')
 
 
-def resolve_model(explicit, *, prefer_fp16=False):
-    """--model, OPENEDIT_MATTING_MODEL, or local models/matting dir; never downloads weights."""
+def _read_exact(stream, size):
+    buf = bytearray()
+    while len(buf) < size:
+        chunk = stream.read(size - len(buf))
+        if not chunk:
+            break
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def resolve_model(explicit, *, backend='auto', prefer_fp16=False):
+    """Resolve explicit model override or local offline weights; never downloads weights."""
+    if backend == 'matanyone2':
+        candidate = explicit or os.environ.get('OPENEDIT_MATANYONE2_MODEL')
+        if candidate:
+            path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
+            if not path.is_file():
+                raise ValueError(f'Matting model is not a file: {path}')
+            return path
+        discovered = runtime_paths.discover_model('matanyone2', include_env=False)
+        if discovered is not None and discovered.is_file():
+            return discovered
+        raise ValueError(
+            'MatAnyone 2 requires matanyone2.pth checkpoint: '
+            'pass --model PATH, set OPENEDIT_MATANYONE2_MODEL, or place weights under %LOCALAPPDATA%\\OpenEditTools\\models\\matting\\.'
+        )
+    if backend == 'rvm':
+        candidate = explicit or os.environ.get('OPENEDIT_RVM_MODEL') or os.environ.get('OPENEDIT_MATTING_MODEL')
+        if candidate:
+            path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
+            if not path.is_file():
+                raise ValueError(f'Matting model is not a file: {path}')
+            return path
+        discovered = runtime_paths.discover_model('rvm', include_env=False, prefer_fp16=prefer_fp16)
+        if discovered is not None and discovered.is_file():
+            return discovered
+        raise ValueError(
+            'RVM matting requires an RVM ONNX model: '
+            'pass --model PATH, set OPENEDIT_RVM_MODEL, or place weights under %LOCALAPPDATA%\\OpenEditTools\\models\\matting\\rvm\\.'
+        )
     candidate = explicit or os.environ.get('OPENEDIT_MATTING_MODEL')
     if candidate:
         path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
@@ -66,10 +106,12 @@ def inspect_session(session, requested_backend, model_path):
         out_req = ('fgr', 'pha', 'r1o', 'r2o', 'r3o', 'r4o')
         if not set(out_req).issubset(out_lower):
             raise ValueError(f'RVM model outputs must include {out_req}; got {output_names}')
+        src_info = next(i for i in inputs if i.name.lower() == 'src')
         return {
             'backend': 'rvm',
             'input_map': {k: by_lower[k] for k in required},
             'output_indices': {k: out_lower[k] for k in out_req},
+            'input_dtype': 'float16' if 'float16' in str(getattr(src_info, 'type', '')) else 'float32',
         }
 
     if len(inputs) != 1:
@@ -130,7 +172,10 @@ class MattingRunner:
         h, w = rgb_uint8.shape[:2]
         if self.backend == 'rvm':
             ratio = float(self.downsample_ratio if self.downsample_ratio is not None else min(1.0, 512.0 / max(w, h)))
-            src_tensor = np.ascontiguousarray((rgb_uint8.astype(np.float32) / 255.0).transpose(2, 0, 1)[None])
+            rdtype = np.float16 if self.meta.get('input_dtype') == 'float16' else np.float32
+            src_tensor = np.ascontiguousarray((rgb_uint8.astype(np.float32) / 255.0).transpose(2, 0, 1)[None], dtype=rdtype)
+            if self.states[0].dtype != rdtype:
+                self.states = [s.astype(rdtype) for s in self.states]
             imap = self.meta['input_map']
             feed = {
                 imap['src']: src_tensor,
@@ -201,6 +246,124 @@ def postprocess_alpha(alpha, *, prev_alpha=None, threshold=0.0, erode=0, feather
     return np.clip(out, 0.0, 1.0)
 
 
+def decontaminate_foreground(rgb_uint8, alpha):
+    """Reduce background color bleed on semi-transparent edges by propagating solid foreground RGB."""
+    import cv2
+
+    a = np.clip(alpha.astype(np.float32), 0.0, 1.0)
+    solid = (a >= 0.92).astype(np.float32)
+    if float(solid.max()) <= 0.0:
+        return rgb_uint8
+    fringe = (a > 0.02) & (a < 0.92)
+    if not bool(fringe.any()):
+        return rgb_uint8
+    rgb_f = rgb_uint8.astype(np.float32)
+    h, w = a.shape
+    sigma = max(3.0, round(min(h, w) * 0.015, 2))
+    num = cv2.GaussianBlur(rgb_f * solid[:, :, None], (0, 0), sigmaX=sigma, sigmaY=sigma)
+    den = cv2.GaussianBlur(solid, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    valid = fringe & (den > 1e-4)
+    if not bool(valid.any()):
+        return rgb_uint8
+    clean = num / np.maximum(den[:, :, None], 1e-4)
+    blend = np.clip((0.92 - a) / 0.90, 0.0, 1.0)[:, :, None]
+    out = rgb_f.copy()
+    out[valid] = (rgb_f * (1.0 - blend) + clean * blend)[valid]
+    return np.clip(np.round(out), 0, 255).astype(np.uint8)
+
+
+class MatAnyone2Runner:
+    """Subprocess adapter running MatAnyone 2 CUDA memory propagation in its isolated venv."""
+
+    def __init__(self, python_bin, model_path, mask_path, width, height, *, max_size=1080, warmup=10, device='auto'):
+        if not _WORKER_SCRIPT.is_file():
+            raise RuntimeError(f'Missing MatAnyone 2 worker script: {_WORKER_SCRIPT}')
+        self.width = int(width)
+        self.height = int(height)
+        self.alpha_bytes = self.width * self.height
+        self.stats = None
+        self._closed = False
+        cmd = [
+            str(python_bin), str(_WORKER_SCRIPT),
+            '--model', str(model_path),
+            '--mask', str(mask_path),
+            '--width', str(self.width),
+            '--height', str(self.height),
+            '--max-size', str(int(max_size)),
+            '--warmup', str(int(warmup)),
+            '--device', str(device),
+        ]
+        self.proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=_NO_WIN,
+        )
+        self._stderr_chunks = []
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+
+    def _drain_stderr(self):
+        try:
+            while True:
+                chunk = self.proc.stderr.read(4096)
+                if not chunk:
+                    break
+                self._stderr_chunks.append(chunk)
+        except Exception:
+            pass
+
+    def predict(self, rgb_uint8):
+        if self._closed or self.proc.poll() is not None:
+            raise RuntimeError(f'MatAnyone 2 worker exited unexpectedly: {self._stderr_tail()}')
+        try:
+            self.proc.stdin.write(np.ascontiguousarray(rgb_uint8, dtype=np.uint8).tobytes())
+            self.proc.stdin.flush()
+        except BrokenPipeError as exc:
+            raise RuntimeError(f'MatAnyone 2 worker pipe broke: {self._stderr_tail()}') from exc
+        raw_alpha = _read_exact(self.proc.stdout, self.alpha_bytes)
+        if len(raw_alpha) != self.alpha_bytes:
+            raise RuntimeError(
+                f'MatAnyone 2 worker returned truncated alpha ({len(raw_alpha)} != {self.alpha_bytes}): {self._stderr_tail()}'
+            )
+        alpha = np.frombuffer(raw_alpha, dtype=np.uint8).reshape((self.height, self.width)).astype(np.float32) / 255.0
+        return rgb_uint8, alpha
+
+    def _stderr_tail(self):
+        if self._stderr_thread.is_alive():
+            self._stderr_thread.join(timeout=2.0)
+        return b''.join(self._stderr_chunks).decode('utf-8', errors='replace')[-1500:]
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        if self.proc.stdin and not self.proc.stdin.closed:
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
+        if self.proc.stdout and not self.proc.stdout.closed:
+            try:
+                self.proc.stdout.close()
+            except Exception:
+                pass
+        rc = self.proc.wait(timeout=120)
+        self._stderr_thread.join(timeout=5.0)
+        stderr_txt = b''.join(self._stderr_chunks).decode('utf-8', errors='replace')
+        if rc != 0:
+            raise RuntimeError(f'MatAnyone 2 worker failed (exit {rc}): {stderr_txt[-1500:]}')
+        for line in reversed(stderr_txt.strip().splitlines()):
+            line = line.strip()
+            if line.startswith('{') and line.endswith('}'):
+                try:
+                    self.stats = json.loads(line)
+                    break
+                except ValueError:
+                    pass
+
+
 def _save_alpha_previews(rgba, alpha, out_dir, *, rgba_name='preview_rgba.png', alpha_name='preview_alpha.png'):
     rgba_path = out_dir / rgba_name
     alpha_path = out_dir / alpha_name
@@ -210,7 +373,30 @@ def _save_alpha_previews(rgba, alpha, out_dir, *, rgba_name='preview_rgba.png', 
     return rgba_path, alpha_path
 
 
+def _dropout_metrics(fg_ratios, top_fg_ratios):
+    if not fg_ratios:
+        return {}
+    min_fg = min(fg_ratios)
+    max_fg = max(fg_ratios)
+    min_top = min(top_fg_ratios)
+    max_top = max(top_fg_ratios)
+    max_drop = max((abs(fg_ratios[i] - fg_ratios[i - 1]) for i in range(1, len(fg_ratios))), default=0.0)
+    max_top_drop = max((abs(top_fg_ratios[i] - top_fg_ratios[i - 1]) for i in range(1, len(top_fg_ratios))), default=0.0)
+    warning = bool(max_drop > 0.20 or max_top_drop > 0.25 or (max_top >= 0.15 and min_top < 0.02))
+    return {
+        'min_fg_ratio': round(min_fg, 4),
+        'max_fg_ratio': round(max_fg, 4),
+        'top_band_min_fg_ratio': round(min_top, 4),
+        'top_band_max_fg_ratio': round(max_top, 4),
+        'max_frame_fg_drop': round(max_drop, 4),
+        'max_top_band_drop': round(max_top_drop, 4),
+        'dropout_warning': warning,
+    }
+
+
 def run_matting(args):
+    import gc
+
     source = Path(os.path.expanduser(os.path.expandvars(args.input))).resolve()
     if not source.is_file():
         raise ValueError(f'Input media is not a file: {source}')
@@ -222,6 +408,9 @@ def run_matting(args):
     threshold = core.number(args.threshold, 'threshold', 0.0, 0.95)
     temporal_ema = core.number(args.temporal_ema, 'temporal_ema', 0.0, 0.8)
     ds_ratio = core.number(args.downsample_ratio, 'downsample_ratio', 0.1, 1.0) if args.downsample_ratio is not None else None
+    max_size = int(core.number(getattr(args, 'max_size', 720), 'max_size', -1, 4320))
+    warmup = int(core.number(getattr(args, 'warmup', 10), 'warmup', 0, 60))
+    decontaminate = bool(getattr(args, 'decontaminate', False))
     if type(args.alpha_erode) is bool or abs(args.alpha_erode - erode) > 1e-9:
         raise ValueError('alpha_erode must be an integer in [-10, 10]')
 
@@ -254,22 +443,81 @@ def run_matting(args):
     if out_cand.exists() or out_cand.is_symlink():
         raise ValueError(f'Output directory already exists; choose a new directory: {args.out}')
 
-    want_gpu = bool(args.gpu or getattr(args, 'device', 'cpu') in ('cuda', 'auto'))
-    model_file = resolve_model(args.model, prefer_fp16=want_gpu)
-    session, meta, providers = load_session(
-        model_file, args.backend, device=getattr(args, 'device', 'cpu'), gpu=args.gpu,
-    )
-    runner = MattingRunner(session, meta, downsample_ratio=ds_ratio, use_model_fgr=args.use_model_fgr)
-    license_note = runtime_paths.model_license_note('matting', model_file)
+    req_device = getattr(args, 'device', 'cpu')
+    want_gpu = bool(args.gpu or req_device in ('cuda', 'auto'))
+    worker_device = 'cuda' if (args.gpu or req_device == 'cuda') else ('auto' if req_device == 'auto' else 'cpu')
+
+    explicit_mask = getattr(args, 'mask', None)
+    mask_path = None
+    seed_model_file = None
+    worker_py = None
+    if args.backend == 'matanyone2':
+        model_file = resolve_model(args.model, backend='matanyone2', prefer_fp16=want_gpu)
+        worker_py = runtime_paths.discover_matanyone2_python()
+        if worker_py is None or not worker_py.is_file():
+            raise ValueError(
+                'MatAnyone 2 requires its isolated Python environment at %LOCALAPPDATA%\\OpenEditTools\\venvs\\matanyone2 '
+                '(or set OPENEDIT_MATANYONE2_PYTHON)'
+            )
+        if explicit_mask:
+            mask_path = Path(os.path.expanduser(os.path.expandvars(str(explicit_mask)))).resolve()
+            if not mask_path.is_file():
+                raise ValueError(f'MatAnyone 2 seed mask is not a file: {mask_path}')
+        else:
+            seed_model_file = resolve_model(getattr(args, 'seed_model', None), backend='auto', prefer_fp16=want_gpu)
+        license_note = runtime_paths.model_license_note('matanyone2', model_file)
+        backend_name = 'matanyone2'
+        providers = [f'PyTorch:{worker_device}']
+        runner = None
+    else:
+        model_file = resolve_model(args.model, backend=args.backend, prefer_fp16=want_gpu)
+        session, meta, providers = load_session(
+            model_file, args.backend, device=req_device, gpu=args.gpu,
+        )
+        runner = MattingRunner(session, meta, downsample_ratio=ds_ratio, use_model_fgr=args.use_model_fgr)
+        license_note = runtime_paths.model_license_note(
+            'rvm' if meta['backend'] == 'rvm' else 'matting', model_file,
+        )
+        backend_name = meta['backend']
 
     out = core.new_directory(out_cand)
     t0 = time.monotonic()
 
+    def _make_seed_mask(rgb_first):
+        s_sess, s_meta, _ = load_session(seed_model_file, 'auto', device=req_device, gpu=args.gpu)
+        try:
+            s_runner = MattingRunner(s_sess, s_meta)
+            _, s_alpha = s_runner.predict(rgb_first)
+        finally:
+            s_sess = None
+            gc.collect()
+        seed_out = out / 'seed_mask.png'
+        Image.fromarray(np.clip(np.round(s_alpha * 255.0), 0, 255).astype(np.uint8), mode='L').save(seed_out)
+        return seed_out
+
     if info['kind'] == 'image':
         with Image.open(source) as im:
             rgb = np.asarray(im.convert('RGB'), dtype=np.uint8)
-        fg_rgb, raw_alpha = runner.predict(rgb)
+        worker_stats = None
+        if args.backend == 'matanyone2':
+            if mask_path is None:
+                mask_path = _make_seed_mask(rgb)
+            m2 = MatAnyone2Runner(
+                worker_py, model_file, mask_path, w, h,
+                max_size=max_size, warmup=warmup, device=worker_device,
+            )
+            try:
+                fg_rgb, raw_alpha = m2.predict(rgb)
+            finally:
+                m2.close()
+            worker_stats = m2.stats
+            if worker_stats:
+                providers = [f'PyTorch:{worker_stats.get("device", worker_device)}']
+        else:
+            fg_rgb, raw_alpha = runner.predict(rgb)
         alpha = postprocess_alpha(raw_alpha, threshold=threshold, erode=erode, feather=feather)
+        if decontaminate:
+            fg_rgb = decontaminate_foreground(fg_rgb, alpha)
         rgba = np.dstack([fg_rgb, np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)])
         rgba_path, alpha_path = _save_alpha_previews(
             rgba, alpha, out, rgba_name='matte_rgba.png', alpha_name='matte_alpha.png',
@@ -278,7 +526,7 @@ def run_matting(args):
         report = {
             'status': 'passed',
             'kind': 'image',
-            'backend': meta['backend'],
+            'backend': backend_name,
             'providers': providers,
             'model': {
                 'path': str(model_file),
@@ -288,6 +536,9 @@ def run_matting(args):
             },
             'input': {'path': str(source), 'width': w, 'height': h, 'sha256': file_hash.sha256(source)},
             'out': str(out),
+            'decontaminated': decontaminate,
+            'seed_mask': str(mask_path) if mask_path else None,
+            'worker': worker_stats,
             'metrics': {
                 'frame_count': 1,
                 'elapsed_seconds': elapsed,
@@ -347,16 +598,20 @@ def run_matting(args):
 
     frame_bytes = w * h * 3
     preview_idx = max(0, int(round(preview_time * fps)))
+    top_h = max(1, h // 5)
     frame_count = 0
     prev_alpha = None
     mad_sum = 0.0
-    fg_ratio_sum = 0.0
+    fg_ratios = []
+    top_fg_ratios = []
     preview_rgba = None
     preview_alpha = None
+    m2_runner = None
+    worker_stats = None
 
     try:
         while True:
-            raw = dec_proc.stdout.read(frame_bytes)
+            raw = _read_exact(dec_proc.stdout, frame_bytes)
             if not raw:
                 break
             if len(raw) != frame_bytes:
@@ -365,7 +620,15 @@ def run_matting(args):
                 raise ValueError(f'Decoded frame count exceeded --max-frames {max_frames}')
 
             rgb = np.frombuffer(raw, dtype=np.uint8).reshape((h, w, 3))
-            fg_rgb, raw_alpha = runner.predict(rgb)
+            if args.backend == 'matanyone2' and m2_runner is None:
+                if mask_path is None:
+                    mask_path = _make_seed_mask(rgb)
+                m2_runner = MatAnyone2Runner(
+                    worker_py, model_file, mask_path, w, h,
+                    max_size=max_size, warmup=warmup, device=worker_device,
+                )
+            active_runner = m2_runner if m2_runner is not None else runner
+            fg_rgb, raw_alpha = active_runner.predict(rgb)
             alpha = postprocess_alpha(
                 raw_alpha,
                 prev_alpha=prev_alpha,
@@ -374,6 +637,8 @@ def run_matting(args):
                 feather=feather,
                 temporal_ema=temporal_ema,
             )
+            if decontaminate:
+                fg_rgb = decontaminate_foreground(fg_rgb, alpha)
             rgba = np.dstack([fg_rgb, np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)])
 
             if enc_proc is not None:
@@ -381,13 +646,27 @@ def run_matting(args):
 
             if prev_alpha is not None:
                 mad_sum += float(np.abs(alpha - prev_alpha).mean())
-            fg_ratio_sum += float((alpha >= 0.5).mean())
+            fg_ratios.append(float((alpha >= 0.5).mean()))
+            top_fg_ratios.append(float((alpha[:top_h, :] >= 0.5).mean()))
             if frame_count == 0 or frame_count == preview_idx:
                 preview_rgba = rgba.copy()
                 preview_alpha = alpha.copy()
             prev_alpha = alpha
             frame_count += 1
+            if frame_count == 1 or frame_count % 25 == 0:
+                sys.stderr.write(f'[matting:{backend_name}] frame {frame_count}\n')
+                sys.stderr.flush()
+        if m2_runner is not None:
+            m2_runner.close()
+            worker_stats = m2_runner.stats
+            if worker_stats:
+                providers = [f'PyTorch:{worker_stats.get("device", worker_device)}']
     finally:
+        if m2_runner is not None and not m2_runner._closed:
+            try:
+                m2_runner.close()
+            except Exception:
+                pass
         if dec_proc.stdout:
             dec_proc.stdout.close()
         dec_stderr = dec_proc.stderr.read().decode('utf-8', errors='replace') if dec_proc.stderr else ''
@@ -430,10 +709,18 @@ def run_matting(args):
 
     elapsed = round(time.monotonic() - t0, 3)
     mad = round(mad_sum / max(1, frame_count - 1), 6) if frame_count > 1 else 0.0
+    metrics = {
+        'elapsed_seconds': elapsed,
+        'sec_per_frame': round(elapsed / frame_count, 3),
+        'mean_fg_ratio': round(sum(fg_ratios) / frame_count, 4),
+        'adjacent_alpha_mad': mad,
+        'adjacent_alpha_mad_note': 'Candidate flicker indicator only (cannot distinguish motion from flicker without ground truth).',
+    }
+    metrics.update(_dropout_metrics(fg_ratios, top_fg_ratios))
     report = {
         'status': 'passed',
         'kind': 'video',
-        'backend': meta['backend'],
+        'backend': backend_name,
         'providers': providers,
         'model': {
             'path': str(model_file),
@@ -443,19 +730,16 @@ def run_matting(args):
         },
         'input': {'path': str(source), 'width': w, 'height': h, 'fps': round(fps, 3), 'sha256': file_hash.sha256(source)},
         'out': str(out),
+        'decontaminated': decontaminate,
+        'seed_mask': str(mask_path) if mask_path else None,
+        'worker': worker_stats,
         'range': {
             'start': round(start, 3),
             'duration': round(span, 3),
             'frame_count': frame_count,
             'keep_audio': bool(args.keep_audio and info.get('has_audio')),
         },
-        'metrics': {
-            'elapsed_seconds': elapsed,
-            'sec_per_frame': round(elapsed / frame_count, 3),
-            'mean_fg_ratio': round(fg_ratio_sum / frame_count, 4),
-            'adjacent_alpha_mad': mad,
-            'adjacent_alpha_mad_note': 'Candidate flicker indicator only (cannot distinguish motion from flicker without ground truth).',
-        },
+        'metrics': metrics,
         'outputs': {
             'preview_rgba': str(rgba_path),
             'preview_alpha': str(alpha_path),
@@ -478,8 +762,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--input', required=True, help='Local video or image file')
     parser.add_argument('--out', required=True, help='New output directory for ProRes 4444 matte.mov and previews')
-    parser.add_argument('--backend', choices=('auto', 'rvm', 'birefnet', 'rmbg'), default='auto')
-    parser.add_argument('--model', help='ONNX matting model path (else OPENEDIT_MATTING_MODEL / auto-discovery)')
+    parser.add_argument('--backend', choices=('auto', 'rvm', 'birefnet', 'rmbg', 'matanyone2'), default='auto')
+    parser.add_argument('--model', help='ONNX matting model or MatAnyone 2 .pth checkpoint (else env / auto-discovery)')
+    parser.add_argument('--mask', help='Optional first-frame seed mask PNG for matanyone2 (auto-seeded if omitted)')
+    parser.add_argument('--seed-model', help='Optional ONNX seed model path for matanyone2 frame-0 auto-masking')
+    parser.add_argument('--max-size', type=int, default=720, help='MatAnyone 2 shortest-side cap in px (default 720; <=0 full)')
+    parser.add_argument('--warmup', type=int, default=10, help='MatAnyone 2 frame-0 warmup steps (default 10)')
+    parser.add_argument('--decontaminate', action='store_true', help='Reduce background color bleed on semi-transparent edges')
     parser.add_argument('--start', type=float, default=0.0, help='Video start offset in seconds (default 0)')
     parser.add_argument('--duration', type=float, default=None, help='Video duration slice in seconds (default min(10, remaining))')
     parser.add_argument('--max-frames', type=int, default=600, help='Maximum decoded video frames (default 600)')
@@ -493,7 +782,7 @@ def main(argv=None):
     parser.add_argument('--no-video', action='store_true', help='Write RGBA/alpha preview PNGs without rendering matte.mov')
     parser.add_argument('--preview-time', type=float, default=None, help='Preview capture time within slice in seconds')
     parser.add_argument('--device', choices=('cpu', 'cuda', 'auto'), default='cpu', help='Execution device (default cpu)')
-    parser.add_argument('--gpu', action='store_true', help='Prefer CUDA/DirectML ORT provider when available')
+    parser.add_argument('--gpu', action='store_true', help='Prefer CUDA/DirectML ORT provider or PyTorch CUDA when available')
     args = parser.parse_args(argv)
     try:
         report = run_matting(args)

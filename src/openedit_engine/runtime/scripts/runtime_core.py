@@ -783,8 +783,10 @@ def _validate_overlays(plan, base_dir, canvas, tracks, track_types):
     for index, ov in enumerate(overlays):
         label = f'overlays[{index}]'
         fields(ov, {'id', 'name', 'track', 'start', 'duration', 'width', 'height', 'fps',
-                    'layers', 'script', 'recipe', 'params', 'effects', 'out_format', 'gpu'},
+                    'layers', 'script', 'recipe', 'params', 'effects', 'out_format', 'gpu', 'motion_blur'},
                label, ('start', 'duration'))
+        if 'motion_blur' in ov and type(ov['motion_blur']) is not bool:
+            raise ValueError(f'{label}.motion_blur must be boolean')
         name = ov.setdefault('name', ov.get('id') or f'overlay_{index + 1}')
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_\-\u4e00-\u9fff]{1,64}', name):
             raise ValueError(f'{label}.name must be 1..64 safe identifier characters')
@@ -977,7 +979,7 @@ def validate_plan(plan_path, user_data=None):
         if 'transition' in clip:
             tr = clip['transition']
             if isinstance(tr, dict):
-                fields(tr, {'name', 'duration', 'frames', 'edge'}, f'{label}.transition', ('name',))
+                fields(tr, {'name', 'duration', 'frames', 'edge', 'align', 'reverse', 'params'}, f'{label}.transition', ('name',))
                 check_text(tr['name'], f'{label}.transition.name', 128)
                 if 'duration' in tr:
                     number(tr['duration'], f'{label}.transition.duration', 0.001, duration)
@@ -986,6 +988,29 @@ def validate_plan(plan_path, user_data=None):
                         raise ValueError(f'{label}.transition.frames must be a positive integer')
                 if 'edge' in tr and tr['edge'] not in ('in', 'out'):
                     raise ValueError(f'{label}.transition.edge must be in or out')
+                if 'align' in tr and tr['align'] not in ('center', 'start', 'end'):
+                    raise ValueError(f'{label}.transition.align must be center, start, or end')
+                if 'reverse' in tr and type(tr['reverse']) is not bool:
+                    raise ValueError(f'{label}.transition.reverse must be boolean')
+                if 'params' in tr:
+                    tr_params = tr['params']
+                    if not isinstance(tr_params, dict):
+                        raise ValueError(f'{label}.transition.params must be an object')
+                    for pk, pv in tr_params.items():
+                        check_text(pk, f'{label}.transition.params key', 64)
+                        plabel = f'{label}.transition.params.{pk}'
+                        if isinstance(pv, bool):
+                            continue
+                        if isinstance(pv, (int, float)):
+                            if not math.isfinite(pv):
+                                raise ValueError(f'{plabel} must be a finite number')
+                        elif isinstance(pv, str):
+                            check_text(pv, plabel, 128)
+                        elif isinstance(pv, list) and 2 <= len(pv) <= 4:
+                            for idx, elem in enumerate(pv):
+                                number(elem, f'{plabel}[{idx}]', -1e6, 1e6)
+                        else:
+                            raise ValueError(f'{plabel} must be a finite number, boolean, short string, or 2-4 number vector')
             elif not isinstance(tr, str) or not tr.strip():
                 raise ValueError(f'{label}.transition must be an effect name or object')
 

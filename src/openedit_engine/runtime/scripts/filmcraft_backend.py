@@ -759,12 +759,16 @@ def build_project(
             track_name = clip.get('track', 'video')
             v_track = v_map[track_name]
             place_audio = bool(info.get('has_audio') and float(clip.get('volume', 0)) > 0)
+            speed = float(clip.get('speed', 1.0))
+            rev = bool(clip.get('reverse', False))
+            target_dur = float(clip['duration'])
+            place_dur = target_dur * speed if rev else min(target_dur, target_dur * speed)
             place_params = {
                 'item': item_id,
                 'track': v_track,
                 'seconds': float(clip['start']),
                 'sourceIn': _ticks(clip.get('source_in', 0.0)),
-                'duration': _ticks(clip['duration']),
+                'duration': _ticks(place_dur),
                 'insert': False,
                 'audio': place_audio,
             }
@@ -777,7 +781,7 @@ def build_project(
             placed = min(seq['video'][t_idx]['items'], key=lambda x: abs(x['start'] - _ticks(clip['start'])))
             clip_id = placed['clip']
             placed_entries_by_track.setdefault(track_name, []).append({
-                'clip': clip_id, 'start': float(clip['start']), 'duration': float(clip['duration']),
+                'clip': clip_id, 'start': float(clip['start']), 'duration': target_dur,
             })
 
             if place_audio and seq.get('audio'):
@@ -789,13 +793,19 @@ def build_project(
                     if 'loudness' in clip:
                         _apply_audio_loudness(client, placed_linked_a['clip'], clip['loudness'], default_type='dialogue')
 
-            speed = float(clip.get('speed', 1.0))
-            rev = bool(clip.get('reverse', False))
             if abs(speed - 1.0) > 1e-6 or rev:
                 client.call_tool('command_run', {'id': 'clip.speedDuration', 'params': {
                     'clips': [clip_id], 'speed': speed * 100.0, 'reverse': rev, 'ripple': False
                 }})
                 placed = _find_sequence_clip(client.call_tool('sequence_inspect'), clip_id) or placed
+                if isinstance(placed, dict) and 'start' in placed and 'duration' in placed:
+                    target_end = _ticks(float(clip['start']) + target_dur)
+                    delta = target_end - (int(placed['start']) + int(placed['duration']))
+                    if abs(delta) > 1000:
+                        client.call_tool('command_run', {'id': 'timeline.trim', 'params': {
+                            'clip': clip_id, 'edge': 'out', 'mode': 'regular', 'delta': delta, 'linked': bool(place_audio)
+                        }})
+                        placed = _find_sequence_clip(client.call_tool('sequence_inspect'), clip_id) or placed
             clip_timing = _clip_timing(placed, clip['start'], clip.get('source_in', 0.0), speed)
 
             fit_scale = _apply_clip_fit(client, clip_id, clip, info, canvas)
@@ -826,6 +836,12 @@ def build_project(
                     tr_params['frames'] = max(1, round(float(tr['duration']) * float(canvas['fps'])))
                 elif 'frames' in tr:
                     tr_params['frames'] = int(tr['frames'])
+                if 'align' in tr:
+                    tr_params['align'] = tr['align']
+                if 'reverse' in tr:
+                    tr_params['reverse'] = bool(tr['reverse'])
+                if 'params' in tr and tr['params']:
+                    tr_params['params'] = tr['params']
             client.call_tool('command_run', {'id': 'sequence.applyVideoTransition', 'params': tr_params})
 
         # Place EffectCraft ProRes 4444 alpha overlays.

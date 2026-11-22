@@ -43,7 +43,9 @@ class _FakeEffectCraft:
             p = params.get('params', {})
             if cmd == 'comp.new':
                 self.size = (int(p.get('width', 320)), int(p.get('height', 180)))
-            elif cmd in ('layer.newText', 'layer.newSolid', 'layer.newShape'):
+            elif cmd == 'file.import':
+                return {'items': ['item_1'], 'errors': []}
+            elif cmd in ('layer.newText', 'layer.newSolid', 'layer.newShape', 'layer.newCamera', 'layer.addItem'):
                 return {'layer': f'L_{len(self.calls)}'}
             elif cmd == 'layer.addMask':
                 return {'mask': 1}
@@ -119,6 +121,24 @@ class _FakeFilmCraft:
                         'start': round(p['seconds'] * core.TICKS_PER_SEC),
                         'duration': p['duration'],
                     })
+            elif cid == 'clip.speedDuration':
+                factor = float(p.get('speed', 100.0)) / 100.0
+                targets = set(p.get('clips') or [])
+                for sec in ('video', 'audio'):
+                    for track in self.seq.get(sec, []):
+                        for item in track.get('items', []):
+                            if item.get('clip') in targets:
+                                item['speed'] = factor
+                                item['duration'] = round(int(item['duration']) / factor)
+            elif cid == 'timeline.trim':
+                if p.get('edge') == 'out':
+                    target = p.get('clip')
+                    delta = int(p.get('delta', 0))
+                    for sec in ('video', 'audio'):
+                        for track in self.seq.get(sec, []):
+                            for item in track.get('items', []):
+                                if item.get('clip') == target:
+                                    item['duration'] = int(item['duration']) + delta
             elif cid == 'graphics.newText':
                 return {'clip': f'gx_{len(self.calls)}'}
             elif cid == 'masks.add':
@@ -159,7 +179,8 @@ class OpenEngineTests(unittest.TestCase):
             'clips': [
                 {'path': str(self.v1), 'start': 0, 'duration': 1.0, 'volume': 0.5,
                  'grading': {'exposure': 0.2, 'saturation': 115, 'luma_curve': [[0, 0], [0.5, 0.6], [1, 1]]}},
-                {'path': str(self.v2), 'start': 1.0, 'duration': 1.0, 'transition': {'name': 'Cross Dissolve', 'duration': 0.25}},
+                {'path': str(self.v2), 'start': 1.0, 'duration': 1.0,
+                 'transition': {'name': 'whip', 'duration': 0.2, 'align': 'center', 'reverse': True, 'params': {'direction': 1, 'blur': 85.0}}},
             ],
             'audio': [{'path': str(self.audio), 'start': 0, 'duration': 2.0, 'track': 'bgm'}],
             'captions': [{'text': '高亮中文测试', 'start': 0.2, 'duration': 1.2, 'highlights': [{'start': 0, 'end': 2, 'color': '#FFD54F'}]}],
@@ -174,7 +195,7 @@ class OpenEngineTests(unittest.TestCase):
         self.assertIn(str(self.v1.resolve()), probes)
         self.assertEqual(warnings, [])
 
-        # Refusals: boolean field coercion, NaN, same-track overlap, mixed track type, remote path, bad layer_order.
+        # Refusals: boolean field coercion, NaN, same-track overlap, mixed track type, remote path, bad layer_order, bad transition fields.
         bad_cases = [
             lambda p: p['canvas'].update(fps=True),
             lambda p: p['clips'][0].update(duration=float('nan')),
@@ -182,6 +203,9 @@ class OpenEngineTests(unittest.TestCase):
             lambda p: p['audio'][0].update(track='video'),
             lambda p: p['clips'][0].update(path='https://example.invalid/v.mp4'),
             lambda p: p.update(layer_order=['video']),
+            lambda p: p['clips'][1]['transition'].update(align='bogus'),
+            lambda p: p['clips'][1]['transition'].update(reverse='yes'),
+            lambda p: p['clips'][1]['transition'].update(params='bad'),
         ]
         for idx, mutate in enumerate(bad_cases):
             broken = json.loads(json.dumps(plan))
@@ -255,7 +279,7 @@ class OpenEngineTests(unittest.TestCase):
                 {'path': str(self.v1), 'start': 0.0, 'duration': 1.0, 'volume': 0.5,
                  'transform': {'transform_x': 0.5, 'transform_y': -0.5}},
                 {'path': str(self.v2), 'start': 1.0, 'source_in': 0.2, 'duration': 1.0,
-                 'transition': {'name': 'Cross Dissolve', 'duration': 0.2},
+                 'transition': {'name': 'whip', 'duration': 0.2, 'align': 'center', 'reverse': True, 'params': {'direction': 1, 'blur': 85.0}},
                  'keyframes': [{'property': 'uniform_scale', 'time': 0.5, 'value': 1.2, 'interpolation': 'smoothstep'}]},
             ],
             'audio': [
@@ -299,6 +323,11 @@ class OpenEngineTests(unittest.TestCase):
         self.assertTrue(any(cid == 'effects.setParam' and p.get('effect') == 'volume' and p.get('keyframe')
                             and p.get('time') == filmcraft_backend._ticks(1.5) for cid, p in cmd_calls))
         self.assertTrue(any(cid == 'graphics.set' and p.get('keyframe') and p['props'].get('position') == [80.0, 45.0] for cid, p in cmd_calls))
+        self.assertTrue(any(
+            cid == 'sequence.applyVideoTransition' and p.get('effect') == 'whip' and p.get('align') == 'center'
+            and p.get('reverse') is True and p.get('params') == {'direction': 1, 'blur': 85.0}
+            for cid, p in cmd_calls
+        ))
 
         # Tampered provenance rejects cleanly before creating target dir.
         core.write_json(sidecar, {'local_path': str(self.v1), 'license_verification': 'agent_review_recorded', 'review_note': 'bad', 'sha256': '0' * 64})
@@ -701,6 +730,105 @@ class OpenEngineTests(unittest.TestCase):
 
         forced = media_prep.normalize_media(batch_src, self.root / 'batch_forced', fps=30, force=True)
         self.assertEqual(forced['summary'], {'scanned': 2, 'normalized': 2, 'skipped_compliant': 0})
+
+    def test_speed_duration_preserves_timeline_length(self):
+        plan = {
+            'schema_version': 2,
+            'name': 'speed-trim-check',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 60},
+            'clips': [
+                {'path': str(self.v1), 'start': 0.0, 'duration': 0.25, 'source_in': 0.1, 'speed': 1.4},
+                {'path': str(self.v2), 'start': 0.25, 'duration': 1.0, 'source_in': 0.2, 'speed': 0.5},
+            ],
+        }
+        p_path = self.root / 'speed_trim.json'
+        core.write_json(p_path, plan)
+        norm, probes, _ = core.validate_plan(p_path)
+        calls = []
+        holder = {}
+
+        class _CaptureFake(_FakeFilmCraft):
+            def __enter__(self):
+                holder['seq'] = self.seq
+                return self
+
+        with patch('filmcraft_backend.find_cli', return_value='filmcraft-cli'), \
+                patch('craft_rpc.CraftMcpClient', side_effect=lambda *a, **k: _CaptureFake(calls)):
+            report = filmcraft_backend.build_project(norm, self.root / 'speed_trim_out', probes=probes)
+        self.assertEqual(report['status'], 'passed')
+        cmds = [(prm['id'], prm.get('params', {})) for n, prm in calls if n == 'command_run']
+        self.assertTrue(any(cid == 'timeline.trim' and p.get('edge') == 'out' for cid, p in cmds))
+        placed_items = holder['seq']['video'][0]['items']
+        self.assertEqual(len(placed_items), 2)
+        self.assertLessEqual(abs(placed_items[0]['duration'] - filmcraft_backend._ticks(0.25)), 1000)
+        self.assertLessEqual(abs(placed_items[1]['duration'] - filmcraft_backend._ticks(1.0)), 1000)
+
+    def test_effectcraft_3d_camera_footage_timing_and_time_remap(self):
+        spec = {
+            'name': 'scene3d_test',
+            'duration': 1.2,
+            'width': 1920,
+            'height': 1080,
+            'fps': 60,
+            'motion_blur': True,
+            'layers': [
+                {
+                    'type': 'footage',
+                    'name': 'hero',
+                    'path': str(self.v1),
+                    'time': 0.1,
+                    'in': 0.05,
+                    'out': 0.95,
+                    'duration': 0.9,
+                    'three_d': True,
+                    'motion_blur': True,
+                    'position': [960, 540, 240],
+                    'time_remap': True,
+                    'keyframes': [
+                        {'path': 'timeRemap', 'keys': [{'time': 0.0, 'value': 0.0}, {'time': 0.8, 'value': 0.9}], 'interpolation': 'bezier'},
+                    ],
+                },
+                {
+                    'type': 'camera',
+                    'name': 'cam1',
+                    'camera_type': 'twoNode',
+                    'preset': '35mm',
+                    'position': [960, 540, -1400],
+                    'poi': [960, 540, 0],
+                    'keyframes': [
+                        {'path': 'transform/position', 'keys': [{'time': 0.0, 'value': [960, 540, -1400]}, {'time': 1.0, 'value': [1020, 520, -1180]}]},
+                        {'path': 'cameraOptions/zoom', 'keys': [{'time': 0.0, 'value': 1860.0}, {'time': 1.0, 'value': 2100.0}]},
+                    ],
+                },
+            ],
+        }
+        calls = []
+        with patch('effectcraft_backend.find_cli', return_value='effectcraft-cli'), \
+                patch('craft_rpc.CraftMcpClient', side_effect=lambda *a, **k: _FakeEffectCraft(calls)):
+            rep = effectcraft_backend.build_overlay(spec, self.root / 'ec_3d_out', render_video=False, use_cache=False)
+        self.assertEqual(rep['status'], 'passed')
+
+        cmds = [(n, p.get('command'), p.get('params', {}), p) for n, p in calls]
+        self.assertTrue(any(n == 'execute_command' and c == 'comp.setSwitch' and cp == {'switch': 'motionBlur', 'value': True} for n, c, cp, _ in cmds))
+        add_idx = next(i for i, (n, c, cp, _) in enumerate(cmds) if n == 'execute_command' and c == 'layer.addItem')
+        self.assertEqual(cmds[add_idx][2]['time'], 0.1)
+        self.assertEqual(cmds[add_idx][2]['out'], 0.95)
+        self.assertNotIn('position', cmds[add_idx][2])
+
+        sw3d_idx = next(i for i, (n, c, cp, _) in enumerate(cmds) if n == 'execute_command' and c == 'layer.setSwitch' and cp.get('switch') == 'threeD')
+        pos_idx = next(i for i, (n, _, _, raw) in enumerate(cmds) if n == 'set_property' and raw.get('path') == 'transform/position')
+        self.assertLess(sw3d_idx, pos_idx)
+        self.assertEqual(cmds[pos_idx][3]['value'], [960, 540, 240])
+
+        tr_en_idx = next(i for i, (n, c, cp, _) in enumerate(cmds) if n == 'execute_command' and c == 'layer.enableTimeRemap' and cp.get('value') is True)
+        tr_kf_idx = next(i for i, (n, _, _, raw) in enumerate(cmds) if n == 'add_keyframe' and raw.get('path') == 'timeRemap')
+        self.assertLess(tr_en_idx, tr_kf_idx)
+        self.assertTrue(any(n == 'execute_command' and c == 'layer.newCamera' and cp.get('type') == 'twoNode' and cp.get('poi') == [960, 540, 0] for n, c, cp, _ in cmds))
+        self.assertTrue(any(n == 'add_keyframe' and raw.get('path') == 'cameraOptions/zoom' for n, _, _, raw in cmds))
+
+        k_on = effectcraft_backend._overlay_cache_key(__file__, spec, width=1920, height=1080, fps=60, duration=1.2, render_video=True, preview_time=0.6, gpu=False)
+        k_off = effectcraft_backend._overlay_cache_key(__file__, {**spec, 'motion_blur': False}, width=1920, height=1080, fps=60, duration=1.2, render_video=True, preview_time=0.6, gpu=False)
+        self.assertNotEqual(k_on, k_off)
 
 
 def main():

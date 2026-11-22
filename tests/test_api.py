@@ -53,7 +53,8 @@ class EngineInterfaceTests(unittest.TestCase):
                      'filmcraft-exec', 'effectcraft-exec', 'captions', 'music-edit', 'ducking',
                      'layout-tracks', 'denoise-audio', 'reverse', 'migrate', 'transcribe',
                      'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting',
-                     'auto-reframe', 'rough-cut', 'audio-master', 'stock', 'mesh-avatar'):
+                     'auto-reframe', 'rough-cut', 'audio-master', 'sfx', 'motion-analyze',
+                     'stock', 'mesh-avatar'):
             self.assertIn(name, schemas)
         self.assertEqual(set(schemas), set(api.operations()))
         self.assertEqual(api.operation_schemas('validate'), schemas['validate'])
@@ -114,12 +115,18 @@ class EngineInterfaceTests(unittest.TestCase):
              ['--input', 'talk.mp4', '--out', 'ac_out', '--detector', 'silero', '--threshold', '0.5', '--min-silence', '0.4', '--gpu']),
             ('matting', {'input': 'fg.mp4', 'out': 'm_out', 'backend': 'birefnet', 'alpha_feather': 0.5, 'alpha_erode': -1, 'keep_audio': True, 'device': 'cuda'},
              ['--input', 'fg.mp4', '--out', 'm_out', '--backend', 'birefnet', '--alpha-feather', '0.5', '--alpha-erode=-1', '--keep-audio', '--device', 'cuda']),
+            ('matting', {'input': 'fg.mp4', 'out': 'm2_out', 'backend': 'matanyone2', 'mask': 'seed.png', 'max_size': 720, 'warmup': 6, 'decontaminate': True, 'gpu': True},
+             ['--input', 'fg.mp4', '--out', 'm2_out', '--backend', 'matanyone2', '--mask', 'seed.png', '--max-size', '720', '--warmup', '6', '--decontaminate', '--gpu']),
             ('auto-reframe', {'input': 'w.mp4', 'out': 'rf_out', 'aspect': '9:16', 'detector': 'yunet', 'smoothing': 0.6},
              ['--input', 'w.mp4', '--out', 'rf_out', '--aspect', '9:16', '--detector', 'yunet', '--smoothing', '0.6']),
             ('rough-cut', {'input': 't.mp4', 'out': 'rc_out', 'language': 'zh', 'gpu': True, 'karaoke_mode': 'active'},
              ['--input', 't.mp4', '--out', 'rc_out', '--language', 'zh', '--gpu', '--karaoke-mode', 'active']),
             ('audio-master', {'input': 'a.wav', 'out': 'am_out', 'preset': 'podcast', 'sample_rate': 48000, 'measure_only': True},
              ['--input', 'a.wav', '--out', 'am_out', '--preset', 'podcast', '--sample-rate', '48000', '--measure-only']),
+            ('sfx', {'cues': 'cues.json', 'duration': 32.2, 'out': 'sfx_out', 'sample_rate': 48000, 'duck_out': 'duck.json'},
+             ['--cues', 'cues.json', '--duration', '32.2', '--out', 'sfx_out', '--sample-rate', '48000', '--duck-out', 'duck.json']),
+            ('motion-analyze', {'input': 'clips_dir', 'out': 'mf_out', 'make_lut': 'steel_violet', 'lut_size': 33},
+             ['--input', 'clips_dir', '--out', 'mf_out', '--make-lut', 'steel_violet', '--lut-size', '33']),
             ('build', {'plan': 'p.json', 'out': 'bo', 'draft': True, 'export_scale': 0.5},
              ['--plan', 'p.json', '--out', 'bo', '--export-scale', '0.5', '--draft']),
             ('export', {'project': 'p.fcproj', 'out': 'e.mp4', 'draft': True, 'scale': 0.5, 'gpu_rendering': 'off'},

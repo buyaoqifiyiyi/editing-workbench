@@ -149,6 +149,18 @@ def check(root, model):
     assert float(biref_alpha[32, 32]) > 0.99 and float(biref_alpha[2, 2]) < 0.01
     checks.append('birefnet contract: ImageNet normalization and logit->sigmoid matte verified')
 
+    # 1b. Decontamination & dropout telemetry contracts (pure NumPy/OpenCV, zero network/GPU needed)
+    decon_rgb = np.zeros((48, 48, 3), dtype=np.uint8)
+    decon_rgb[12:36, 12:36] = (240, 230, 220)
+    decon_alpha = np.zeros((48, 48), dtype=np.float32)
+    decon_alpha[12:36, 12:36] = 1.0
+    decon_alpha[11:37, 11:37] = np.where(decon_alpha[11:37, 11:37] > 0.5, 1.0, 0.4)
+    cleaned = matting.decontaminate_foreground(decon_rgb, decon_alpha)
+    assert int(cleaned[11, 24, 0]) > 120 and int(cleaned[24, 24, 0]) == 240
+    drop_info = matting._dropout_metrics([0.45, 0.44, 0.43], [0.5, 0.0, 0.5])
+    assert drop_info['dropout_warning'] is True and drop_info['top_band_min_fg_ratio'] == 0.0
+    checks.append('decontaminate & dropout telemetry contracts verified')
+
     still_path, vid_path, audio_path = _make_fixtures(root)
 
     # 2. Real ONNX inference on still PNG -> matte_rgba.png + matte_alpha.png
@@ -193,19 +205,23 @@ def check(root, model):
         'missing input': ['--input', root / 'nope.png', '--out', root / 'r1', '--model', model],
         'audio-only input': ['--input', audio_path, '--out', root / 'r2', '--model', model],
         'missing model with auto disabled': ['--input', still_path, '--out', root / 'r3'],
+        'matanyone2 missing with auto disabled': ['--input', still_path, '--out', root / 'r3b', '--backend', 'matanyone2'],
         'max-frames exceeded': ['--input', vid_path, '--out', root / 'r4', '--model', model, '--max-frames', '1'],
         'threshold out of range': ['--input', still_path, '--out', root / 'r5', '--model', model, '--threshold', '0.99'],
     }
     for label, arguments in refusals.items():
         saved = {}
-        if label == 'missing model with auto disabled':
-            for k in ('OPENEDIT_MATTING_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
+        if 'auto disabled' in label:
+            for k in (
+                'OPENEDIT_MATTING_MODEL', 'OPENEDIT_MATANYONE2_MODEL', 'OPENEDIT_MATANYONE2_PYTHON',
+                'OPENEDIT_RVM_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS',
+            ):
                 saved[k] = os.environ.pop(k, None)
             os.environ['OPENEDIT_NO_AUTO_MODELS'] = '1'
         try:
             code, refused = _run_main(arguments)
         finally:
-            if label == 'missing model with auto disabled':
+            if 'auto disabled' in label:
                 for k, v in saved.items():
                     if v is None:
                         os.environ.pop(k, None)
@@ -213,7 +229,7 @@ def check(root, model):
                         os.environ[k] = v
         assert code == 1 and refused['status'] == 'failed' and refused.get('error'), (label, refused)
         checks.append(f'refused: {label} -> {refused["error"][:80]}')
-    for name in ('r1', 'r2', 'r3', 'r4', 'r5'):
+    for name in ('r1', 'r2', 'r3', 'r3b', 'r4', 'r5'):
         assert not (root / name).exists(), name
 
     result = {

@@ -40,6 +40,8 @@ CHECKS = {
     'auto_reframe': ('auto_reframe_self_check.py', 'face'),
     'rough_cut': ('rough_cut_self_check.py', 'rough'),
     'audio_master': ('audio_master_self_check.py', 'out'),
+    'sfx': ('sfx_self_check.py', 'out'),
+    'motion_flow': ('motion_flow_self_check.py', 'out'),
 }
 
 
@@ -114,6 +116,18 @@ def skip_reason(name, spec, options):
             import cv2  # noqa: F401
         except ImportError:
             return 'opencv (cv2) is required for auto-reframe check'
+    if name == 'sfx':
+        try:
+            import numpy  # noqa: F401
+            import scipy  # noqa: F401
+        except ImportError:
+            return 'numpy and scipy are required for sfx check'
+    if name == 'motion_flow':
+        try:
+            import cv2  # noqa: F401
+            import numpy  # noqa: F401
+        except ImportError:
+            return 'opencv (cv2) and numpy are required for motion_flow check'
     if kind == 'matting':
         if not getattr(options, 'matting_model', None):
             return 'needs --matting-model (RVM / BiRefNet / RMBG ONNX weights; engine ships none)'

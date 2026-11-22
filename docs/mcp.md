@@ -23,7 +23,7 @@
 
 | 工具 | 用途 |
 |---|---|
-| `describe_operations(operation=None, include_backends=False)` | 返回纯开源白名单操作说明、全部 34 个白名单操作（含 `auto-cut` 气口粗剪、`matting` AI 抠像等）的结构化参数 Schema（`operation_schemas` 100% 覆盖）、会话任务限额（`job_limits`）及本地指南注册表；传 `operation` 聚焦单操作；传 `include_backends=true` 附带只读检测开源后端可用性（FilmCraft / EffectCraft / FFmpeg） |
+| `describe_operations(operation=None, include_backends=False)` | 返回纯开源白名单操作说明、全部 39 个白名单操作（含 `auto-cut` 气口粗剪、`matting` AI 抠像、`sfx` 程序化音效、`motion-analyze` 光流与 LUT 等）的结构化参数 Schema（`operation_schemas` 100% 覆盖）、会话任务限额（`job_limits`）及本地指南注册表；传 `operation` 聚焦单操作；传 `include_backends=true` 附带只读检测开源后端可用性（FilmCraft / EffectCraft / FFmpeg） |
 | `read_guide(name)` | 读取打包注册的内置指南与参考文档（最多返回 `128Ki` 字符并清晰标出 `truncated`）；拒绝任意文件系统路径或符号链接越界 |
 | `search_knowledge(query, limit=5)` | 在捆绑指南/参考库中执行按小节 Okapi BM25（`k1=1.2, b=0.35`）本地检索，返回指南名、小节标题/行号、`anchor`、局部多行 `context` 与关联 `capabilities` 锚点提示（`capability_hints`） |
 | `start_job(operation, arguments=None, params=None, timeout_seconds=1800)` | 经核心 `command_for` 白名单校验启动独立进程任务（`arguments` 数组与结构化字典 `params` 二选一），返回 `job_id`；`job_id` 仅代表已启动，不代表完成 |

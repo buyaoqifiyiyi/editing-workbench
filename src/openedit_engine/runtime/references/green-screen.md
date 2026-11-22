@@ -66,14 +66,15 @@
 
 ### 非绿幕复杂背景离线 AI 抠像（`openedit matting`）
 
-- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|rvm|birefnet|rmbg] [--device auto|cpu|cuda] [--gpu] [--model <path.onnx>] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
-- **模型自动发现与 GPU 加速**：未传 `--model` 时自动扫描 `%LOCALAPPDATA%\OpenEditTools\models\matting\`；默认 CPU 稳定执行，加 `--gpu`（或 `--device cuda`）启用本机 CUDA 加速并自动优先选用 `birefnet_lite_fp16.onnx`（MIT）。
+- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|matanyone2|rvm|birefnet|rmbg] [--device auto|cpu|cuda] [--gpu] [--model <path>] [--mask <seed.png>] [--decontaminate] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
+- **模型自动发现与 GPU 加速**：`auto` / `birefnet` 自动扫描 `%LOCALAPPDATA%\OpenEditTools\models\matting\` 并默认选用 MIT `BiRefNet`；`--backend rvm` 扫描 `models\matting\rvm\`（或指定 `--model`）启用 RVM 时域视频抠像；`--backend matanyone2` 调用隔离 `OpenEditTools\venvs\matanyone2` CUDA 环境执行跨帧记忆传播抠像（未传 `--mask` 时自动用本地 BiRefNet 在第 0 帧生成 `seed_mask.png`，可叠加 `--decontaminate` 消除半透明边缘底色溢色）。
 - **输出**：视频默认输出锁定格式的 `matte.mov`（`prores_ks 4444`, `yuva444p12le`, `has_alpha: true` + `ffmpeg -v error -xerror` 全解码验证）及 `preview_rgba.png` / `preview_alpha.png` / `matting-report.json`；图片模式输出 `matte_rgba.png` 与 `matte_alpha.png`。
 - **模型兼容与许可证边界**：
-  - **RVM ONNX**（`rvm_*.onnx`，6 输入含周期状态 `r1i..r4i`）：**GPL-3.0**，逐帧保持时间隐藏状态，适合人像视频时域连贯抠像（支持 CPU 与 CUDA/DirectML 加速）。
-  - **BiRefNet ONNX**（`birefnet_lite.onnx` / `birefnet_lite_fp16.onnx`，ImageNet 归一化）：**MIT**，适合商用工程与高精度前景分离。
+  - **MatAnyone 2**（`matanyone2.pth`，CVPR 2026 记忆传播视频抠像，真人和动漫通用）：**NTU S-Lab License 1.0（默认仅限非商业用途**；商业交付或分发须联系作者获取书面授权）。
+  - **RVM ONNX**（`rvm_*.onnx`，6 输入含周期状态 `r1i..r4i`）：**GPL-3.0**，逐帧保持时间隐藏状态，适合真人人像视频高速时域抠像（支持 CPU 与 CUDA/DirectML 加速，可配 `--use-model-fgr` 自动前景去色溢）。
+  - **BiRefNet ONNX**（`birefnet_lite.onnx` / `birefnet_lite_fp16.onnx`，ImageNet 归一化）：**MIT**，适合商用工程与高精度单帧分离（加 `--decontaminate` 可轻量化去除半透明边缘溢色）。
   - **BRIA RMBG-1.4 ONNX**（`rmbg14_quantized.onnx`）：**仅限非商业测试/研究用途**；商用交付前请确认使用 **MIT BiRefNet** 或 **GPL-3.0 RVM** 权重（并在报告 `model.license_note` 核对）。
-- **验收边界**：`matting-report.json` 记录 `adjacent_alpha_mad` 作为相邻帧突变线索指标（无法替代人眼检查发丝边缘、快速运动残影与实际背景叠加效果），交付前须将 `matte.mov` 叠放至目标底图并用 `preview` 抽帧与完整播放核查。
+- **验收边界**：`matting-report.json` 记录 `adjacent_alpha_mad`、`min_fg_ratio`、`top_band_min_fg_ratio`、`max_frame_fg_drop` 与 `dropout_warning` 作为漏块/削顶/突变预警线索（无法替代人眼检查发丝边缘、快速运动残影与实际背景叠加效果），交付前须将 `matte.mov` 叠放至目标底图并用 `preview` 抽帧与完整播放核查。
 
 所有效果优先以明文 `.fcproj` / `.ecproj` 可编辑结构生成，保留用户在 FilmCraft GUI 二次微调的余地。采用额外素材仍按 [素材来源流程](stock-sources.md) 核对来源；公开教程不自动授权其人物、图形或示例成片用于交付。
 

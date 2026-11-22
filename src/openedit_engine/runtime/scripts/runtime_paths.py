@@ -45,8 +45,27 @@ _MODEL_ENV_VARS = {
     'whisper': ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'),
     'vad': ('OPENEDIT_VAD_MODEL',),
     'matting': ('OPENEDIT_MATTING_MODEL',),
+    'matanyone2': ('OPENEDIT_MATANYONE2_MODEL',),
+    'rvm': ('OPENEDIT_RVM_MODEL',),
     'face': ('OPENEDIT_FACE_MODEL',),
 }
+
+
+def discover_matanyone2_python():
+    """Locate isolated MatAnyone 2 CUDA Python interpreter (OPENEDIT_MATANYONE2_PYTHON or LocalAppData)."""
+    explicit = os.environ.get('OPENEDIT_MATANYONE2_PYTHON', '').strip()
+    if explicit:
+        cand = Path(os.path.expandvars(explicit)).expanduser().resolve()
+        return cand if cand.is_file() else None
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    base = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools' / 'venvs' / 'matanyone2'
+    for rel in ('Scripts/python.exe', 'bin/python'):
+        cand = base / rel
+        if cand.is_file():
+            return cand.resolve()
+    return None
 _WHISPER_PREFERRED = (
     'faster-whisper-large-v3-turbo',
     'faster-whisper-large-v3',
@@ -153,6 +172,21 @@ def discover_model(kind, *, include_env=True, prefer_fp16=False):
         return _discover_onnx_patterns(
             root, ('face', ''), ('*yunet*.onnx', '*face*.onnx'), fallback_subdir='face',
         )
+    if kind == 'matanyone2':
+        return _discover_onnx_patterns(
+            root, ('matting', 'matanyone2', ''), ('matanyone2*.pth', '*matanyone2*.pth'),
+        )
+    if kind == 'rvm':
+        if prefer_fp16:
+            fp16 = _discover_onnx_patterns(
+                root, ('matting/rvm', 'matting', 'rvm'), ('*rvm*fp16*.onnx',),
+            )
+            if fp16 is not None:
+                return fp16
+        return _discover_onnx_patterns(
+            root, ('matting/rvm', 'matting', 'rvm'), ('rvm*.onnx', '*rvm*.onnx'),
+            exclude_substring='fp16',
+        )
     if prefer_fp16:
         fp16 = _discover_onnx_patterns(
             root, ('matting', ''), ('*birefnet*fp16*.onnx', '*fp16*.onnx'), fallback_subdir=None,
@@ -178,10 +212,16 @@ def model_license_note(kind, path):
         return 'MIT (Silero VAD ONNX)'
     if kind == 'face':
         return 'MIT (OpenCV Zoo YuNet ONNX)'
+    if kind == 'matanyone2':
+        return 'NTU S-Lab License 1.0 (MatAnyone 2, non-commercial default; commercial use requires author permission)'
+    if kind == 'rvm':
+        return 'GPL-3.0 (RobustVideoMatting ONNX)'
     if kind == 'matting':
         stem = Path(path).stem.lower() if path else ''
         if 'rmbg' in stem:
             return 'BRIA RMBG-1.4 non-commercial only (swap in MIT BiRefNet or GPL-3.0 RVM for commercial delivery)'
+        if 'matanyone' in stem:
+            return 'NTU S-Lab License 1.0 (MatAnyone 2, non-commercial default; commercial use requires author permission)'
         if 'birefnet' in stem:
             return 'MIT (BiRefNet ONNX)'
         if 'rvm' in stem:
@@ -204,7 +244,7 @@ def _whisper_model_bin_bytes(path):
 def discover_local_models():
     """Return read-only inventory of offline AI weights detected on disk."""
     inventory = {}
-    for kind in ('demucs', 'whisper', 'vad', 'matting', 'face'):
+    for kind in ('demucs', 'whisper', 'vad', 'matting', 'face', 'matanyone2', 'rvm'):
         cand = discover_model(kind)
         if kind == 'whisper':
             ok = bool(cand is not None and _is_whisper_dir(cand))
@@ -212,12 +252,18 @@ def discover_local_models():
         else:
             ok = bool(cand is not None and cand.is_file())
             size_bytes = cand.stat().st_size if ok else None
-        inventory[kind] = {
+        entry = {
             'available': ok,
             'path': str(cand) if ok else None,
             'size_bytes': size_bytes,
             'license_note': model_license_note(kind, cand) if ok else None,
         }
+        if kind == 'matanyone2':
+            py = discover_matanyone2_python()
+            entry['worker_python'] = str(py) if py else None
+            entry['weights_available'] = ok
+            entry['available'] = bool(ok and py is not None)
+        inventory[kind] = entry
     return inventory
 
 

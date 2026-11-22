@@ -29,6 +29,7 @@
 | 人物首次出场、动作方向相反 | 定格分层；同相位切，翻转查标识 | [通用剪辑](general-editing.md#原创操作与全片统筹) | tutorial-library-原版.md、jian-shenme-ji-01-23.md |
 | 旅行开场揭示 | 短标题、可承受遮挡、不拖延 | [Vlog](styles/vlog.md#转场与文字) | tutorial-library-原版.md |
 | 仿剪拆解、脚本对镜 | 原生动画与多轨都列候选 | [脚本与参考](general-editing.md#script-reference) | workflows.md |
+| 运镜冲击力、无痕动势转场与音乐呼吸感 | 预备+畸变、快对快慢对慢、分轨纯鼓标点、3–10帧蓄力快切与节奏突变 | [运镜转场与节奏卡点实战](camera-transitions-rhythm.md) | B 站 15 条高播剪辑工艺实战 |
 
 另见方法卡 [主体与图形穿插](subject-graphic-interleave.md)。
 

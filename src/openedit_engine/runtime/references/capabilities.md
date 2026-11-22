@@ -21,7 +21,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 
 - **开源后端**：ArtCraft **EffectCraft**（Rust 内核，MIT/Apache-2.0，明文 `.ecproj` JSON 工程）。
 - **已验证能力**：
-  - 覆盖 308 种内置特效、9 种图层样式、形状层/纯色层/文字层（含 `highlights` 区间高亮与 `text_preset` 动画器预设）/外部素材层、67 种内置入退场与行为预设、表达式、蒙版、3D 相机/灯光及 AE 风格 JSX 脚本（`effectcraft-exec` 与 `overlays[]` 声明式规范）。
+  - 覆盖 308 种内置特效、9 种图层样式、形状层/纯色层/文字层（含 `highlights` 区间高亮与 `text_preset` 动画器预设）/外部素材层（支持 `time`/`in`/`out`/`duration` 与 `time_remap`/`timeRemap` 连续变速曲线）/真实 **3D 相机层（`type="camera"` -> `layer.newCamera` + `three_d` Z 轴景深视差 + `motion_blur` 合成运动模糊）**、67 种内置入退场与行为预设、表达式、蒙版、灯光及 AE 风格 JSX 脚本（`effectcraft-exec` 与 `overlays[]` 声明式规范）。
   - **声明式可复用配方库（`overlays[].recipe`）**：内置 **10 个** 分辨率自适应配方（`title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition`），支持通过少量业务参数一键展开为标准 EffectCraft 多层工程，详见 [纯开源手法映射与配方库](recipes.md)。
   - **透明通道中间件锁定与内容寻址缓存**：在 1080p 实机验证中，CLI 默认 WebM VP9 导出会丢失 Alpha 通道；**`ProRes 4444 RGBA (.mov, yuva444p12le)`** 已实测保留完整可用 Alpha，并与 RGBA PNG 首尾协同。`render-overlay` 与 `build` 中的 `overlays` 均固定渲染 ProRes 4444 `.mov` 并自动挂载到 FilmCraft 上层视频轨合成；声明式/配方叠层默认按图层内容、画布、素材 SHA-256 与 CLI 指纹缓存在 `%LOCALAPPDATA%\OpenEditEngine\overlay-cache`（支持 `--no-cache` / `--no-overlay-cache` 绕过）。
 
@@ -31,7 +31,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 - 通过 `clips[].grading`（及 `composites[].grading`）接入 FilmCraft 原生 Lumetri 引擎，完整支持连续参数与二级控制：
   - 基础与创意调色：`exposure`、`contrast`、`saturation`（独立映射 Lumetri 基础饱和度）、`highlights`、`shadows`、`whites`、`blacks`、`temperature`、`tint`、`creative_sat`、`vibrance`、`sharpen` / `sharpness`、`faded_film`、`look_intensity`、`vignette`（`-5..5`） / `vignette_midpoint` / `vignette_roundness` / `vignette_feather`。
   - 全曲线与三色轮：亮度/RGB 曲线（`luma_curve`、`rgb_curves`）、5 组 HSL/Hue 曲线（`hue_vs_sat`、`hue_vs_hue`、`hue_vs_luma`、`luma_vs_sat`、`sat_vs_sat`）以及三区色轮（`wheels` / `primary_wheel` 的 `shadows` / `midtones` / `highlights` `[x, y]` 与 `*_l`）。
-  - 二级 HSL、LUT 与局部遮罩：完整 `hsl` 二级抠像（或单色简写 `red_hsl` / `green_hsl` / `blue_hsl`）、前置 `input_lut` 与创意 `lut` / `look`，以及基于 Lumetri 椭圆遮罩的 `local_circle`。
+  - 二级 HSL、3D LUT 与局部遮罩：完整 `hsl` 二级抠像（或单色简写 `red_hsl` / `green_hsl` / `blue_hsl`）、前置 `input_lut` 与创意 `lut` / `look`（支持标准 33×33×33 `.cube` 电影风格 LUT，配合 `look_intensity` 控量），以及基于 Lumetri 椭圆遮罩的 `local_circle`。
 
 <a id="filmcraft-blend"></a>
 ## 混合模式与合成
@@ -74,8 +74,8 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 <a id="ai-matting"></a>
 ## 非绿幕离线 AI 抠像（matting -> ProRes 4444）
 
-- 通过 `matting` 支持 **RVM**（`rvm_*.onnx` 时域循环状态）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，注意 BRIA RMBG-1.4 仅非商业用途）三类 ONNX 图结构，对图片或有界视频区间生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`。
-- **边界**：CPU 默认单线程可控边界（`--max-frames` 默认 600）；报告中 `adjacent_alpha_mad` 仅作帧间突变线索，不替代实景合入后的发丝/边缘人工检视；支持 `--gpu` / `--device cuda|auto` 启用 CUDA 加速。
+- 通过 `matting` 支持 **MatAnyone 2**（`matanyone2.pth` 跨帧记忆视频抠像，经隔离 PyTorch CUDA 环境调用；支持 `--mask` 首帧蒙版或本地 BiRefNet 自动起模、`--max-size`、`--warmup` 与 `--decontaminate` 边缘去底色溢色；注意采用 **NTU S-Lab License 1.0 默认仅限非商用**）、**RVM**（`rvm_*.onnx` 时域循环状态，GPL-3.0）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，仅非商业用途）生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`。
+- **边界**：ONNX 模式 CPU 默认可控边界（`--max-frames` 默认 600）；报告新增逐帧 `min_fg_ratio`、`top_band_min_fg_ratio`、`max_frame_fg_drop` 与 `dropout_warning` 指标辅助排查削顶或帧间突变（仍不替代实景合入后的发丝/边缘人工检视）；支持 `--gpu` / `--device cuda|auto` 启用 CUDA 加速。
 
 <a id="auto-reframe"></a>
 ## 竖屏智能重构图（auto-reframe：16:9 ↔ 9:16）
@@ -93,6 +93,18 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 ## 音频响度母带与 PCM 质检（audio-master）
 
 - `audio-master` 基于 FFmpeg 双遍线性 EBU R128 `loudnorm` 与 PCM16 统计，内置 `streaming`（`-14 LUFS / -1.0 dBTP`）、`podcast`（`-16 LUFS / -1.5 dBTP`）与 `broadcast`（`-23 LUFS / -1.0 dBTP`）预设，输出 `mastered.wav` 与 `loudness-report.json`（含前后积分响度、真峰值、削波采样数与 `--measure-only` 只测不写模式）。
+
+<a id="sfx-design"></a>
+## 程序化立体声电影音效合成（sfx）
+
+- 通过 `sfx`（纯 NumPy + SciPy DSP）按剪辑点/节拍偏移直接离线生成 48kHz 立体声 PCM16 `sfx_bed.wav`，内置 `whoosh`（立体声左右声像扫频）、`riser`、`sub_drop`、`impact`、`katana_draw`、`laser_sweep`、`glitch_tick` 与 `bass_swell` 8 类音效及平滑软限幅（确保零满幅削波）。
+- 同步生成按微秒严格递增的 BGM 闪避包络 `bgm_duck_keyframes.json`，可直接写入主音轨 `audio[].keyframes` 与人声/音效形成呼吸压低配合。
+
+<a id="motion-flow"></a>
+## 光流运动分析与 3D `.cube` 电影 LUT（motion-analyze）
+
+- 通过 `motion-analyze` 调用 OpenCV Farneback 稠密光流估算每个素材的入场/出场运动方向（`entry_vector` / `exit_vector`）、推拉散度（`zoom_divergence`：`push_in` / `pull_out`）、动作爆发峰值（`action_peaks`）与视觉重心轨迹（`centroid`），辅助确定动势接应转场与音效卡点。
+- 支持同步按标准 Adobe `.cube` 格式程序化生成 33×33×33 三维调色 LUT（`steel_violet` / `cinema_warm` / `teal_orange`），直接喂给 FilmCraft `clips[].grading.lut` 实现全片统一胶片色调锚定。
 
 <a id="ducking"></a>
 ## 自动音频闪避（Ducking）

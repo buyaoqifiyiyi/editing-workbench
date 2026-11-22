@@ -187,6 +187,9 @@ class KnowledgeInterfaceTests(unittest.TestCase):
             ('口播一键粗剪 字幕', {'reference/course-techniques-openedit', 'reference/general-editing', 'capabilities'}, None),
             ('响度母带 EBU R128', {'reference/course-techniques-openedit', 'reference/creative-knowledge-workflows', 'capabilities'}, None),
             ('非绿幕 AI 抠像', {'reference/course-techniques-openedit', 'reference/green-screen', 'reference/layered-reveal', 'capabilities'}, None),
+            ('运镜 冲击力 光学补偿', {'reference/camera-transitions-rhythm'}, None),
+            ('快对快 慢对慢 变速转场', {'reference/camera-transitions-rhythm'}, None),
+            ('节奏突变 呼吸感 鼓点分轨', {'reference/camera-transitions-rhythm'}, None),
         ]
         for query, expected_guides, expected_hint in queries:
             with self.subTest(query=query):

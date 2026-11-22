@@ -47,7 +47,7 @@
   - `method`：`"ultra_key"`（默认，专业绿幕/蓝幕抠像，支持 `key_color`/`color` `#RRGGBB`、`setting`、`output`、`transparency`、`highlight`、`shadow`、`tolerance`、`pedestal`、`choke`、`soften`、`spill`、`contrast`、`mid_point`、`desaturate`、`range`、`spill_luma`，别名 `strength`/`feather`）或 `"color_key"`（支持 `color`/`key_color`、`tolerance` `0..255`、`thin` `-5..5`、`feather` `0..50`）。
 - **混合模式与转场**：
   - `blend_mode`（字符串，如 `screen`、`multiply`、`overlay` 等）或 `mix_mode`（对象或字符串，支持 `opacity` 设定不透明度）。
-  - `transition`：字符串名称（如 `"Cross Dissolve"`）或对象 `{"name": "Cross Dissolve", "duration": 0.4, "frames": 12, "edge": "in"|"out"}`。引擎在所有视频片段全部入轨后统一挂接边界转场，避免首片段无前邻边界失败。
+  - `transition`：字符串名称（如 `"Cross Dissolve"`）或对象 `{"name": "whip", "duration": 0.14, "frames": 8, "edge": "in"|"out", "align": "center"|"start"|"end", "reverse": false, "params": {"direction": 1, "blur": 90}}`。引擎在所有视频片段全部入轨后统一挂接边界转场，避免首片段无前邻边界失败；除常规溶解外，FilmCraft 原生支持方向动感转场 `whip`、`cross_zoom`、`zoom_blur`、`travel_motion`、`pull_motion`、`motion_camera`、`directional_blur_transition`、`dip_to_black`、`blur_dissolve`、`flash`。
 - **调色、滤镜、特效与响度：`grading` / `effects` / `filters` / `loudness`**：
   - `grading`：支持基础调色（`exposure`、`contrast`、`saturation` 映射基础饱和度、`highlights`、`shadows`、`whites`、`blacks`、`temperature`、`tint`）、创意/锐化/暗角（`creative_sat`、`vibrance`、`sharpen`/`sharpness`、`faded_film`、`look_intensity`、`vignette`（`-5..5`）、`vignette_midpoint`、`vignette_roundness`、`vignette_feather`）、曲线（`luma_curve`、`rgb_curves`、`hue_vs_sat`、`hue_vs_hue`、`hue_vs_luma`、`luma_vs_sat`、`sat_vs_sat`）、三色轮（`wheels` / `primary_wheel` 的 `shadows`/`midtones`/`highlights` `[x, y]` 与 `*_l` 亮度）、HSL 二级调色（完整 `hsl` 对象或单组简写 `red_hsl` / `green_hsl` / `blue_hsl`，支持 `lightness` 自动编译至 `hue_vs_luma`）、`input_lut` 与 `lut`/`look`、局部椭圆校色遮罩 `local_circle`。
   - `effects` / `filters`：字符串或 `{"name": "...", "params": {...}}` 数组，映射为 FilmCraft `effects.apply` + `effects.setParam`。
@@ -96,8 +96,8 @@
 }
 ```
 
-- 每项必须唯一命名 `name`（1..64 安全字符），指定 `start`、`duration`（`0.04..3600`s），可覆盖 `width`/`height`/`fps`（否则继承画布设置），默认进入 `track: "overlay"`。
-- 必须提供 `recipe`（推荐，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text`，含 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。内置 10 个分辨率自适应配方 `title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition` 详见 [动效配方与手法映射](recipes.md)。
+- 每项必须唯一命名 `name`（1..64 安全字符），指定 `start`、`duration`（`0.04..3600`s），可覆盖 `width`/`height`/`fps`（否则继承画布设置），可选顶层 `motion_blur`（开启合成运动模糊 `comp.setSwitch`），默认进入 `track: "overlay"`。
+- 必须提供 `recipe`（推荐，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text` 与 `camera`；其中 `footage` 支持 `time`/`in`/`out`/`duration`/`anchor` 及 `time_remap`/`timeRemap` S 形曲线时间重映射，可见图元支持 `three_d` Z 轴景深坐标 `[x, y, z]` 与单层 `motion_blur`，`camera` 支持 `camera_type`/`preset`/`position`/`poi` 与 `transform/position`/`cameraOptions/zoom` 关键帧；保留 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。内置 10 个分辨率自适应配方 `title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition` 详见 [动效配方与手法映射](recipes.md)。
 - 构建时自动由 EffectCraft 无头渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)`，经完整 Alpha 与严格解码校验后置于 FilmCraft 对应视频轨。
 
 ## 嵌套合成组：`composites[]`

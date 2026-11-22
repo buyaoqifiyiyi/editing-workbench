@@ -83,6 +83,7 @@ def _overlay_cache_key(
         'gpu': bool(gpu),
         'resolution': str(resolution),
         'quality': str(quality),
+        'motion_blur': compiled_spec.get('motion_blur'),
         'layers': layers,
         'footage_hashes': footage_hashes,
     }
@@ -236,6 +237,21 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
             shape_params['kind'] = 'rounded'
         res = client.call_tool('execute_command', {'command': 'layer.newShape', 'params': shape_params})
         layer_id = res['layer']
+    elif ltype == 'camera':
+        cam_params = {'name': name or 'Camera'}
+        if 'camera_type' in layer:
+            cam_params['type'] = str(layer['camera_type'])
+        elif 'kind' in layer:
+            cam_params['type'] = str(layer['kind'])
+        for ck in (
+            'preset', 'zoom', 'focalLength', 'angleOfView', 'dof',
+            'focusDistance', 'aperture', 'fStop', 'blurLevel', 'lockToZoom',
+            'position', 'poi',
+        ):
+            if ck in layer:
+                cam_params[ck] = layer[ck]
+        res = client.call_tool('execute_command', {'command': 'layer.newCamera', 'params': cam_params})
+        layer_id = res['layer']
     elif ltype == 'footage':
         res = client.call_tool('execute_command', {
             'command': 'file.import',
@@ -247,7 +263,13 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
         item_id = items[0] if isinstance(items, list) and items else (res.get('item') or res.get('id') if isinstance(res, dict) else None)
         if item_id is None:
             raise RuntimeError(f'EffectCraft file.import returned no item id: {res}')
-        add_res = client.call_tool('execute_command', {'command': 'layer.addItem', 'params': {'item': item_id}})
+        add_params = {'item': item_id}
+        for fk in ('time', 'in', 'out', 'duration', 'anchor'):
+            if fk in layer and layer[fk] is not None:
+                add_params[fk] = layer[fk]
+        if 'position' in layer and not layer.get('three_d'):
+            add_params['position'] = layer['position']
+        add_res = client.call_tool('execute_command', {'command': 'layer.addItem', 'params': add_params})
         layer_id = add_res['layer']
     elif ltype == 'text':
         text_val = layer.get('text', 'Title')
@@ -302,15 +324,31 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
     else:
         raise ValueError(f'Unsupported EffectCraft declarative layer type: {ltype}')
 
-    if 'position' in layer and ltype not in ('shape', 'text'):
-        client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/position', 'value': layer['position']})
-    if 'scale' in layer and ltype != 'solid':
+    # Enable 3D / motion-blur switches before 3D transforms and Time Remap before timeRemap keys.
+    if ltype != 'camera':
+        if 'three_d' in layer:
+            client.call_tool('execute_command', {
+                'command': 'layer.setSwitch',
+                'params': {'layers': [layer_id], 'switch': 'threeD', 'value': bool(layer['three_d'])},
+            })
+        if 'motion_blur' in layer:
+            client.call_tool('execute_command', {
+                'command': 'layer.setSwitch',
+                'params': {'layers': [layer_id], 'switch': 'motionBlur', 'value': bool(layer['motion_blur'])},
+            })
+
+    if 'anchor' in layer and ltype not in ('camera', 'footage'):
+        client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/anchor', 'value': layer['anchor']})
+    if 'position' in layer and ltype != 'camera':
+        if ltype not in ('shape', 'text', 'footage') or layer.get('three_d'):
+            client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/position', 'value': layer['position']})
+    if 'scale' in layer and ltype not in ('solid', 'camera'):
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/scale', 'value': layer['scale']})
-    if 'opacity' in layer:
+    if 'opacity' in layer and ltype != 'camera':
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/opacity', 'value': float(layer['opacity'])})
-    if 'rotation' in layer:
+    if 'rotation' in layer and ltype != 'camera':
         client.call_tool('set_property', {'comp': comp_name, 'layer': layer_id, 'path': 'transform/rotation', 'value': float(layer['rotation'])})
-    if layer.get('blend_mode'):
+    if layer.get('blend_mode') and ltype != 'camera':
         client.call_tool('execute_command', {'command': 'layer.setBlendMode', 'params': {'layers': [layer_id], 'mode': str(layer['blend_mode'])}})
 
     for st in layer.get('styles', []):
@@ -340,15 +378,28 @@ def _add_declarative_layer(client, comp_name, layer, width, height, default_font
             args['values'] = eff_vals
         client.call_tool('add_effect', args)
 
-    for kf_group in layer.get('keyframes', []):
+    keyframes = layer.get('keyframes', [])
+    wants_time_remap = bool(layer.get('time_remap')) or any(
+        isinstance(k, dict) and k.get('path') in ('timeRemap', 'time_remap') for k in keyframes
+    )
+    if wants_time_remap:
+        client.call_tool('execute_command', {
+            'command': 'layer.enableTimeRemap',
+            'params': {'layers': [layer_id], 'value': True},
+        })
+
+    for kf_group in keyframes:
         prop_path = kf_group['path']
-        if not prop_path.startswith(('transform/', 'effects/', 'masks/', 'text/', '@')):
+        if prop_path == 'time_remap':
+            prop_path = 'timeRemap'
+        elif prop_path != 'timeRemap' and not prop_path.startswith(('transform/', 'effects/', 'masks/', 'text/', 'cameraOptions/', '@')):
             prop_path = {
                 'position': 'transform/position',
                 'scale': 'transform/scale',
                 'opacity': 'transform/opacity',
                 'rotation': 'transform/rotation',
                 'anchor': 'transform/anchor',
+                'zoom': 'cameraOptions/zoom',
             }.get(prop_path, prop_path)
         client.call_tool('add_keyframe', {
             'comp': comp_name,
@@ -442,6 +493,11 @@ def build_overlay(
                 'command': 'comp.new',
                 'params': {'name': comp_name, 'width': w, 'height': h, 'frameRate': rate, 'duration': duration},
             })
+            if 'motion_blur' in compiled_spec:
+                client.call_tool('execute_command', {
+                    'command': 'comp.setSwitch',
+                    'params': {'switch': 'motionBlur', 'value': bool(compiled_spec['motion_blur'])},
+                })
             active_comp = comp_name
             for layer in compiled_spec.get('layers', []):
                 _add_declarative_layer(client, active_comp, layer, w, h, default_font)

@@ -9,9 +9,9 @@
 | 组件 | 开源协议 | 负责职责 | 核心产出的工程/产物 |
 |---|---|---|---|
 | **ArtCraft FilmCraft** (`filmcraft-cli`) | MIT OR Apache-2.0 | 多轨 V/A 时间轴、硬切/转场、变速倒放、Lumetri 曲线/色轮/HSL/LUT 调色、26 种混合模式、CJK 图形文字/多色重点词高亮、Subtitle 字幕轨、OTIO/FCPXML 互操作与成片导出 | 明文 `.fcproj`、`.otio`、`.fcpxml`、PNG 预览帧、H.264/HEVC/ProRes/NVENC 成片 |
-| **ArtCraft EffectCraft** (`effectcraft-cli`) | MIT OR Apache-2.0 | 308 种特效、9 种图层样式、形状/纯色/文字/素材层、文字动画器、蒙版、表达式、3D 相机/灯光、AE 风格 JSX 脚本 | 明文 `.ecproj`、RGBA 预览 PNG、锁定 **`ProRes 4444 RGBA (.mov)`** 透明叠层 |
+| **ArtCraft EffectCraft** (`effectcraft-cli`) | MIT OR Apache-2.0 | 308 种特效、9 种图层样式、形状/纯色/文字/素材层、文字动画器、蒙版、表达式、3D 相机/灯光、时间重映射/运动模糊、AE 风格 JSX 脚本 | 明文 `.ecproj`、RGBA 预览 PNG、锁定 **`ProRes 4444 RGBA (.mov)`** 透明叠层 |
 | **FFmpeg / FFprobe** | LGPL / GPL | 媒体流探测、手机 VFR 可变帧率转码标准化（`normalize-media`）、参考抽帧与导出后严格全解码核验 | 标准 CFR 中间件、严格全解码回执（`ffmpeg -v error -xerror`） |
-| **离线开源 AI 工具** | MIT / Apache-2.0 / BSD | 竖屏跟拍重构图（`auto-reframe`，PySceneDetect + YuNet）、一键粗剪字幕流水线（`rough-cut`）、EBU R128 响度母带质检（`audio-master`）、非绿幕 AI 抠像（`matting`，BiRefNet/RVM/RMBG）、去气口（`auto-cut`）、语音转写（`faster-whisper`）、人声分离（Demucs ONNX）、按拍切镜（`librosa`）、CSRT 单目标跟踪（支持可选 `--gpu` CUDA 加速） | `edit-plan.json` 增补轨迹/关键帧/字幕、`ProRes 4444` 透明通道及母带音频 |
+| **离线开源 AI 工具** | MIT / Apache-2.0 / BSD | 竖屏跟拍重构图（`auto-reframe`，PySceneDetect + YuNet）、一键粗剪字幕流水线（`rough-cut`）、EBU R128 响度母带质检（`audio-master`）、非绿幕 AI 抠像（`matting`，MatAnyone 2/BiRefNet/RVM/RMBG）、程序化音效与 BGM 闪避（`sfx`）、光流运镜衔接分析与 33³ `.cube` LUT 生成（`motion-analyze`）、去气口（`auto-cut`）、语音转写（`faster-whisper`）、人声分离（Demucs ONNX）、按拍切镜（`librosa`）、CSRT 单目标跟踪（支持可选 `--gpu` CUDA 加速） | `edit-plan.json` 增补轨迹/关键帧/字幕、`ProRes 4444` 透明通道及母带音频 |
 | **创作知识库与全模态选配** | — | BM25 节级知识检索引擎（`search_knowledge`）；可选调用用户自配 OpenAI 兼容或 Gemini 原生多模态服务的 `music-edit` | 创作方法引用、`analysis.json` / `review.json` |
 
 ### 已解除的商业边界锁

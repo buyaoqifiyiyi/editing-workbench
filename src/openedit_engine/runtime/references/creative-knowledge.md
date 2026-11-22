@@ -24,8 +24,9 @@ openedit guide reference/creative-knowledge-techniques
 |---|---|---|
 | 有片段但看不出故事、人物动机或结果 | `reference/creative-knowledge-story`：事件、信息缺口、结构选择 | [通用剪辑](general-editing.md)、[漫剪](styles/anime-mix.md) |
 | 情绪/节奏太平、镜头只是在接龙 | `reference/creative-knowledge-story`：变化和反差；`reference/creative-knowledge-techniques`：连接 | [创作修订](creative-review.md)、[音乐与动作](styles/anime-mix.md) |
-| 学过手法却未用、转场或画面接管单一 | `reference/creative-knowledge-techniques`：按连接问题比较可执行方法 | [已学课程实战总手册](course-techniques-openedit.md)、[教程方法索引](tutorial-library.md)、[组合方法](technique-combinations.md) |
-| 对白被淹没、转写不可靠、音乐不贴 | `reference/creative-knowledge-audio`：原声、分离、音乐和听审 | [音乐编排](music-edit.md)、[声音处理与粗剪](course-techniques-openedit.md#声音处理字幕高亮与口播粗剪一条龙)、[节拍](beat-marking.md) |
+| 学过手法却未用、转场或画面接管单一 | `reference/creative-knowledge-techniques`：按连接问题比较可执行方法 | [已学课程实战总手册](course-techniques-openedit.md)、[运镜转场与节奏卡点实战](camera-transitions-rhythm.md)、[教程方法索引](tutorial-library.md)、[组合方法](technique-combinations.md) |
+| 运镜平淡、速度衔接断层、机械卡点缺呼吸感 | `reference/camera-transitions-rhythm`：B站15条高播实战拆解（光学畸变推镜、快对快慢对慢、分轨鼓点与节奏突变） | [漫剪与节奏混剪](styles/anime-mix.md)、[节拍卡点](beat-marking.md)、[开源动效配方库](recipes.md) |
+| 对白被淹没、转写不可靠、音乐不贴 | `reference/creative-knowledge-audio`：原声、分离、音乐和听审 | [音乐编排](music-edit.md)、[声音处理与粗剪](course-techniques-openedit.md#声音处理字幕高亮与口播粗剪一条龙)、[运镜转场与节奏卡点实战](camera-transitions-rhythm.md#三音乐驱动鼓点分轨与节奏呼吸感)、[节拍](beat-marking.md) |
 | 用户说重复、小窗无意义、文字或叙事突兀 | `reference/creative-knowledge-workflows`：反馈与对照模板 | [创作修订](creative-review.md)、[镜头去重](general-editing.md) |
 | 想用关键帧曲线、动漫排版、卡点、调色或动效配方 | [已学课程实战总手册](course-techniques-openedit.md) 与 `reference/creative-knowledge-workflows` | [动效配方库](recipes.md)、[文字融景](text-in-scene.md)、[主体与图形](subject-graphic-interleave.md) |
 | 口播一键粗剪、横转竖跟拍、响度母带或快速草稿 | [已学课程实战总手册](course-techniques-openedit.md#声音处理字幕高亮与口播粗剪一条龙) 与 `capabilities` | [竖屏重构图](capabilities.md#auto-reframe)、[一键粗剪](capabilities.md#rough-cut)、[响度母带](capabilities.md#audio-master) |

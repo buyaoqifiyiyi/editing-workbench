@@ -80,6 +80,7 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'demucs').mkdir()
             (root / 'vad').mkdir()
             (root / 'matting').mkdir()
+            (root / 'matting' / 'rvm').mkdir()
             (root / 'face').mkdir()
             (root / 'faster-whisper-tiny').mkdir()
             (root / 'faster-whisper-base').mkdir()
@@ -90,6 +91,8 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'matting' / 'birefnet_general.onnx').write_bytes(b'bf')
             (root / 'matting' / 'birefnet_lite_fp16.onnx').write_bytes(b'fp16')
             (root / 'matting' / 'rmbg14_quantized.onnx').write_bytes(b'rm')
+            (root / 'matting' / 'matanyone2.pth').write_bytes(b'm2')
+            (root / 'matting' / 'rvm' / 'rvm_resnet50_fp32.onnx').write_bytes(b'rv')
             (root / 'face' / 'face_detection_yunet_2023mar.onnx').write_bytes(b'yn')
             clean_env = {
                 'OPENEDIT_MODELS_DIR': str(root),
@@ -100,14 +103,22 @@ class RuntimeSafety(unittest.TestCase):
                 'JIANYING_WHISPER_MODEL': '',
                 'OPENEDIT_VAD_MODEL': '',
                 'OPENEDIT_MATTING_MODEL': '',
+                'OPENEDIT_MATANYONE2_MODEL': '',
+                'OPENEDIT_MATANYONE2_PYTHON': '',
+                'OPENEDIT_RVM_MODEL': '',
                 'OPENEDIT_FACE_MODEL': '',
             }
             with patch.dict(editor.os.environ, clean_env, clear=False):
                 inv = runtime_paths.discover_local_models()
-                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting', 'face')))
+                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting', 'face', 'rvm')))
                 self.assertEqual(Path(inv['whisper']['path']).name, 'faster-whisper-base')
                 self.assertEqual(Path(inv['matting']['path']).name, 'birefnet_general.onnx')
                 self.assertEqual(Path(runtime_paths.discover_model('matting', prefer_fp16=True)).name, 'birefnet_lite_fp16.onnx')
+                self.assertEqual(Path(inv['matanyone2']['path']).name, 'matanyone2.pth')
+                self.assertTrue(inv['matanyone2']['weights_available'])
+                self.assertEqual(Path(inv['rvm']['path']).name, 'rvm_resnet50_fp32.onnx')
+                self.assertIn('NTU S-Lab License 1.0', inv['matanyone2']['license_note'])
+                self.assertIn('GPL-3.0', inv['rvm']['license_note'])
                 self.assertEqual(Path(inv['face']['path']).name, 'face_detection_yunet_2023mar.onnx')
                 provs = runtime_paths.resolve_ort_providers(['CUDAExecutionProvider', 'CPUExecutionProvider'], gpu=True)
                 self.assertEqual(provs[0][0], 'CUDAExecutionProvider')
