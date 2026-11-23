@@ -57,6 +57,7 @@ _SCRIPTS = {
     'shader-fx': ('shader_fx.py', 'Headless ModernGL OpenGL 3.3 GPU shader transitions (GL-Transitions MIT) & ISF effects.'),
     'stock': ('stock.py', 'Explicit online stock media search/download with provenance (including Freesound CC0 audio).'),
     'audit': ('audit_project.py', 'Audit an edit plan, optional export/overlays strict decode, source overlaps, beat alignment, loudness QC, and contact sheet.'),
+    'bootstrap': ('bootstrap_tools.py', 'Tiered installer and readiness checker for external open-source tools and offline AI model weights.'),
     'checks': ('run_checks.py', 'Run registered open-source self-checks in isolated temporary directories.'),
 }
 
@@ -703,6 +704,18 @@ OPERATION_SCHEMAS = {
         'contact_sheet': _bool_param('--contact-sheet', 'Generate qc_contact_sheet.jpg from cut points and uniform frames'),
         'sheet_frames': _num_param('--sheet-frames', 'integer'),
         'overlap_tolerance': _num_param('--overlap-tolerance'),
+    }},
+    'bootstrap': {'params': {
+        'tier': _str_param('--tier', choices=('core', 'ai', 'full', 'gpu-heavy'), description='Component tier to install or check'),
+        'only': _list_param('--only', 'string', description='Optional subset of component IDs'),
+        'tools_dir': _str_param('--tools-dir', description='Override OpenEditTools directory'),
+        'engine_dir': _str_param('--engine-dir', description='Override OpenEditEngine directory'),
+        'hf_endpoint': _str_param('--hf-endpoint', description='Hugging Face download base URL (e.g. https://hf-mirror.com)'),
+        'torch_index_url': _str_param('--torch-index-url', description='PyTorch wheel index URL for gpu-heavy tier'),
+        'dry_run': _bool_param('--dry-run', 'Detect existing components and print plan without downloading'),
+        'force': _bool_param('--force', 'Re-download and overwrite existing files'),
+        'keep_archives': _bool_param('--keep-archives', 'Keep downloaded zip archives'),
+        'timeout': _num_param('--timeout', 'integer', description='HTTP timeout in seconds'),
     }},
     'checks': {'params': {
         'only': _list_param('--only', 'string'),

@@ -22,19 +22,41 @@
 
 ## 安装与常用命令
 
-建议使用 Windows 与 64 位 Python 3.12+，确保本机可用 `ffmpeg`/`ffprobe` 及 ArtCraft `filmcraft-cli` / `effectcraft-cli`：
+建议使用 Windows 与 64 位 Python 3.12（`>=3.12,<3.13`），系统 `PATH` 可用 `ffmpeg`/`ffprobe`：
+
+### 一键安装（换新机 / 全新环境）
+
+克隆仓库后运行分级初始化脚本（默认 `ai` 档，安装纯开源 Python 依赖、FilmCraft/EffectCraft、RIFE 补帧、PySceneDetect 与常用离线 AI 权重）：
+
+```powershell
+# 查看将要安装的工具、模型清单与磁盘预估（零下载、零修改）
+.\scripts\setup.ps1 -Tier ai -DryRun
+
+# 常用安装：ai 档 + CUDA GPU 推理 + 国内 HuggingFace 镜像 + 同步 Agent Skill
+.\scripts\setup.ps1 -Tier ai -Gpu -HfMirror -SyncSkill
+```
+
+也可以在激活虚拟环境后单独调用内置 `openedit bootstrap` 分级安装器（`core` / `ai` / `full` / `gpu-heavy`）：
 
 ```powershell
 $engineVenv = Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv'
 py -3.12 -m venv $engineVenv
 $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 
-# 开发维护安装（editable，含 MCP 与常用开源扩展）
-& $enginePython -m pip install -e '.[mcp]'
-# 按需可选 extras: [rhythm] [audio] [gpu] [tracking] [exchange] [all]
+# 1) 安装引擎与全套纯开源 Python 依赖（按需可选 [exchange] [rhythm] [audio] [vfx] [search] [scene-deps] [tracking] [mcp] [all] [gpu]）
+& $enginePython -m pip install -e '.[all]'
+# 2) 按档位安装外部工具与离线 AI 模型（可加 --dry-run 先预览，或 --hf-endpoint https://hf-mirror.com）
+& $enginePython -m openedit_engine bootstrap --tier ai
 ```
 
-日常诊断与剪辑指令（也可直接调用安装后的 `openedit`）：
+| 档位（累计包含） | 约需磁盘空间 | 包含内容与许可说明 |
+|---|---|---|
+| `core` | ~550 MB | **FilmCraft** + **EffectCraft** 便携版 + 系统 `ffmpeg`/`ffprobe` 检测（MIT / Apache-2.0 / LGPL） |
+| `ai`（推荐默认） | ~2.7 GB | `core` + **RIFE** Vulkan 补帧、PySceneDetect（无冲突独立挂载）、Demucs、faster-whisper-base、Silero VAD、YuNet、BiRefNet（MIT）、RVM（GPL-3.0）、Beat This!、CLAP、NeuFlow v2、Depth Anything V2、SigLIP 2 |
+| `full` | ~2.9 GB | `ai` + **HyperFrames** 数据动画（需本机 Node.js >=22 + Chrome/Edge，Apache-2.0） |
+| `gpu-heavy` | ~8.2 GB | `full` + 独立 CUDA PyTorch 工作环境、**MatAnyone 2**（NTU S-Lab License 1.0，默认仅非商用；商用需另获作者授权或改用 BiRefNet/RVM）、**Video Depth Anything** 与 **allin1**（MIT） |
+
+### 日常诊断与剪辑指令（也可直接调用安装后的 `openedit`）：
 
 ```powershell
 & $enginePython -m openedit_engine doctor
