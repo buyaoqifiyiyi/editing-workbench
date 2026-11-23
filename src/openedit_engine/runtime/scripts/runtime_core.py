@@ -70,12 +70,10 @@ def new_directory(path):
 
 
 def tool_path(name):
-    for prefix in ('OPENEDIT_', 'JIANYING_'):
-        override = os.environ.get(prefix + name.upper())
-        if override is not None:
-            override = override.strip()
-            if not override:
-                continue
+    override = os.environ.get('OPENEDIT_' + name.upper())
+    if override is not None:
+        override = override.strip()
+        if override:
             candidate = Path(override)
             return str(candidate.resolve()) if candidate.is_file() else None
     located = shutil.which(name)

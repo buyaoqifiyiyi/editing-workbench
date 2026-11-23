@@ -21,7 +21,7 @@ class OmniSettingsTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.config = self.root / 'omni.json'
-        self.environment = patch.dict(os.environ, {'JIANYING_OMNI_CONFIG': str(self.config)})
+        self.environment = patch.dict(os.environ, {'OPENEDIT_OMNI_CONFIG': str(self.config)})
         self.environment.start()
         self.addCleanup(self.environment.stop)
 

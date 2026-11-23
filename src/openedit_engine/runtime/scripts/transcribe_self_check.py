@@ -137,7 +137,7 @@ def check(root, model):
     for label, arguments in refusals.items():
         saved_env = {}
         if label == 'no model at all':
-            for key in ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
+            for key in ('OPENEDIT_WHISPER_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
                 saved_env[key] = os.environ.pop(key, None)
             os.environ['OPENEDIT_NO_AUTO_MODELS'] = '1'
         try:
@@ -163,9 +163,9 @@ def check(root, model):
 
     cand_dir = model.parent.parent if model.parent.name == 'snapshots' else model
     auto_root = cand_dir.parent
-    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL')}
+    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL')}
     try:
-        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'):
+        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_WHISPER_MODEL'):
             os.environ.pop(k, None)
         os.environ['OPENEDIT_MODELS_DIR'] = str(auto_root)
         if transcribe.runtime_paths.discover_model('whisper') == cand_dir.resolve():

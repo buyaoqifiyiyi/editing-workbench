@@ -6,12 +6,10 @@ import tempfile
 import unittest
 
 from openedit_engine import api
-from jianying_engine import api as legacy_api
 
 
 class EngineInterfaceTests(unittest.TestCase):
-    def test_rejects_non_operations_and_invalid_tokens_and_keeps_alias(self):
-        self.assertIs(legacy_api, api)
+    def test_rejects_non_operations_and_invalid_tokens(self):
         for operation in ('python', '../editor.py', 'doctor; echo unsafe', []):
             with self.assertRaises(ValueError):
                 api.command_for(operation, [])
@@ -38,9 +36,6 @@ class EngineInterfaceTests(unittest.TestCase):
             result = json.loads(good.stdout)
             self.assertEqual(Path(result['runtime_root']), api.RUNTIME)
             self.assertEqual(set(result['backends']), {'filmcraft', 'effectcraft', 'ffmpeg'})
-            alias = subprocess.run([sys.executable, '-m', 'jianying_engine', 'doctor'], cwd=directory,
-                                   text=True, encoding='utf-8', capture_output=True)
-            self.assertEqual(alias.returncode, 0, alias.stderr)
             bad = subprocess.run([sys.executable, '-m', 'openedit_engine', '../editor.py'], cwd=directory,
                                  text=True, encoding='utf-8', capture_output=True)
             self.assertEqual(bad.returncode, 2)

@@ -4,14 +4,14 @@
 
 ## 准备与参考阅读
 
-- 有 `openedit-engine`（或兼容别名 `jianying-engine`）MCP 时依次调用：
+- 有 `openedit-engine` MCP 时依次调用：
   1. `describe_operations(include_backends=True)` 确认 FilmCraft / EffectCraft / FFmpeg 全部就绪；
   2. `read_guide("editing")`、`read_guide("capabilities")`、`read_guide("plan-format")`、`read_guide("reference/openedit")` 与 `read_guide("reference/recipes")`；
   3. 需要时用 `search_knowledge("<具体剪辑或创作问题>")` 检索技法。
 - 无 MCP 时在终端调用：
 
 ```powershell
-$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
+$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
 & $enginePython -m openedit_engine doctor
 & $enginePython -m openedit_engine guide editing
 & $enginePython -m openedit_engine guide capabilities

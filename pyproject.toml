@@ -36,12 +36,10 @@ all = [
 [project.scripts]
 openedit = "openedit_engine.cli:main"
 openedit-mcp = "openedit_engine.mcp_server:main"
-jianying-engine = "jianying_engine.cli:main"
-jianying-engine-mcp = "jianying_engine.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["openedit_engine*", "jianying_engine*"]
+include = ["openedit_engine*"]
 namespaces = true
 
 [tool.setuptools.package-data]

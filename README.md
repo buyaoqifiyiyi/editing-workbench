@@ -2,7 +2,7 @@
 
 **OpenEdit Engine** 是一个面向 AI Agent（Codex、Antigravity、DSH、OpenCode 等）与命令行的**纯开源视频剪辑、动效合成与媒体处理引擎**，由 **ArtCraft FilmCraft**、**ArtCraft EffectCraft**、**FFmpeg / FFprobe** 以及可插拔本地开源 AI 音频/视觉工具组成。
 
-> **架构声明**：自 `1.0.0` 起，引擎已全面移除商业剪辑宿主（剪映、DaVinci Resolve、Adobe Premiere / After Effects）依赖与历史独立桌面/Web 工作台（商业闭源适配基线已冻结并保存在 Git 标签 `archive/commercial-v0.6.3`）。原 `jianying-engine` 包名、CLI 与 MCP 入口仅保留为向后兼容的薄委托垫片。
+> **架构声明**：自 `1.0.0` 起，引擎已全面移除商业剪辑宿主（剪映、DaVinci Resolve、Adobe Premiere / After Effects）依赖与历史独立桌面/Web 工作台（商业闭源适配基线已冻结并保存在 Git 标签 `archive/commercial-v0.6.3`）。
 
 ## 纯开源核心能力
 
@@ -34,7 +34,7 @@ $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 # 按需可选 extras: [rhythm] [audio] [gpu] [tracking] [exchange] [all]
 ```
 
-日常诊断与剪辑指令（也可直接调用安装后的 `openedit` / 兼容别名 `jianying-engine`）：
+日常诊断与剪辑指令（也可直接调用安装后的 `openedit`）：
 
 ```powershell
 & $enginePython -m openedit_engine doctor
@@ -51,7 +51,7 @@ $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 ## Agent 与 MCP 集成
 
 - **Agent 技能模板**：位于 [adapters/skills/editing-workbench](adapters/skills/editing-workbench)，提供统一的 `editing-workbench` Skill 入口（含 `openedit`、`planning`、`maintenance` 子模块）。
-- **本机 MCP Server**：见 [docs/mcp.md](docs/mcp.md) 与 [docs/agents.md](docs/agents.md)，提供官方 `mcp==2.3.0` stdio 服务（`openedit_engine.mcp_server`，兼容别名 `jianying_engine.mcp_server`），对外暴露 7 个只读/受控工具：`describe_operations`、`read_guide`、`search_knowledge`、`start_job`、`job_status`、`read_job_output`、`cancel_job`。
+- **本机 MCP Server**：见 [docs/mcp.md](docs/mcp.md) 与 [docs/agents.md](docs/agents.md)，提供官方 `mcp==2.3.0` stdio 服务（`openedit_engine.mcp_server`），对外暴露 7 个只读/受控工具：`describe_operations`、`read_guide`、`search_knowledge`、`start_job`、`job_status`、`read_job_output`、`cancel_job`。
 
 ## 许可证与回溯
 

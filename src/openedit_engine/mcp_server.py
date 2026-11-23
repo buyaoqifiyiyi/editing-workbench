@@ -138,7 +138,7 @@ def create_server(state_dir=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--state-dir', default=os.environ.get('OPENEDIT_ENGINE_STATE_DIR') or os.environ.get('JIANYING_ENGINE_STATE_DIR'))
+    parser.add_argument('--state-dir', default=os.environ.get('OPENEDIT_ENGINE_STATE_DIR'))
     args = parser.parse_args(argv)
     create_server(args.state_dir).run(transport='stdio')
 

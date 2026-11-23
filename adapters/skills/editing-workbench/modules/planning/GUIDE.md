@@ -1,9 +1,9 @@
 # Agent 剪辑创作规划入口
 
-本入口只负责读取独立引擎的 `planning` 指南，不保存第二份分流规则。有 `openedit-engine`（或兼容别名 `jianying-engine`）MCP 时调用 `read_guide("planning")`；否则执行：
+本入口只负责读取独立引擎的 `planning` 指南，不保存第二份分流规则。有 `openedit-engine` MCP 时调用 `read_guide("planning")`；否则执行：
 
 ```powershell
-$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } elseif ($env:JIANYING_ENGINE_PYTHON) { $env:JIANYING_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
+$enginePython = if ($env:OPENEDIT_ENGINE_PYTHON) { $env:OPENEDIT_ENGINE_PYTHON } else { Join-Path $env:LOCALAPPDATA 'OpenEditEngine\venv\Scripts\python.exe' }
 & $enginePython -m openedit_engine guide planning
 ```
 

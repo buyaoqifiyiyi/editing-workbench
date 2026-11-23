@@ -14,7 +14,7 @@
 
 ## 凭据
 
-运行 `openedit stock status` 只显示配置状态，不显示密钥。凭据优先取当前进程环境变量，其次读取外置配置文件。`OPENEDIT_STOCK_CONFIG`（兼容旧名 `JIANYING_STOCK_CONFIG`）可指定现存配置文件的绝对路径，显式路径失效会报错；未设置时默认 `%LOCALAPPDATA%/OpenEditEngine/config.env`（保留既有 `JianyingEngine` 配置文件回退兼容）。无 Key 的来源仍可使用。用户可在本机编辑这个文件：
+运行 `openedit stock status` 只显示配置状态，不显示密钥。凭据优先取当前进程环境变量，其次读取外置配置文件。`OPENEDIT_STOCK_CONFIG` 可指定现存配置文件的绝对路径，显式路径失效会报错；未设置时默认 `%LOCALAPPDATA%/OpenEditEngine/config.env`。无 Key 的来源仍可使用。用户可在本机编辑这个文件：
 
 ```dotenv
 PEXELS_API_KEY=用户本机填写的实际密钥

@@ -111,11 +111,10 @@ def _path(value):
 
 
 def _tool_path(name):
-    for prefix in ('OPENEDIT_', 'JIANYING_'):
-        override = os.environ.get(prefix + name.upper())
-        if override:
-            path = _path(override)
-            return path if path and path.is_file() else None
+    override = os.environ.get('OPENEDIT_' + name.upper())
+    if override:
+        path = _path(override)
+        return path if path and path.is_file() else None
     located = shutil.which(name)
     if located and Path(located).is_file():
         return Path(located)

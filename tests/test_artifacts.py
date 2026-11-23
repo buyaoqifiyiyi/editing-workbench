@@ -4,12 +4,10 @@ import tempfile
 import unittest
 
 from openedit_engine import artifacts
-from jianying_engine import artifacts as legacy_artifacts
 
 
 class ArtifactClassification(unittest.TestCase):
     def test_open_source_projects_and_exchange_files_remain_visible(self):
-        self.assertIs(legacy_artifacts, artifacts)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             names = ['timeline.fcproj', 'overlay.ecproj', 'cut.otio', 'cut.fcpxml', 'shot.avi']

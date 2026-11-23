@@ -123,13 +123,13 @@ def check(root):
     local_tool = local_tools / 'ffmpeg.exe'
     local_tool.write_bytes(b'test-only marker, never executed')
     with patch.object(runtime_core, 'SKILL_ROOT', local_tools.parents[1]), patch.object(shutil, 'which', return_value=None), \
-            patch.dict(editor.os.environ, {'OPENEDIT_FFMPEG': '', 'JIANYING_FFMPEG': ''}):
+            patch.dict(editor.os.environ, {'OPENEDIT_FFMPEG': ''}):
         assert Path(editor.tool_path('ffmpeg')) == local_tool
     checks.append('optional tool discovered relative to moved skill root')
     with patch.object(runtime_core, 'SKILL_ROOT', root / 'engine-runtime'), \
             patch.object(runtime_paths, 'RAW_ROOT', local_tools.parents[1]), \
             patch.object(shutil, 'which', return_value=None), \
-            patch.dict(editor.os.environ, {'OPENEDIT_FFMPEG': '', 'JIANYING_FFMPEG': ''}):
+            patch.dict(editor.os.environ, {'OPENEDIT_FFMPEG': ''}):
         assert Path(editor.tool_path('ffmpeg')) == local_tool
     checks.append('legacy lexical Skill tool directory remains usable through a runtime junction')
     with patch.dict(editor.os.environ, {'OPENEDIT_FILMCRAFT_CLI': str(root / 'missing-filmcraft.exe')}):

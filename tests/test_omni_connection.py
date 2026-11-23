@@ -22,7 +22,7 @@ class ConnectionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / 'omni.json'
-        env = patch.dict(os.environ, {'JIANYING_OMNI_CONFIG': str(self.path), 'MULTIMODAL_API_KEY': 'fixture-private-key'})
+        env = patch.dict(os.environ, {'OPENEDIT_OMNI_CONFIG': str(self.path), 'MULTIMODAL_API_KEY': 'fixture-private-key'})
         env.start()
         self.addCleanup(env.stop)
         omni.save('https://example.invalid/v1', True, protocol='openai-compatible', model='fixture-model')

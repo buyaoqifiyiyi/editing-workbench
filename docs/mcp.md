@@ -4,7 +4,7 @@
 
 ## 启动与客户端配置
 
-可使用脚本命令 `openedit-mcp`（或兼容别名 `jianying-engine-mcp`），也可直接使用虚拟环境 Python 启动模块 `openedit_engine.mcp_server`（兼容模块 `jianying_engine.mcp_server`）：
+可使用脚本命令 `openedit-mcp`，也可直接使用虚拟环境 Python 启动模块 `openedit_engine.mcp_server`：
 
 ```json
 {
@@ -17,7 +17,7 @@
 }
 ```
 
-- 默认任务状态持久化目录为 `%LOCALAPPDATA%\OpenEditEngine\jobs`（兼容环境变量 `OPENEDIT_ENGINE_STATE_DIR` 或 `JIANYING_ENGINE_STATE_DIR`，也可在启动参数末尾传入 `["--state-dir", "<绝对路径>"]`）。状态目录应位于源码与 Skill 包之外。
+- 默认任务状态持久化目录为 `%LOCALAPPDATA%\OpenEditEngine\jobs`（可用环境变量 `OPENEDIT_ENGINE_STATE_DIR` 覆盖，也可在启动参数末尾传入 `["--state-dir", "<绝对路径>"]`）。状态目录应位于源码与 Skill 包之外。
 
 ## 七个受控工具
 

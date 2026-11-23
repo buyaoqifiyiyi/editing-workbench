@@ -75,46 +75,27 @@ def check(root):
     checks = []
     config = root / 'fake-config.env'
     config.write_text('PEXELS_API_KEY=fake-file-value\nPIXABAY_API_KEY=fake-pixabay\n', encoding='utf-8')
-    with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': str(config),
+    with patch.dict(stock.os.environ, {'OPENEDIT_STOCK_CONFIG': str(config),
                                       'PEXELS_API_KEY': 'fake-env-value', 'PIXABAY_API_KEY': '', 'FREESOUND_API_KEY': ''}):
         assert stock.credentials() == {'pexels': 'fake-env-value', 'pixabay': 'fake-pixabay', 'freesound': ''}
         assert runtime_paths.stock_config() == config.resolve()
     for invalid in ('relative.env', str(root / 'absent.env')):
-        with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': invalid}):
+        with patch.dict(stock.os.environ, {'OPENEDIT_STOCK_CONFIG': invalid}):
             refuses(stock.credentials)
-    with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': '', 'OPENEDIT_STOCK_CONFIG': '', 'LOCALAPPDATA': str(root / 'local')}):
-        assert runtime_paths.stock_config() == root / 'local/OpenEditEngine/config.env'
-        legacy = root / 'legacy/skills/jianying-editor'
-        legacy.mkdir(parents=True)
-        (legacy / 'config.env').write_text('PEXELS_API_KEY=fake-legacy', encoding='utf-8')
-        with patch.object(runtime_paths, 'RAW_ROOT', legacy):
-            assert runtime_paths.stock_config() == legacy / 'config.env'
-        legacy_jy = root / 'local/JianyingEngine/config.env'
-        legacy_jy.parent.mkdir(parents=True)
-        legacy_jy.write_text('PEXELS_API_KEY=fake-legacy-jy', encoding='utf-8')
-        assert runtime_paths.stock_config() == legacy_jy
+    with patch.dict(stock.os.environ, {'OPENEDIT_STOCK_CONFIG': '', 'LOCALAPPDATA': str(root / 'local')}):
         external = root / 'local/OpenEditEngine/config.env'
+        assert runtime_paths.stock_config() == external
         external.parent.mkdir(parents=True)
         external.write_text('PEXELS_API_KEY=fake-external', encoding='utf-8')
-        with patch.object(runtime_paths, 'RAW_ROOT', legacy):
-            assert runtime_paths.stock_config() == legacy / 'config.env'
-        integrated = root / 'integrated/skills/editing-workbench/backends/jianying'
-        integrated.mkdir(parents=True)
-        (integrated / 'config.env').write_text('PEXELS_API_KEY=fake-integrated', encoding='utf-8')
-        with patch.object(runtime_paths, 'RAW_ROOT', integrated):
-            assert runtime_paths.stock_config() == integrated / 'config.env'
-            for forbidden in (integrated / 'cache', integrated.parents[1] / 'cache',
-                              integrated.parents[2] / 'other-skill/cache'):
-                refuses(lambda: runtime_paths.external_directory(forbidden, 'test cache'))
         assert runtime_paths.stock_config() == external
-    checks.append('external config selection, explicit invalid path refusal, environment key precedence and legacy path fallback with fake credentials')
+    checks.append('external config selection, explicit invalid path refusal, and environment key precedence with fake credentials')
     assert stock.cache_directory(root / 'outside-cache') == root / 'outside-cache'
     for forbidden in (runtime_paths.RUNTIME_ROOT / 'cache', Path.home() / '.codex/skills/cache',
                       Path.home() / '.dsh/skills/cache'):
         refuses(lambda: stock.cache_directory(forbidden))
-        with patch.dict(stock.os.environ, {'JIANYING_STOCK_CACHE_DIR': str(forbidden)}):
+        with patch.dict(stock.os.environ, {'OPENEDIT_STOCK_CACHE_DIR': str(forbidden)}):
             refuses(stock.cache_directory)
-    checks.append('explicit and environment stock cache paths both reject package and legacy Skill directories')
+    checks.append('explicit and environment stock cache paths both reject package and Skill directories')
     photo = {'id': 1, 'width': 1920, 'height': 1080, 'url': 'https://www.pexels.com/photo/id-1/',
              'photographer': 'Creator', 'src': {'large2x': 'https://images.pexels.com/a.jpg'}}
     movie = {'id': 2, 'url': 'https://www.pexels.com/video/id-2/', 'duration': 7,

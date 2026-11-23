@@ -21,8 +21,6 @@ class SoftwareDetectionTests(unittest.TestCase):
             'OPENEDIT_EFFECTCRAFT_ROOT': '',
             'OPENEDIT_FFMPEG': '',
             'OPENEDIT_FFPROBE': '',
-            'JIANYING_FFMPEG': '',
-            'JIANYING_FFPROBE': '',
             'ProgramFiles': str(self.root / 'pf'),
             'ProgramFiles(x86)': str(self.root / 'pf86'),
         })

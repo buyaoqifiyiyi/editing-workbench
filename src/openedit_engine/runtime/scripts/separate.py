@@ -52,7 +52,7 @@ def decode(path):
 
 def model_path(explicit):
     """--model, env vars, or %LOCALAPPDATA%\\OpenEditTools\\models\\demucs; never downloads weights."""
-    candidate = explicit or os.environ.get('OPENEDIT_DEMUCS_MODEL') or os.environ.get('JIANYING_DEMUCS_MODEL')
+    candidate = explicit or os.environ.get('OPENEDIT_DEMUCS_MODEL')
     if candidate:
         path = Path(os.path.expanduser(os.path.expandvars(str(candidate)))).resolve()
         if not path.is_file():
@@ -62,7 +62,7 @@ def model_path(explicit):
     if discovered is not None and discovered.is_file():
         return discovered
     raise ValueError(
-        f'Offline separation needs the demucs ONNX model: pass --model PATH, set OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL, '
+        f'Offline separation needs the demucs ONNX model: pass --model PATH, set OPENEDIT_DEMUCS_MODEL, '
         f'or place {MODEL_NAME} under %LOCALAPPDATA%\\OpenEditTools\\models\\demucs\\. '
         f'This Skill ships no weights; the file measured here is {MODEL_NAME} ({MODEL_BYTES:,} B) from {MODEL_SOURCE}.'
     )
@@ -204,7 +204,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--input', required=True, help='media ffmpeg can decode')
     parser.add_argument('--out', required=True, help='new directory for the stems and report')
-    parser.add_argument('--model', help=f'demucs ONNX weights, else OPENEDIT_DEMUCS_MODEL / JIANYING_DEMUCS_MODEL (e.g. {MODEL_NAME})')
+    parser.add_argument('--model', help=f'demucs ONNX weights, else OPENEDIT_DEMUCS_MODEL (e.g. {MODEL_NAME})')
     parser.add_argument('--stems', default='pair', choices=('pair', 'all'),
                         help="'pair' writes vocals + accompaniment, 'all' adds the four raw stems")
     parser.add_argument('--overlap', type=float, default=0.25, help='chunk overlap fraction, default 0.25')

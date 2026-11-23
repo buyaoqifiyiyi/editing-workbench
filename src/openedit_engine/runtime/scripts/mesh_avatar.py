@@ -18,11 +18,7 @@ RANGES = {'angleX':(-30,30),'angleY':(-30,30),'angleZ':(-30,30),'breath':(0,1),
 
 def config_path():
     base = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))
-    primary = base / 'OpenEditEngine' / 'mesh-avatar.json'
-    legacy = base / 'JianyingEngine' / 'mesh-avatar.json'
-    if not primary.is_file() and legacy.is_file():
-        return legacy
-    return primary
+    return base / 'OpenEditEngine' / 'mesh-avatar.json'
 
 def studio_path(value):
     if value is None:

@@ -11,26 +11,14 @@ _CUDA_DLL_HANDLES = []
 _CUDA_PRELOADED = False
 
 
-def resource_skill_root():
-    """Locate the owning Skill for both historical and integrated resource layouts."""
-    if RAW_ROOT.name == 'jianying-editor':
-        return RAW_ROOT
-    if (RAW_ROOT.name == 'jianying' and RAW_ROOT.parent.name == 'backends'
-            and RAW_ROOT.parent.parent.name == 'editing-workbench'):
-        return RAW_ROOT.parent.parent
-    return None
-
-
 def external_directory(value, label):
     path = Path(os.path.expandvars(str(value))).expanduser()
     if not path.is_absolute():
         raise ValueError(f'{label} must be an absolute directory')
     resolved = path.resolve()
     protected = [RUNTIME_ROOT.parent]
-    skill = resource_skill_root()
-    if skill is not None:
-        protected.append(skill.parent)
-    protected.extend(Path.home() / name / 'skills' for name in ('.codex', '.dsh', '.agents'))
+    protected.extend(Path.home() / name / 'skills' for name in ('.codex', '.dsh', '.agents', '.gemini'))
+    protected.append(Path.home() / '.gemini' / 'config' / 'skills')
     if os.environ.get('CODEX_HOME'):
         protected.append(Path(os.environ['CODEX_HOME']) / 'skills')
     # Source checkouts can keep thin Skills beside the engine; wheel installs have no such sibling.
@@ -42,8 +30,8 @@ def external_directory(value, label):
 
 
 _MODEL_ENV_VARS = {
-    'demucs': ('OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL'),
-    'whisper': ('OPENEDIT_WHISPER_MODEL', 'JIANYING_WHISPER_MODEL'),
+    'demucs': ('OPENEDIT_DEMUCS_MODEL',),
+    'whisper': ('OPENEDIT_WHISPER_MODEL',),
     'vad': ('OPENEDIT_VAD_MODEL',),
     'matting': ('OPENEDIT_MATTING_MODEL',),
     'matanyone2': ('OPENEDIT_MATANYONE2_MODEL',),
@@ -595,20 +583,11 @@ def resolve_ort_providers(available_providers, *, device='cpu', gpu=False):
 
 
 def stock_config():
-    explicit = os.environ.get('OPENEDIT_STOCK_CONFIG') or os.environ.get('JIANYING_STOCK_CONFIG')
+    explicit = os.environ.get('OPENEDIT_STOCK_CONFIG')
     if explicit:
         path = Path(os.path.expandvars(explicit)).expanduser()
         if not path.is_absolute() or not path.is_file():
-            raise ValueError('OPENEDIT_STOCK_CONFIG / JIANYING_STOCK_CONFIG must name an existing absolute file')
+            raise ValueError('OPENEDIT_STOCK_CONFIG must name an existing absolute file')
         return path.resolve()
     base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
-    default = base / 'OpenEditEngine' / 'config.env'
-    legacy_jy = base / 'JianyingEngine' / 'config.env'
-    # A resource-path caller retains its configuration after consolidation as well.
-    # __file__ preserves the lexical internal directory when launched through its junction.
-    legacy = RAW_ROOT / 'config.env'
-    if resource_skill_root() is not None and legacy.is_file():
-        return legacy
-    if not default.is_file() and legacy_jy.is_file():
-        return legacy_jy
-    return default
+    return base / 'OpenEditEngine' / 'config.env'

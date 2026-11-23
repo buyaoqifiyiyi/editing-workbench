@@ -74,7 +74,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 def cache_directory(explicit=None):
     """Explicit --cache, or external OpenEditEngine stock-cache directory."""
-    value = explicit or os.environ.get('OPENEDIT_STOCK_CACHE_DIR') or os.environ.get('JIANYING_STOCK_CACHE_DIR')
+    value = explicit or os.environ.get('OPENEDIT_STOCK_CACHE_DIR')
     path = Path(value).expanduser() if value else Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditEngine' / 'stock-cache'
     return runtime_paths.external_directory(path, 'Stock cache')
 
@@ -317,7 +317,7 @@ def normalize(provider, kind, data, stats=None):
 
 def search_provider(provider, args, key, cache, stats=None):
     if provider in KEYS and not key:
-        raise ValueError(f'{KEYS[provider]} is not configured; set the environment key or use OPENEDIT_STOCK_CONFIG / JIANYING_STOCK_CONFIG')
+        raise ValueError(f'{KEYS[provider]} is not configured; set the environment key or use OPENEDIT_STOCK_CONFIG')
     if provider in ('pexels', 'pixabay') and args.kind == 'audio':
         raise ValueError('Official API used here supports images/video, not music or sound effects')
     if provider == 'openverse' and args.kind == 'video':

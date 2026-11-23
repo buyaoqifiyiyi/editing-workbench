@@ -83,7 +83,6 @@ def _load_pyscenedetect():
         local = Path(os.environ.get('LOCALAPPDATA') or Path.home())
         candidates = [
             local / 'OpenEditEngine' / 'optional' / 'pyscenedetect-0.7.2',
-            local / 'JianyingEngine' / 'optional' / 'pyscenedetect-0.7.2',
         ]
     for cand in candidates:
         if cand.is_dir():

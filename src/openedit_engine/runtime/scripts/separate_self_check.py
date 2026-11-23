@@ -134,18 +134,18 @@ def check(root, model):
     checks.append('cli all: four raw stems plus the pair, named by the demucs order')
 
     from_env = root / 'stems-env'
-    os.environ['JIANYING_DEMUCS_MODEL'] = str(model)
+    os.environ['OPENEDIT_DEMUCS_MODEL'] = str(model)
     try:
         code, report = run_main(['--input', mix_file, '--out', from_env])
     finally:
-        del os.environ['JIANYING_DEMUCS_MODEL']
+        del os.environ['OPENEDIT_DEMUCS_MODEL']
     assert code == 0 and report['status'] == 'passed' and report['model']['path'] == str(model), report
-    checks.append('model discovery: JIANYING_DEMUCS_MODEL is honored when --model is absent')
+    checks.append('model discovery: OPENEDIT_DEMUCS_MODEL is honored when --model is absent')
 
     auto_root = model.parent.parent if model.parent.name == 'demucs' else model.parent
-    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL')}
+    saved_auto = {k: os.environ.get(k) for k in ('OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL')}
     try:
-        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL'):
+        for k in ('OPENEDIT_NO_AUTO_MODELS', 'OPENEDIT_DEMUCS_MODEL'):
             os.environ.pop(k, None)
         os.environ['OPENEDIT_MODELS_DIR'] = str(auto_root)
         if separate.runtime_paths.discover_model('demucs') == model:
@@ -173,7 +173,7 @@ def check(root, model):
     for label, arguments in refusals.items():
         saved_env = {}
         if label == 'no model at all':
-            for key in ('OPENEDIT_DEMUCS_MODEL', 'JIANYING_DEMUCS_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
+            for key in ('OPENEDIT_DEMUCS_MODEL', 'OPENEDIT_MODELS_DIR', 'OPENEDIT_NO_AUTO_MODELS'):
                 saved_env[key] = os.environ.pop(key, None)
             os.environ['OPENEDIT_NO_AUTO_MODELS'] = '1'
         try:

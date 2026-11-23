@@ -130,7 +130,7 @@ class JobManager:
     def __init__(self, state_dir=None, *, output_limit=1024 * 1024, concurrent_limit=2, job_limit=128):
         default = Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local' / 'state')) / 'OpenEditEngine' / 'jobs'
         self.state_dir = Path(state_dir or default).expanduser().resolve()
-        protected = {'openedit_engine', 'jianying_engine', 'editing-workbench'}
+        protected = {'openedit_engine', 'editing-workbench'}
         if any(part.name.casefold() in protected for part in (self.state_dir, *self.state_dir.parents)):
             raise ValueError('state_dir must be outside the engine package and Skill directories')
         if output_limit < 1 or concurrent_limit < 1 or job_limit < 1:

@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import patch
 
 from openedit_engine.jobs import JobManager
-from jianying_engine.jobs import JobManager as LegacyJobManager
 
 
 class JobsTest(unittest.IsolatedAsyncioTestCase):
@@ -33,7 +32,6 @@ class JobsTest(unittest.IsolatedAsyncioTestCase):
         return await self.manager.status(job_id)
 
     async def test_exit_codes_and_external_receipt(self):
-        self.assertIs(LegacyJobManager, JobManager)
         job = await self.launch("import json; print(json.dumps({'status':'ok'}))")
         result = await self.done(job)
         self.assertEqual((result['state'], result['returncode']), ('succeeded', 0))
@@ -104,7 +102,7 @@ class JobsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.manager.jobs[job].task.done())
 
     async def test_whitelist_and_limits(self):
-        for folder_name in ('OPENEDIT_ENGINE', 'JIANYING_ENGINE'):
+        for folder_name in ('OPENEDIT_ENGINE', 'EDITING-WORKBENCH'):
             with self.assertRaises(ValueError):
                 JobManager(Path(self.temp.name) / folder_name / 'logs')
         with self.assertRaises(ValueError):

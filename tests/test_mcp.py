@@ -26,7 +26,7 @@ class StdioTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(result['returncode'])
 
     async def test_real_stdio_discovery_doctor_and_rejection(self):
-        for module_name in ('openedit_engine.mcp_server', 'jianying_engine.mcp_server'):
+        for module_name in ('openedit_engine.mcp_server',):
             with self.subTest(module_name=module_name), tempfile.TemporaryDirectory(prefix='openedit-mcp-') as state:
                 environment = {name: os.environ[name] for name in
                                ('PATH', 'SYSTEMROOT', 'LOCALAPPDATA', 'USERPROFILE', 'TEMP', 'TMP') if name in os.environ}

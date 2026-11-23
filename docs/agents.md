@@ -10,12 +10,12 @@
    - 参考 [docs/mcp.md](mcp.md)，在宿主配置文件的 `mcpServers` 中登记 `openedit-engine`（指向虚拟环境的 `python -m openedit_engine.mcp_server` 或 `openedit-mcp`）。
    - Agent 开工顺序：`describe_operations(include_backends=True)` -> `read_guide("planning")` / `read_guide("editing")` -> 按需 `search_knowledge(...)` -> 通过 `start_job` / `job_status` / `read_job_output` 执行 `inspect` / `normalize-media` / `validate` / `build` / `preview` / `export`。
 2. **命令行直接执行**
-   - 直接调用安装环境中的 `openedit`（兼容别名 `jianying-engine`）或 `& <venv>\Scripts\python.exe -m openedit_engine <子命令>`，均经由同一份 `api.command_for` 白名单与参数校验执行，无特权捷径。
+   - 直接调用安装环境中的 `openedit` 或 `& <venv>\Scripts\python.exe -m openedit_engine <子命令>`，均经由同一份 `api.command_for` 白名单与参数校验执行，无特权捷径。
 
 ## 可选视听多模态服务（`music-edit`）
 
 - 当任务指定背景音乐（BGM）并需要基于真实画面内容、情绪起伏与动作卡点进行选段或成片审片时，可使用 `music-edit prepare` / `analyze` / `review` / `compile`。
-- 协议支持 `openai-compatible`（`{base_url}/chat/completions`）与 `gemini`（原生 `generateContent`），服务地址、模型 ID 与 API 密钥全部由使用者在外部配置文件或环境变量显式配置（默认专用配置位于 `%LOCALAPPDATA%\OpenEditEngine\omni.json`，支持 `OPENEDIT_OMNI_CONFIG` / `JIANYING_OMNI_CONFIG` / `--config` 覆盖及已保存的 Windows DPAPI `omni.key`）。
+- 协议支持 `openai-compatible`（`{base_url}/chat/completions`）与 `gemini`（原生 `generateContent`），服务地址、模型 ID 与 API 密钥全部由使用者在外部配置文件或环境变量显式配置（默认专用配置位于 `%LOCALAPPDATA%\OpenEditEngine\omni.json`，支持 `OPENEDIT_OMNI_CONFIG` / `--config` 覆盖及已保存的 Windows DPAPI `omni.key`）。
 - 完整说明与媒体大小限制见 [原生视听与音乐编排](../src/openedit_engine/runtime/references/music-edit.md)。
 
 ## 接入端到端验证核对
