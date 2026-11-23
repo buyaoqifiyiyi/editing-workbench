@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 import file_hash
+import hyperframes_backend
 import overlay_recipes
 import runtime_common
 import runtime_paths
@@ -782,8 +783,9 @@ def _validate_overlays(plan, base_dir, canvas, tracks, track_types):
     seen_names = set()
     for index, ov in enumerate(overlays):
         label = f'overlays[{index}]'
-        fields(ov, {'id', 'name', 'track', 'start', 'duration', 'width', 'height', 'fps',
-                    'layers', 'script', 'recipe', 'params', 'effects', 'out_format', 'gpu', 'motion_blur'},
+        fields(ov, {'id', 'name', 'backend', 'track', 'start', 'duration', 'width', 'height', 'fps',
+                    'layers', 'script', 'recipe', 'params', 'effects', 'out_format', 'gpu', 'motion_blur',
+                    'html', 'variables', 'check', 'allow_network', 'font_path'},
                label, ('start', 'duration'))
         if 'motion_blur' in ov and type(ov['motion_blur']) is not bool:
             raise ValueError(f'{label}.motion_blur must be boolean')
@@ -804,20 +806,31 @@ def _validate_overlays(plan, base_dir, canvas, tracks, track_types):
         number(ov['width'], f'{label}.width', 64, 7680)
         number(ov['height'], f'{label}.height', 64, 4320)
         number(ov['fps'], f'{label}.fps', 1, 120)
-        if 'recipe' in ov:
-            if 'layers' in ov or 'script' in ov:
-                raise ValueError(f'{label} cannot mix recipe with layers or script')
-            overlay_recipes.validate_recipe_spec(ov)
+        backend = ov.get('backend', 'effectcraft')
+        if backend not in ('effectcraft', 'hyperframes'):
+            raise ValueError(f'{label}.backend must be effectcraft or hyperframes')
+        if backend == 'hyperframes':
+            hyperframes_backend.validate_overlay_spec(ov, base_dir=base_dir, label=label)
         else:
-            if 'layers' not in ov and 'script' not in ov:
-                raise ValueError(f'{label} must specify layers, script, or recipe')
-            if 'layers' in ov and not isinstance(ov['layers'], list):
-                raise ValueError(f'{label}.layers must be an array')
-            for li, layer in enumerate(ov.get('layers', [])):
-                if not isinstance(layer, dict):
-                    raise ValueError(f'{label}.layers[{li}] must be an object')
-                if layer.get('type') == 'footage' and 'path' in layer:
-                    layer['path'] = local_media_path(layer['path'], base_dir, f'{label}.layers[{li}].path')
+            for bad_key in sorted(hyperframes_backend.HYPERFRAMES_ONLY_KEYS & set(ov)):
+                raise ValueError(f'{label}.{bad_key} is only supported with backend="hyperframes"')
+            if 'recipe' in ov:
+                if 'layers' in ov or 'script' in ov:
+                    raise ValueError(f'{label} cannot mix recipe with layers or script')
+                overlay_recipes.resolve_recipe_media_paths(
+                    ov, lambda raw, key: local_media_path(raw, base_dir, f'{label}.params.{key}')
+                )
+                overlay_recipes.validate_recipe_spec(ov)
+            else:
+                if 'layers' not in ov and 'script' not in ov:
+                    raise ValueError(f'{label} must specify layers, script, or recipe')
+                if 'layers' in ov and not isinstance(ov['layers'], list):
+                    raise ValueError(f'{label}.layers must be an array')
+                for li, layer in enumerate(ov.get('layers', [])):
+                    if not isinstance(layer, dict):
+                        raise ValueError(f'{label}.layers[{li}] must be an object')
+                    if layer.get('type') == 'footage' and 'path' in layer:
+                        layer['path'] = local_media_path(layer['path'], base_dir, f'{label}.layers[{li}].path')
 
 
 def provenance(plan):
@@ -827,6 +840,8 @@ def provenance(plan):
         for layer in ov.get('layers', []):
             if layer.get('type') == 'footage' and layer.get('path'):
                 paths.append(layer['path'])
+        for rpath in overlay_recipes.iter_recipe_media_paths(ov):
+            paths.append(rpath)
     records = []
     for material in dict.fromkeys(paths):
         path = Path(material)

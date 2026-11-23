@@ -53,10 +53,12 @@ class EngineInterfaceTests(unittest.TestCase):
                      'filmcraft-exec', 'effectcraft-exec', 'captions', 'music-edit', 'ducking',
                      'layout-tracks', 'denoise-audio', 'reverse', 'migrate', 'transcribe',
                      'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting',
-                     'auto-reframe', 'rough-cut', 'audio-master', 'sfx', 'motion-analyze',
-                     'stock', 'mesh-avatar'):
+                     'auto-reframe', 'rough-cut', 'audio-master', 'sfx', 'sfx-search',
+                     'music-structure', 'motion-analyze', 'interpolate', 'depth',
+                     'shot-search', 'shader-fx', 'stock', 'mesh-avatar', 'audit'):
             self.assertIn(name, schemas)
         self.assertEqual(set(schemas), set(api.operations()))
+        self.assertEqual(len(schemas), 46)
         self.assertEqual(api.operation_schemas('validate'), schemas['validate'])
         with self.assertRaises(ValueError):
             api.operation_schemas('nonexistent-op')
@@ -121,12 +123,36 @@ class EngineInterfaceTests(unittest.TestCase):
              ['--input', 'w.mp4', '--out', 'rf_out', '--aspect', '9:16', '--detector', 'yunet', '--smoothing', '0.6']),
             ('rough-cut', {'input': 't.mp4', 'out': 'rc_out', 'language': 'zh', 'gpu': True, 'karaoke_mode': 'active'},
              ['--input', 't.mp4', '--out', 'rc_out', '--language', 'zh', '--gpu', '--karaoke-mode', 'active']),
-            ('audio-master', {'input': 'a.wav', 'out': 'am_out', 'preset': 'podcast', 'sample_rate': 48000, 'measure_only': True},
-             ['--input', 'a.wav', '--out', 'am_out', '--preset', 'podcast', '--sample-rate', '48000', '--measure-only']),
+            ('audio-master', {'input': 'a.wav', 'out': 'am_out', 'preset': 'podcast', 'sample_rate': 48000, 'reverb_ir': 'plate', 'reverb_wet': 0.25, 'sidechain': 'vox.wav', 'sidechain_ratio': 8.0},
+             ['--input', 'a.wav', '--out', 'am_out', '--preset', 'podcast', '--sample-rate', '48000', '--reverb-ir', 'plate', '--reverb-wet', '0.25', '--sidechain', 'vox.wav', '--sidechain-ratio', '8.0']),
+            ('music-structure', {'input': 'bgm.mp3', 'out': 'ms_out', 'backend': 'beat-this', 'start': 10.0, 'duration': 30.0, 'gpu': True},
+             ['--input', 'bgm.mp3', '--out', 'ms_out', '--backend', 'beat-this', '--start', '10.0', '--duration', '30.0', '--gpu']),
+            ('sfx-search', {'library': 'sfx_dir', 'query': 'cinematic whoosh', 'out': 'ss_out', 'top_k': 3, 'backend': 'clap', 'gpu': True},
+             ['--library', 'sfx_dir', '--query', 'cinematic whoosh', '--out', 'ss_out', '--top-k', '3', '--backend', 'clap', '--gpu']),
             ('sfx', {'cues': 'cues.json', 'duration': 32.2, 'out': 'sfx_out', 'sample_rate': 48000, 'duck_out': 'duck.json'},
              ['--cues', 'cues.json', '--duration', '32.2', '--out', 'sfx_out', '--sample-rate', '48000', '--duck-out', 'duck.json']),
-            ('motion-analyze', {'input': 'clips_dir', 'out': 'mf_out', 'make_lut': 'steel_violet', 'lut_size': 33},
-             ['--input', 'clips_dir', '--out', 'mf_out', '--make-lut', 'steel_violet', '--lut-size', '33']),
+            ('sfx', {'from_structure': 'struct_dir', 'out': 'sfx_st_out'},
+             ['--from-structure', 'struct_dir', '--out', 'sfx_st_out']),
+            ('beat-apply', {'plan': 'p.json', 'beats': 'struct_dir', 'every': 1, 'use_downbeats': True, 'out': 'ba_out.json'},
+             ['--plan', 'p.json', '--beats', 'struct_dir', '--every', '1', '--use-downbeats', '--out', 'ba_out.json']),
+            ('motion-analyze', {'out': 'lut_out', 'make_lut': 'agx_punchy', 'lut_size': 33},
+             ['--out', 'lut_out', '--make-lut', 'agx_punchy', '--lut-size', '33']),
+            ('motion-analyze', {'input': 'clips_dir', 'out': 'mf_out', 'backend': 'neuflow', 'gpu': True, 'make_lut': 'steel_violet'},
+             ['--input', 'clips_dir', '--out', 'mf_out', '--backend', 'neuflow', '--gpu', '--make-lut', 'steel_violet']),
+            ('interpolate', {'input': 'a.mp4', 'out': 'in_out', 'target_fps': 60, 'slow_factor': 0.5, 'model': 'rife-v4.6', 'backend': 'rife', 'deband': True, 'gpu_id': 0},
+             ['--input', 'a.mp4', '--out', 'in_out', '--target-fps', '60', '--slow-factor', '0.5', '--model', 'rife-v4.6', '--backend', 'rife', '--deband', '--gpu-id', '0']),
+            ('depth', {'input': 'a.mp4', 'out': 'dp_out', 'backend': 'video-depth-anything', 'dof_blur': 8.0, 'parallax_layers': True, 'gpu': True},
+             ['--input', 'a.mp4', '--out', 'dp_out', '--backend', 'video-depth-anything', '--dof-blur', '8.0', '--parallax-layers', '--gpu']),
+            ('shot-search', {'input': 'clips_dir', 'query': '蓝色大海', 'out': 'sh_out', 'top_k': 5, 'backend': 'siglip2', 'gpu': True, 'with_motion': True},
+             ['--input', 'clips_dir', '--query', '蓝色大海', '--out', 'sh_out', '--top-k', '5', '--backend', 'siglip2', '--gpu', '--with-motion']),
+            ('audit', {'plan': 'p.json', 'out': 'au_out', 'export': 'final.mp4', 'build_dir': 'b_dir', 'beats': 'ms_dir', 'preset': 'streaming', 'contact_sheet': True, 'sheet_frames': 12},
+             ['--plan', 'p.json', '--out', 'au_out', '--export', 'final.mp4', '--build-dir', 'b_dir', '--beats', 'ms_dir', '--preset', 'streaming', '--contact-sheet', '--sheet-frames', '12']),
+            ('shader-fx', {'subcommand': 'transition', 'from': 'a.mp4', 'to': 'b.mp4', 'out': 'tr_out', 'preset': 'crosszoom', 'duration': 0.5, 'easing': 'ease_in_out'},
+             ['transition', '--from', 'a.mp4', '--to', 'b.mp4', '--out', 'tr_out', '--preset', 'crosszoom', '--duration', '0.5', '--easing', 'ease_in_out']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'a.mp4', 'out': 'fx_out', 'preset': 'halation_bloom', 'alpha': True},
+             ['effect', '--input', 'a.mp4', '--out', 'fx_out', '--preset', 'halation_bloom', '--alpha']),
+            ('stock', {'subcommand': 'search', 'provider': 'freesound', 'kind': 'audio', 'query': 'whoosh', 'out': 'fs.json'},
+             ['search', '--provider', 'freesound', '--kind', 'audio', '--query', 'whoosh', '--out', 'fs.json']),
             ('build', {'plan': 'p.json', 'out': 'bo', 'draft': True, 'export_scale': 0.5},
              ['--plan', 'p.json', '--out', 'bo', '--export-scale', '0.5', '--draft']),
             ('export', {'project': 'p.fcproj', 'out': 'e.mp4', 'draft': True, 'scale': 0.5, 'gpu_rendering': 'off'},
@@ -158,6 +184,14 @@ class EngineInterfaceTests(unittest.TestCase):
             ('matting', {'input': 'fg.mp4', 'out': 'o', 'backend': 'bogus'}),
             ('auto-reframe', {'input': 'w.mp4', 'out': 'o', 'detector': 'bogus'}),
             ('audio-master', {'input': 'a.wav', 'out': 'o', 'preset': 'bogus'}),
+            ('music-structure', {'input': 'a.mp3', 'out': 'o', 'backend': 'bogus'}),
+            ('sfx-search', {'library': 'lib', 'query': 'hit', 'out': 'o', 'backend': 'bogus'}),
+            ('interpolate', {'input': 'a.mp4', 'out': 'o', 'backend': 'bogus'}),
+            ('depth', {'input': 'a.mp4', 'out': 'o', 'backend': 'bogus'}),
+            ('shot-search', {'input': 'a.mp4', 'query': 'sky', 'out': 'o', 'backend': 'bogus'}),
+            ('shader-fx', {'subcommand': 'bogus'}),
+            ('shader-fx', {'subcommand': 'transition', 'from': 'a.mp4', 'to': 'b.mp4', 'out': 'o', 'preset': 'bogus'}),
+            ('audit', {'plan': 'p.json', 'out': 'o', 'preset': 'bogus'}),
         ]
         for op, params in bad_cases:
             with self.subTest(op=op, params=params):

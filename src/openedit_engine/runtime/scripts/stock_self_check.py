@@ -76,8 +76,8 @@ def check(root):
     config = root / 'fake-config.env'
     config.write_text('PEXELS_API_KEY=fake-file-value\nPIXABAY_API_KEY=fake-pixabay\n', encoding='utf-8')
     with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': str(config),
-                                      'PEXELS_API_KEY': 'fake-env-value', 'PIXABAY_API_KEY': ''}):
-        assert stock.credentials() == {'pexels': 'fake-env-value', 'pixabay': 'fake-pixabay'}
+                                      'PEXELS_API_KEY': 'fake-env-value', 'PIXABAY_API_KEY': '', 'FREESOUND_API_KEY': ''}):
+        assert stock.credentials() == {'pexels': 'fake-env-value', 'pixabay': 'fake-pixabay', 'freesound': ''}
         assert runtime_paths.stock_config() == config.resolve()
     for invalid in ('relative.env', str(root / 'absent.env')):
         with patch.dict(stock.os.environ, {'JIANYING_STOCK_CONFIG': invalid}):
@@ -141,7 +141,13 @@ def check(root):
                         'LicenseUrl': {'value': 'http://creativecommons.org/publicdomain/zero/1.0/'}}}]}]}}
     assert stock.normalize('commons', 'video', commons)[0]['license'] == 'cc0'
     assert stock.normalize('commons', 'image', commons) == []
-    checks.append('all four provider formats, author/URL/license, video rendition and audio preview')
+    fs = {'id': 987, 'name': 'Steel Katana Draw', 'url': 'https://freesound.org/people/tester/sounds/987/',
+          'username': 'tester', 'license': 'http://creativecommons.org/publicdomain/zero/1.0/', 'duration': 1.4,
+          'previews': {'preview-hq-mp3': 'https://cdn.freesound.org/previews/0/987_123-hq.mp3'}}
+    fs_items = stock.normalize('freesound', 'audio', {'results': [fs]})
+    assert len(fs_items) == 1 and fs_items[0]['license'] == 'cc0' and fs_items[0]['download_url'].endswith('-hq.mp3')
+    stock.check_license(fs_items[0])
+    checks.append('all five provider formats (incl. Freesound CC0), author/URL/license, video rendition and audio preview')
 
     args = Args(kind='video', query='night', limit=2, orientation='portrait', lang='en-US')
     with patch.object(stock, 'api', return_value={'videos': [movie]}) as mocked:

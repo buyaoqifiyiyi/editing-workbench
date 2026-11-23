@@ -92,7 +92,28 @@ def check(root):
         f'LUFS={p_rep["after"]["integrated_lufs"]}, TP={p_rep["after"]["true_peak_dbtp"]}'
     )
 
-    # 4. Silent & invalid refusals
+    # 4. Convolution reverb (FFmpeg afir) + sidechain ducking (FFmpeg sidechaincompress)
+    key_wav = root / 'voice_key.wav'
+    core.run([
+        core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+        '-f', 'lavfi', '-i', "aevalsrc='0.45*sin(2*PI*300*t)*gt(mod(t,1.0),0.2)*lt(mod(t,1.0),0.7)':s=48000:d=2.2",
+        '-ac', '2', '-c:a', 'pcm_s16le', str(key_wav),
+    ])
+    fx_out = root / 'master-fx'
+    code_fx, rep_fx = _run_main([
+        '--input', quiet, '--out', fx_out, '--preset', 'streaming',
+        '--reverb-ir', 'hall', '--reverb-wet', '0.25',
+        '--sidechain', key_wav, '--sidechain-ratio', '8.0',
+    ])
+    assert code_fx == 0 and rep_fx['status'] == 'passed' and rep_fx['pass_qc'] is True, rep_fx
+    assert rep_fx['after']['pcm']['full_scale_clipped_samples'] == 0, rep_fx
+    assert rep_fx['fx']['reverb']['ir'] == 'preset:hall' and rep_fx['fx']['sidechain']['ratio'] == 8.0, rep_fx
+    checks.append(
+        f'afir hall reverb + sidechaincompress: LUFS={rep_fx["after"]["integrated_lufs"]}, '
+        f'TP={rep_fx["after"]["true_peak_dbtp"]}, 0 clipped'
+    )
+
+    # 5. Silent & invalid refusals
     sq_out = root / 'measure-silent'
     code_sq, rep_sq = _run_main(['--input', silent, '--out', sq_out, '--measure-only'])
     assert code_sq == 0 and rep_sq['pass_qc'] is False and rep_sq['before']['integrated_lufs'] is None, rep_sq
@@ -103,12 +124,13 @@ def check(root):
         'existing out': ['--input', quiet, '--out', s_out],
         'no audio stream': ['--input', no_audio, '--out', root / 'r2'],
         'bad target lufs': ['--input', quiet, '--out', root / 'r3', '--target-lufs', '-2'],
+        'bad reverb ir': ['--input', quiet, '--out', root / 'r4', '--reverb-ir', 'nonexistent_preset'],
     }
     for label, arguments in refusals.items():
         code_r, rep_r = _run_main(arguments)
         assert code_r == 1 and rep_r['status'] == 'failed' and rep_r.get('error'), (label, rep_r)
         checks.append(f'refused: {label}')
-    for rdir in ('r1', 'r2', 'r3'):
+    for rdir in ('r1', 'r2', 'r3', 'r4'):
         assert not (root / rdir).exists(), rdir
 
     res = {'status': 'passed', 'checks': checks, 'checks_count': len(checks)}

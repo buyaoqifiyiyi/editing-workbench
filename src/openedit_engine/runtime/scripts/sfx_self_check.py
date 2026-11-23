@@ -83,6 +83,34 @@ def check(root):
     assert not (root / 'bad_out').exists()
     checks.append('refused invalid cue type without creating output dir')
 
+    # Verify --from-structure pipeline from a music-structure directory
+    import file_hash as _fh
+    dummy_music = root / 'dummy_music.wav'
+    with wave.open(str(dummy_music), 'wb') as wf:
+        wf.setparams((1, 2, 22050, 0, 'NONE', 'not compressed'))
+        wf.writeframes(bytes(22050 * 4 * 2))
+    struct_dir = root / 'struct_in'
+    struct_dir.mkdir()
+    core.write_json(struct_dir / 'structure.json', {
+        'status': 'passed',
+        'operation': 'music-structure',
+        'source': {'path': str(dummy_music.resolve()), 'sha256': _fh.sha256(dummy_music)},
+        'start_seconds': 0.0,
+        'duration': 4.0,
+        'bpm': 120.0,
+        'beats': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+        'downbeats': [0.5, 2.5],
+        'drop_points': [{'time': 2.0, 'type': 'chorus_drop'}],
+        'boundaries': [1.0, 2.0, 3.2],
+        'segments': [],
+    })
+    sfx_from_struct = root / 'sfx_struct_out'
+    code_s, rep_s = _run_main(['--from-structure', struct_dir, '--out', sfx_from_struct])
+    assert code_s == 0 and rep_s['status'] == 'passed' and rep_s['from_structure'] is not None, rep_s
+    assert rep_s['cue_count'] >= 5 and rep_s['audio_stats']['full_scale_clipped_samples'] == 0, rep_s
+    assert Path(rep_s['output_wav']['path']).is_file() and Path(rep_s['duck_keyframes']['path']).is_file()
+    checks.append(f'sfx --from-structure synthesized {rep_s["cue_count"]} cues + {rep_s["duck_keyframes"]["count"]} duck keys')
+
     res = {'status': 'passed', 'checks': checks, 'checks_count': len(checks)}
     core.write_json(root / 'sfx-check.json', res)
     return res

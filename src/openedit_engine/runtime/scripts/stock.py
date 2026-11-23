@@ -22,10 +22,13 @@ import editor
 import runtime_paths
 
 RETRIES, RETRY_AFTER_MAX = 2, 30  # Only 429/5xx/timeouts; other 4xx and malformed data fail at once.
-PROVIDERS = ('pexels', 'pixabay', 'openverse', 'commons')
-KEYS = {'pexels': 'PEXELS_API_KEY', 'pixabay': 'PIXABAY_API_KEY'}
-LICENSES = {'pexels': 'https://www.pexels.com/license/',
-            'pixabay': 'https://pixabay.com/service/license-summary/'}
+PROVIDERS = ('pexels', 'pixabay', 'openverse', 'commons', 'freesound')
+KEYS = {'pexels': 'PEXELS_API_KEY', 'pixabay': 'PIXABAY_API_KEY', 'freesound': 'FREESOUND_API_KEY'}
+LICENSES = {
+    'pexels': 'https://www.pexels.com/license/',
+    'pixabay': 'https://pixabay.com/service/license-summary/',
+    'freesound': 'https://creativecommons.org/publicdomain/zero/1.0/',
+}
 EXTENSIONS = {'image': {'.jpg', '.jpeg', '.png', '.webp', '.gif'},
               'video': {'.mp4', '.webm', '.mov'},
               'audio': {'.mp3', '.wav', '.flac', '.ogg', '.m4a'}}
@@ -135,6 +138,8 @@ def api(provider, endpoint, params, cache, key='', check=None):
         headers['Authorization'] = key
     elif provider == 'pixabay':
         query['key'] = key
+    elif provider == 'freesound':
+        headers['Authorization'] = f'Token {key}'
     req = Request(endpoint + '?' + urlencode(query), headers=headers)
 
     def request():
@@ -245,7 +250,31 @@ def commons_item(provider, kind, x):
                   info.get('thumburl', ''), info)
 
 
-ITEMS = {'pexels': pexels_item, 'pixabay': pixabay_item, 'openverse': openverse_item, 'commons': commons_item}
+def freesound_item(provider, kind, x):
+    if kind != 'audio':
+        return None
+    previews = x.get('previews') or {}
+    media = previews.get('preview-hq-mp3') or previews.get('preview-hq-ogg') or ''
+    if not media:
+        return None
+    lic_raw = str(x.get('license') or LICENSES['freesound']).strip()
+    if lic_raw.startswith('http://'):
+        lic_raw = 'https://' + lic_raw[7:]
+    lic_name = cc_license(lic_raw, lic_raw)
+    if lic_name == 'cc0':
+        lic_raw = LICENSES['freesound']
+    return record(provider, x['id'], kind, media, x.get('url', ''), x.get('username', ''),
+                  x.get('name', f'Freesound {x["id"]}'), lic_name, lic_raw,
+                  0, 0, x.get('duration', 0), '', x)
+
+
+ITEMS = {
+    'pexels': pexels_item,
+    'pixabay': pixabay_item,
+    'openverse': openverse_item,
+    'commons': commons_item,
+    'freesound': freesound_item,
+}
 
 
 def normalize(provider, kind, data, stats=None):
@@ -259,7 +288,12 @@ def normalize(provider, kind, data, stats=None):
                 return index if isinstance(index, (int, float)) else 0
             entries = sorted(entries, key=order)
     else:
-        name = {'pexels': 'videos' if kind == 'video' else 'photos', 'pixabay': 'hits', 'openverse': 'results'}[provider]
+        name = {
+            'pexels': 'videos' if kind == 'video' else 'photos',
+            'pixabay': 'hits',
+            'openverse': 'results',
+            'freesound': 'results',
+        }[provider]
         entries = data.get(name, []) if isinstance(data, dict) else None
     if not isinstance(entries, list):
         raise ValueError(f'{provider}: unexpected API response structure')
@@ -288,6 +322,8 @@ def search_provider(provider, args, key, cache, stats=None):
         raise ValueError('Official API used here supports images/video, not music or sound effects')
     if provider == 'openverse' and args.kind == 'video':
         raise ValueError('Openverse API supports images/audio, not video')
+    if provider == 'freesound' and args.kind != 'audio':
+        raise ValueError('Freesound API supports audio sound effects only')
     if provider == 'pexels':
         endpoint = 'https://api.pexels.com/v1/' + ('videos/search' if args.kind == 'video' else 'search')
         params = {'query': args.query, 'per_page': args.limit, 'page': 1, 'locale': args.lang}
@@ -306,6 +342,11 @@ def search_provider(provider, args, key, cache, stats=None):
         endpoint = f'https://api.openverse.org/v1/{"images" if args.kind == "image" else "audio"}/'
         params = {'q': args.query, 'page_size': args.limit, 'page': 1,
                   'license': 'cc0,pdm,by,by-sa', 'mature': 'false'}
+    elif provider == 'freesound':
+        endpoint = 'https://freesound.org/apiv2/search/text/'
+        params = {'query': args.query, 'filter': 'license:"Creative Commons 0"',
+                  'fields': 'id,name,url,username,license,duration,previews',
+                  'page_size': args.limit, 'page': 1}
     else:
         endpoint = 'https://commons.wikimedia.org/w/api.php'
         params = {'action': 'query', 'format': 'json', 'formatversion': 2, 'generator': 'search',
@@ -325,6 +366,8 @@ def search(args):
     keymap = credentials()
     if args.provider == 'auto':
         providers = [p for p in ('pexels', 'pixabay') if keymap.get(p) and args.kind != 'audio']
+        if keymap.get('freesound') and args.kind == 'audio':
+            providers.append('freesound')
         providers += ['openverse'] if args.kind != 'video' else []
         providers += ['commons']
     else:
@@ -375,15 +418,18 @@ def check_license(item, allow_sharealike=False):
         raise ValueError('License URL is missing')
     provider = item.get('provider')
     host = (urlsplit(item.get('source_page', '')).hostname or '').lower()
-    if provider in ('pexels', 'pixabay', 'commons', 'mixkit'):
-        domain = {'pexels': 'pexels.com', 'pixabay': 'pixabay.com',
-                  'commons': 'commons.wikimedia.org', 'mixkit': 'mixkit.co'}[provider]
+    if provider in ('pexels', 'pixabay', 'commons', 'mixkit', 'freesound'):
+        domain = {
+            'pexels': 'pexels.com', 'pixabay': 'pixabay.com',
+            'commons': 'commons.wikimedia.org', 'mixkit': 'mixkit.co',
+            'freesound': 'freesound.org',
+        }[provider]
         if host != domain and not host.endswith('.' + domain):
             raise ValueError('Source page does not belong to the declared provider')
     if provider in LICENSES and (item['license_url'] != LICENSES[provider] or
-            name != {'pexels': 'Pexels License', 'pixabay': 'Pixabay Content License'}[provider]):
+            name != {'pexels': 'Pexels License', 'pixabay': 'Pixabay Content License', 'freesound': 'cc0'}[provider]):
         raise ValueError('License does not match the declared stock provider')
-    if provider in ('openverse', 'commons') and cc_license(name, item.get('license_url', '')) != name:
+    if provider in ('openverse', 'commons', 'freesound') and cc_license(name, item.get('license_url', '')) != name:
         raise ValueError('Creative Commons license label/link mismatch')
 
 
@@ -549,10 +595,11 @@ def main():
         if args.command == 'status':
             keymap = credentials()
             result = {'background_only': True, 'providers': {
-                p: {'key_configured': bool(keymap.get(p)), 'media_types': ['image', 'video']}
+                p: {'key_configured': bool(keymap.get(p)),
+                    'media_types': ['audio'] if p == 'freesound' else ['image', 'video']}
                 for p in KEYS}, 'without_key': {'openverse': ['image', 'audio'],
                 'commons': ['image', 'video', 'audio']},
-                'manual_sources': ['Mixkit', 'Pixabay music/sound effects'],
+                'manual_sources': ['Mixkit', 'Pixabay music/sound effects', 'Freesound CC0', 'Sonniss GDC SFX'],
                 'config_file': str(runtime_paths.stock_config())}
         else:
             result = {'search': search, 'fetch': fetch, 'register': register}[args.command](args)

@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -57,6 +58,11 @@ class _FakeContractMcp:
 
 
 class UpstreamGuardTests(unittest.TestCase):
+    def setUp(self):
+        token_patch = patch.object(upstream_guard, '_resolve_github_token', return_value=None)
+        token_patch.start()
+        self.addCleanup(token_patch.stop)
+
     def _mock_backends(self, fc_ver='0.20.1', ec_ver='0.24.1'):
         return {
             'filmcraft': {
@@ -528,6 +534,112 @@ class UpstreamGuardTests(unittest.TestCase):
             self.assertEqual(res['blocked'], ['effectcraft'])
             self.assertTrue((tools_dir / 'filmcraft-0.21.0').is_dir())
             self.assertFalse((tools_dir / 'effectcraft-0.25.0').exists())
+
+
+class GitHubTokenResolutionTests(unittest.TestCase):
+    def _clean_env(self):
+        ctx = patch.dict(os.environ, {}, clear=False)
+        ctx.__enter__()
+        self.addCleanup(ctx.__exit__, None, None, None)
+        os.environ.pop('GITHUB_TOKEN', None)
+        os.environ.pop('GH_TOKEN', None)
+
+    def test_env_tokens_take_precedence_over_config_and_gh(self):
+        self._clean_env()
+        os.environ['GITHUB_TOKEN'] = ' env-github '
+        os.environ['GH_TOKEN'] = 'env-gh'
+        with patch.object(upstream_guard.runtime_paths, 'stock_config') as mock_cfg, \
+                patch.object(upstream_guard.subprocess, 'run') as mock_run:
+            self.assertEqual(upstream_guard._resolve_github_token(), 'env-github')
+            mock_cfg.assert_not_called()
+            mock_run.assert_not_called()
+
+        os.environ['GITHUB_TOKEN'] = '   '
+        with patch.object(upstream_guard.runtime_paths, 'stock_config') as mock_cfg, \
+                patch.object(upstream_guard.subprocess, 'run') as mock_run:
+            self.assertEqual(upstream_guard._resolve_github_token(), 'env-gh')
+            mock_cfg.assert_not_called()
+            mock_run.assert_not_called()
+
+    def test_config_env_fallback_and_precedence(self):
+        self._clean_env()
+        with tempfile.TemporaryDirectory(prefix='oe-cfg-') as tmp:
+            cfg = Path(tmp) / 'config.env'
+            cfg.write_text(
+                '# comment\n\nGITHUB_TOKEN=\nGH_TOKEN="cfg-gh-tok"\n',
+                encoding='utf-8-sig',
+            )
+            with patch.object(upstream_guard.runtime_paths, 'stock_config', return_value=cfg), \
+                    patch.object(upstream_guard.subprocess, 'run') as mock_run:
+                self.assertEqual(upstream_guard._resolve_github_token(), 'cfg-gh-tok')
+                mock_run.assert_not_called()
+
+            cfg.write_text(
+                'GH_TOKEN="cfg-gh-tok"\nGITHUB_TOKEN=\'cfg-github-tok\'\n',
+                encoding='utf-8',
+            )
+            with patch.object(upstream_guard.runtime_paths, 'stock_config', return_value=cfg), \
+                    patch.object(upstream_guard.subprocess, 'run') as mock_run:
+                self.assertEqual(upstream_guard._resolve_github_token(), 'cfg-github-tok')
+                mock_run.assert_not_called()
+
+    def test_gh_cli_fallback_and_header_injection(self):
+        self._clean_env()
+        seen_headers = {}
+
+        def fake_urlopen(req, timeout=15):
+            del timeout
+            seen_headers['Authorization'] = req.get_header('Authorization')
+            return _FakeHttpResponse({'tag_name': 'v0.20.1', 'assets': []})
+
+        with tempfile.TemporaryDirectory(prefix='oe-nocfg-') as tmp:
+            missing_cfg = Path(tmp) / 'missing.env'
+            proc = subprocess.CompletedProcess(['gh', 'auth', 'token'], 0, stdout='gho_test_token\n', stderr='')
+            with patch.object(upstream_guard.runtime_paths, 'stock_config', return_value=missing_cfg), \
+                    patch.object(upstream_guard.shutil, 'which', return_value='C:/bin/gh.exe'), \
+                    patch.object(upstream_guard.subprocess, 'run', return_value=proc) as mock_run, \
+                    patch.object(upstream_guard.urllib.request, 'urlopen', side_effect=fake_urlopen):
+                rel = upstream_guard._fetch_github_latest_release('storytold/filmcraft')
+            self.assertEqual(rel['tag_name'], 'v0.20.1')
+            self.assertEqual(seen_headers['Authorization'], 'Bearer gho_test_token')
+            mock_run.assert_called_once()
+            self.assertEqual(mock_run.call_args[0][0], ['C:/bin/gh.exe', 'auth', 'token'])
+
+    def test_gh_cli_failure_and_invalid_output_return_none_without_auth_header(self):
+        self._clean_env()
+        with tempfile.TemporaryDirectory(prefix='oe-nocfg-') as tmp:
+            missing_cfg = Path(tmp) / 'missing.env'
+            with patch.object(upstream_guard.runtime_paths, 'stock_config', return_value=missing_cfg):
+                with patch.object(upstream_guard.shutil, 'which', return_value=None):
+                    self.assertIsNone(upstream_guard._resolve_github_token())
+
+                for effect in (
+                    subprocess.CompletedProcess(['gh', 'auth', 'token'], 1, stdout='', stderr='not logged in'),
+                    subprocess.CompletedProcess(['gh', 'auth', 'token'], 0, stdout='line1\nline2\n', stderr=''),
+                    subprocess.CompletedProcess(['gh', 'auth', 'token'], 0, stdout='tok with space\n', stderr=''),
+                    subprocess.TimeoutExpired(['gh', 'auth', 'token'], 5),
+                    OSError('spawn failed'),
+                ):
+                    with self.subTest(effect=repr(effect)):
+                        run_patch = (
+                            patch.object(upstream_guard.subprocess, 'run', side_effect=effect)
+                            if isinstance(effect, BaseException)
+                            else patch.object(upstream_guard.subprocess, 'run', return_value=effect)
+                        )
+                        with patch.object(upstream_guard.shutil, 'which', return_value='gh'), run_patch:
+                            self.assertIsNone(upstream_guard._resolve_github_token())
+
+                seen_headers = {}
+
+                def fake_urlopen(req, timeout=15):
+                    del timeout
+                    seen_headers['Authorization'] = req.get_header('Authorization')
+                    return _FakeHttpResponse({'tag_name': 'v0.20.1', 'assets': []})
+
+                with patch.object(upstream_guard.shutil, 'which', return_value=None), \
+                        patch.object(upstream_guard.urllib.request, 'urlopen', side_effect=fake_urlopen):
+                    upstream_guard._fetch_github_latest_release('storytold/filmcraft')
+                self.assertIsNone(seen_headers['Authorization'])
 
 
 if __name__ == '__main__':

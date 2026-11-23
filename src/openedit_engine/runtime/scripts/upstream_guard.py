@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import urllib.error
@@ -20,6 +21,7 @@ import file_hash
 import filmcraft_backend
 import runtime_common
 import runtime_core as core
+import runtime_paths
 from openedit_engine import software_detection
 
 TRACKED_REPOS = (
@@ -344,15 +346,62 @@ def contract_check(*, out_dir=None, skip_e2e=False, filmcraft_cli=None, effectcr
         }
 
 
+def _resolve_github_token():
+    """Resolve a GitHub API token from env vars, config.env, or `gh auth token`."""
+    for name in ('GITHUB_TOKEN', 'GH_TOKEN'):
+        token = (os.environ.get(name) or '').strip()
+        if token:
+            return token
+    try:
+        config_path = runtime_paths.stock_config()
+        if config_path.is_file():
+            values = {}
+            for line in config_path.read_text(encoding='utf-8-sig').splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                key, sep, val = stripped.partition('=')
+                key = key.strip()
+                if sep and key in ('GITHUB_TOKEN', 'GH_TOKEN'):
+                    values[key] = val.strip().strip('"\'').strip()
+            for name in ('GITHUB_TOKEN', 'GH_TOKEN'):
+                if values.get(name):
+                    return values[name]
+    except (OSError, ValueError):
+        pass
+    gh_bin = shutil.which('gh')
+    if not gh_bin:
+        return None
+    try:
+        proc = subprocess.run(
+            [gh_bin, 'auth', 'token'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=5,
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    token = (proc.stdout or '').strip()
+    if token and not any(ch.isspace() for ch in token):
+        return token
+    return None
+
+
 def _fetch_github_latest_release(repo, *, timeout=15):
     url = f'https://api.github.com/repos/{repo}/releases/latest'
     headers = {
         'User-Agent': 'openedit-engine-upstream-check/1.0',
         'Accept': 'application/vnd.github+json',
     }
-    token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+    token = _resolve_github_token()
     if token:
-        headers['Authorization'] = f'Bearer {token.strip()}'
+        headers['Authorization'] = f'Bearer {token}'
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
         data = json.loads(resp.read().decode('utf-8'))

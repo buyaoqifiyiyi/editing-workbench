@@ -29,8 +29,10 @@ def create_server(state_dir=None):
         lifespan=lifespan,
         instructions=(
             'Open-source video editing and VFX engine (FilmCraft + EffectCraft + FFmpeg + offline AI). '
+            'For new or full-reedit creative work, first read_guide("planning") and consult search_knowledge to design both story/content progression and visual-audio editing decisions (including peer-reference study, proactive transition/connection creation, and contrast checks) before building timelines; for scoped edits, review only affected clips and adjacent transitions. '
             'start_job returns a job ID; poll job_status until terminal state and read_job_output for complete JSON. '
-            'Only music-edit analyze/review call external configured multimodal endpoints; all core operations run locally.'
+            'Only music-edit analyze/review call external configured multimodal endpoints (require task-specific authorization and exact video/audio version alignment); all core operations run locally. '
+            'Before final delivery, verify preview frames and run audit (--contact-sheet) while keeping technical checks distinct from human continuous audiovisual review.'
         ),
     )
 

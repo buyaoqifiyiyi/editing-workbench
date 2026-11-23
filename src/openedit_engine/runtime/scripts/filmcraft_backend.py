@@ -8,6 +8,7 @@ import time
 import craft_rpc
 import effectcraft_backend
 import file_hash
+import hyperframes_backend
 import runtime_core as core
 
 TICKS_PER_SEC = core.TICKS_PER_SEC
@@ -687,13 +688,15 @@ def build_project(
     _write_delivery_docs(out, plan, records)
     canvas = plan['canvas']
 
-    # Step 1: Compile any EffectCraft transparent overlays first.
+    # Step 1: Compile transparent overlays (EffectCraft or optional HyperFrames).
     compiled_overlays = []
     if plan.get('overlays') and render_overlays:
         ov_root = out / 'overlays'
         ov_root.mkdir()
         for idx, ov in enumerate(plan['overlays']):
-            ov_res = effectcraft_backend.build_overlay(
+            ov_backend = ov.get('backend', 'effectcraft')
+            builder = hyperframes_backend.build_overlay if ov_backend == 'hyperframes' else effectcraft_backend.build_overlay
+            ov_res = builder(
                 ov,
                 ov_root / f'{idx:02d}_{ov["name"]}',
                 width=canvas['width'],

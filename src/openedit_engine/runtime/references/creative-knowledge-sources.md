@@ -12,7 +12,7 @@
 | [节拍教学整理](beat-marking.md) | 按拍错开、候选点手动复核、动作落点 | 既有记录为采样图与字幕，未试听；具体示例时长和倍速不是通用参数 |
 | [转场Time：创意转场](https://www.douyin.com/video/7672342201958993202) 与 [自然光线转场](https://www.douyin.com/video/7678662277125377320) | 视觉锚点、形状/遮挡及明暗接替的观察线索 | 历史本机资料中部分短段按4fps采样，不等于完整实时观片、试听或教程作者原创权属证明；每次实际获取范围另记 |
 | [Adobe 匹配剪切](https://www.adobe.com/creativecloud/video/discover/match-cut.html)、[J/L剪切](https://helpx.adobe.com/premiere/desktop/edit-projects/trim-clips/perform-j-cuts-and-l-cuts.html) | 图形/动作/声音连接与声音画面边界 | 官方案例仅作方法解释；实际工程落地按 FilmCraft / EffectCraft 能力与预览验证 |
-| [开源手法映射与动效配方库](recipes.md)、[OpenEdit 架构说明](openedit.md) | EffectCraft 10 套声明式配方与纯开源参数映射 | 由单元测试及无头 ProRes 4444 / 1080p 导出验证技术链路；真实审美与连续视听另行验收 |
+| [开源手法映射与动效配方库](recipes.md)、[OpenEdit 架构说明](openedit.md) | EffectCraft 13 套声明式与 Hero 配方及纯开源参数映射 | 由单元测试及无头 ProRes 4444 / 1080p 导出验证技术链路；真实审美与连续视听另行验收 |
 | [创作修订](creative-review.md) 与项目外用户反馈 | 由具体反馈定位内容、节奏、声音或表现问题；保留实际对照 | 项目中的用户评价仅适用于对应版本和条件；未经用户认可不得作为正面案例 |
 | [PySceneDetect](https://github.com/Breakthrough/PySceneDetect)（BSD-3-Clause）、[video-agent](https://github.com/agamm/video-agent)（MIT） | 参考切点候选与带理由的短段练习、回看 | 前者是实装可选依赖并复用OpenCV；后者仅借鉴流程，无源码复制。切点候选和对照文件不证明实际听看或审美合格 |
 | [CapCut Mate 蒙版接口](https://github.com/Hommy-master/capcut-mate/blob/a20b54af0a2eab946a7a773b003f642a3534003b/docs/add_mask_keyframes.zh.md)（Apache-2.0及NOTICE） | 历史参数与坐标语义参考 | 仅作第三方结构对照，本引擎统一采用纯开源 FilmCraft / EffectCraft 参数与画布像素坐标系 |

@@ -8,6 +8,7 @@ import sys
 
 import effectcraft_backend
 import filmcraft_backend
+import hyperframes_backend
 import media_prep
 import overlay_recipes
 import runtime_core as core
@@ -30,6 +31,8 @@ def doctor():
         ('opentimelineio', 'opentimelineio'),
         ('mcp', 'mcp'),
         ('av', 'av'),
+        ('opencolorio', 'PyOpenColorIO'),
+        ('moderngl', 'moderngl'),
     ):
         found = importlib.util.find_spec(mod) is not None
         ver = None
@@ -74,6 +77,11 @@ def doctor():
         'cuda_provider_available': 'CUDAExecutionProvider' in ort_providers,
         'ctranslate2_cuda_devices': ct2_cuda,
     }
+    rife_exe = runtime_paths.discover_rife_cli()
+    hf_exe = runtime_paths.discover_hyperframes_cli()
+    hf_gsap = runtime_paths.discover_hyperframes_gsap(hf_exe)
+    hf_font = runtime_paths.discover_cjk_font_file()
+    hf_browser = runtime_paths.discover_chromium_browser()
 
     return {
         'status': 'ready' if ready else 'incomplete',
@@ -84,6 +92,15 @@ def doctor():
         'backends': backends,
         'gpu': gpu,
         'gpu_acceleration': gpu_accel,
+        'rife_vulkan': {'available': rife_exe is not None, 'path': str(rife_exe) if rife_exe else None},
+        'hyperframes': {
+            'available': hf_exe is not None,
+            'path': str(hf_exe) if hf_exe else None,
+            'gsap_available': hf_gsap is not None,
+            'cjk_font': str(hf_font) if hf_font else None,
+            'browser': str(hf_browser) if hf_browser else None,
+            'license': 'Apache-2.0',
+        },
         'local_models': runtime_paths.discover_local_models(),
         'optional_ai_packages': optional,
         'instructions': instructions,
@@ -118,17 +135,32 @@ def capabilities(query=None, live=False):
             'alpha_overlay_export': 'ProRes 4444 RGBA (.mov, yuva444p12le) -> direct composite onto FilmCraft V2+',
             'caveat': 'WebM VP9 default CLI export drops alpha; ProRes 4444 (.mov) is locked as the verified alpha interchange',
         },
+        'hyperframes': {
+            'license': 'Apache-2.0',
+            'available': runtime_paths.discover_hyperframes_cli() is not None,
+            'recipes': sorted(hyperframes_backend.RECIPES),
+            'supports_custom_html': True,
+            'alpha_overlay_export': 'ProRes 4444 RGBA (.mov, yuva444p12le) -> direct composite onto FilmCraft V2+',
+            'caveat': 'Offline HTML/CSS/SVG/GSAP data-motion & UI card engine (set backend="hyperframes" in overlays[] or render-overlay spec); requires Node.js >=22 + local Chromium/Chrome.',
+        },
         'offline_ai_and_media': [
+            'music-structure (Beat This! ONNX / allin1 CUDA / spectral: BPM, downbeats, drop points, phrase segments)',
+            'sfx-search (LAION CLAP HTSAT ONNX / acoustic DSP: offline zero-shot local SFX search)',
+            'interpolate (rife-ncnn-vulkan Vulkan slow-mo/interpolation & FFmpeg minterpolate + deband)',
+            'depth (Video Depth Anything CUDA / Depth Anything V2 ONNX: depth maps, DoF bokeh, ProRes 4444 parallax layers)',
+            'shot-search (Google SigLIP 2 ONNX / histogram: offline bilingual CN/EN natural-language video shot search)',
+            'shader-fx (headless ModernGL OpenGL 3.3: GL-Transitions MIT & ISF shader effects -> MP4 or ProRes 4444 .mov)',
             'auto-reframe (PySceneDetect + OpenCV YuNet face / saliency smooth pan -> editable 9:16 plan)',
             'rough-cut (one-command auto-cut -> faster-whisper -> clip-clamped/karaoke captions)',
-            'audio-master (two-pass FFmpeg EBU R128 loudnorm + true-peak/clipping QC)',
+            'audio-master (two-pass FFmpeg EBU R128 loudnorm + afir convolution reverb + sidechaincompress + clipping QC)',
             'sfx (procedural 8-type stereo 48kHz Foley/SFX bed + soft-knee limiter + BGM ducking keyframes)',
-            'motion-analyze (OpenCV Farneback active-flow camera/transition analyzer + procedural 33^3 .cube LUT generator)',
+            'motion-analyze (NeuFlow v2 ONNX / OpenCV Farneback active-flow + OpenColorIO 2.6 AgX/ACES 2.0 3D .cube LUTs)',
             'auto-cut (Silero VAD ONNX + FFmpeg silencedetect rough cut, optional --gpu)',
             'matting (MatAnyone 2 temporal / RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA alpha .mov, optional --gpu/--device)',
             'beats / beat-apply (librosa)', 'transcribe (faster-whisper CPU/CUDA)', 'separate (Demucs ONNX CPU/CUDA)',
             'denoise-audio (FFT)', 'ducking', 'captions / karaoke', 'tracking / tracking-apply (OpenCV CSRT)',
             'reverse', 'practice-compare', 'normalize-media (FFmpeg single & batch VFR/Hi10P -> CFR)',
+            'audit (end-to-end project QA: overlap check, strict decode, EBU R128 loudness QC, beat delta, contact sheet)',
         ],
     }
     if live:
@@ -343,9 +375,27 @@ def main(argv=None):
                                                       gpu_rendering=args.gpu_rendering, scale=args.scale, draft=args.draft)
         elif args.action == 'render-overlay':
             spec = _load_json_spec(args.spec)
-            result = effectcraft_backend.build_overlay(spec, args.out, render_video=not args.no_video, gpu=args.gpu,
-                                                       resolution=args.resolution, quality=args.quality, draft=args.draft,
-                                                       use_cache=not args.no_cache)
+            if not isinstance(spec, dict):
+                raise ValueError('render-overlay spec must be a JSON object')
+            spec_cand = Path(args.spec)
+            spec_base = spec_cand.resolve().parent if spec_cand.is_file() else Path.cwd()
+            ov_backend = spec.get('backend', 'effectcraft')
+            if ov_backend not in ('effectcraft', 'hyperframes'):
+                raise ValueError('overlay.backend must be effectcraft or hyperframes')
+            if ov_backend == 'hyperframes':
+                result = hyperframes_backend.build_overlay(
+                    spec, args.out, render_video=not args.no_video, gpu=args.gpu,
+                    resolution=args.resolution, quality=args.quality, draft=args.draft,
+                    use_cache=not args.no_cache, base_dir=spec_base,
+                )
+            else:
+                for bad_key in sorted(hyperframes_backend.HYPERFRAMES_ONLY_KEYS & set(spec)):
+                    raise ValueError(f'overlay.{bad_key} is only supported with backend="hyperframes"')
+                result = effectcraft_backend.build_overlay(
+                    spec, args.out, render_video=not args.no_video, gpu=args.gpu,
+                    resolution=args.resolution, quality=args.quality, draft=args.draft,
+                    use_cache=not args.no_cache,
+                )
         elif args.action == 'filmcraft-exec':
             cmds = _load_json_spec(args.commands)
             result = filmcraft_backend.exec_commands(cmds, project=args.project, save_as=args.save_as)

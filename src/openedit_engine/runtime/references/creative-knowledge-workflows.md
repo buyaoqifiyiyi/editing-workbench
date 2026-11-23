@@ -48,14 +48,24 @@
 | 查素材信息、切点候选或本地参考抽样 | `inspect`、`reference`（可选 `--detector pyscenedetect`）、`normalize-media`（批量 VFR/Hi10P → CFR） | 抽帧等于看完连续视频、听懂声音或还原高级转场 |
 | 同素材方法实操对照 | `practice-compare`：两段明确选区和已有预览，记录目标、变量及来源哈希 | 文件生成等于同素材已自动核实、原生完整混音、实际观看或审美通过 |
 | 找对白候选、试人声分离与气口粗剪 | `transcribe`、`separate`、`auto-cut`、`rough-cut`（自动发现默认权重目录，支持 `--gpu` CUDA 加速；缺失权重时按 `doctor` 提示补齐） | 转写已校对、分离已无损或所有环境均已预置权重 |
-| 非绿幕前景抠像与竖屏智能重构图 | `matting`（RVM / MIT BiRefNet `--gpu` → ProRes 4444 RGBA）、`auto-reframe`（YuNet 人脸跟拍 16:9 ↔ 9:16） | 发丝边缘无需预览人工检视、人脸跟拍已达最终导演审美 |
-| 歌曲事件候选、按拍切镜与单目标追踪 | `beats`、`beat-apply`、`tracking`（CSRT）、`tracking-apply` | 每拍必切、完全遮挡自动重捕获或模型已听懂音乐 |
-| 指定音视频的分析/成片审片 | `music-edit` 的 `prepare`、`analyze`、`review`；后两者按配置调用服务 | 授权可跨任务、素材分析等于成片审片、模型评语等于认可 |
-| 音量避让、FFT 降噪与 EBU R128 响度母带 | `ducking`、`denoise-audio`、`audio-master`（`streaming`/`podcast`/`broadcast` + `--measure-only`） | 自动包络或响度达标等于完成正常速度试听与全片审美验收 |
-| 渲染可复用动效透明配方 | `render-overlay`、`overlays[].recipe`（10 套配方，见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |
-| 校验并构建开源时间轴工程（含 `--draft` 快审） | `capabilities`、`validate`、`layout-tracks`、`build`（支持 `--draft` 半分辨率快审）、`reverse` | 工程构建或严格全解码通过等于完整连续视听审美通过 |
+| 非绿幕前景抠像与竖屏智能重构图 | `matting`（MatAnyone 2 / RVM / MIT BiRefNet `--gpu` → ProRes 4444 RGBA）、`auto-reframe`（YuNet 人脸跟拍 16:9 ↔ 9:16） | 发丝边缘无需预览人工检视、人脸跟拍已达最终导演审美 |
+| 按乐段分析节拍、生成音效与对齐切点 | `music-structure`（Beat This! ONNX / allin1）、`beats`、`beat-apply [--use-downbeats]`、`sfx [--from-structure]`、`sfx-search`（CLAP ONNX） | 每拍必切、模型已理解音乐情绪或替代人工试听 |
+| 双语语义搜镜、光流运动与 AgX/ACES 调色 | `shot-search [--with-motion]`（SigLIP 2 ONNX）、`motion-analyze`（NeuFlow v2/Farneback + OCIO 2.6 `.cube` LUT）、`tracking` / `tracking-apply` | 语义/光流分数等于艺术匹配、全片色彩审美已确认 |
+| 补帧慢放、时域景深视差与无头 Shader 特效 | `interpolate`（Vulkan RIFE）、`depth`（Video Depth Anything / Depth Anything V2）、`shader-fx`（ModernGL GL-Transitions & ISF） | 补帧无伪影或 2.5D 分层无需人工看帧检查 |
+| 指定音视频的分析/成片审片 | `music-edit` 的 `prepare`、`analyze`、`review`、`compile`（支持 `music-structure` 与 `beats` 对齐） | 授权可跨任务、素材分析等于成片审片、模型评语等于认可 |
+| 音量避让、FFT 降噪与 EBU R128 响度母带 | `ducking`、`denoise-audio`、`audio-master`（`streaming`/`podcast`/`broadcast` + `--reverb-ir` + `--sidechain` + `--measure-only`） | 自动包络或响度达标等于完成正常速度试听与全片审美验收 |
+| 渲染可复用动效与 Hero 透明配方 | `render-overlay`、`overlays[].recipe`（13 套配方含 `whip_transition` / `impact_punch` / `parallax_3d_scene`，见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |
+| 校验、构建与端到端项目质检 | `capabilities`、`validate`、`layout-tracks`、`build [--draft]`、`reverse`、`audit [--contact-sheet]` | 工程构建、`audit` 或全解码通过等于完整连续视听审美通过 |
 | 查看多帧合成预览与无头导出 | `preview`、`export`（支持 `--draft`/`--scale 0.5`）、`filmcraft-exec` | 离散预览静帧等于连续播放流畅；须结合导出播放核验 |
 | 同一文本、字幕或对话 | `captions`、`graphics.newText`、`rough-cut --karaoke-mode` 与 Subtitle 烧录轨 | 机器转写、词级时间或歌词来源已人工核对 |
+
+## 场景化工具组合路线
+
+- **长片 / 动漫情绪 MV（双语歌词与视效节制）**：轻量化关键帧代理 + `shot-search --with-motion` 初筛（复用缓存与局部切点边界）→ 选择性 `normalize-media`（转 8-bit `yuv420p` CFR）→ `music-structure`（乐段/下行拍/Drop）+ `separate` 分离人声配合段级 `transcribe` 与 RMS 气口核实双语歌词（不盲信平台 LRC）→ 按需搭配 `matting` / `depth` / `interpolate --model auto` / `shader-fx` / `overlays[].recipe`（前景入 3D 视差前先洁净/虚化底景防重影）→ 显式 `layer_order`（双语字幕轨置于 `overlay` 之上）按需跑 `layout-tracks` → 先 `build --preview-times` 看图核帧再全分辨率 `export` → `audit --beats ... --contact-sheet`。
+- **高燃 / 技术流混剪**：`normalize-media` → `music-structure`（BPM/下行拍/Drop）→ `shot-search --with-motion`（搜镜并看动势出入方向）→ `matting --backend matanyone2` / `interpolate` / `motion-analyze --make-lut agx_punchy` → `overlays[].recipe`（`whip_transition`、`impact_punch`、`parallax_3d_scene`）+ `sfx --from-structure` → `build` → `audit --beats ... --contact-sheet`。
+- **口播 / 解说粗剪配镜**：`normalize-media` → `rough-cut --karaoke-mode`（去气口 + 转写 + 限域字幕）→ `shot-search` 检索 B-roll 素材 → `audio-master --sidechain`（人声触发 BGM 闪避与母带统一）→ `overlays[].recipe`（`lower_third`、`keyword_callout`）→ `build` → `audit`。
+- **剧情 / 纪实成片**：`inspect` / `reference --detector pyscenedetect` → `transcribe` / `denoise-audio` → `motion-analyze --make-lut aces_cinema` + 声桥 `ducking` → `build --draft` 审片 → 正式 `build` + `audit`。
+- **横转竖平台适配**：`auto-reframe`（PySceneDetect + YuNet 防黑边摇镜）→ 检查并微调 `reframe.json` / `edit-plan.json` → `overlays[].recipe` 自适应竖屏排版 → `build` + `audit`。
 
 模板与配方是方法与参数的候选，先检查素材、源时间、图层职责和当前能力边界；缺少匹配配方时直接用 `overlays[].layers` 或多轨组合原创。用户项目、原始视频、完整工程、模型、缓存和个人偏好不打入可分发知识文件。可核对方法来源见 [来源与证据](creative-knowledge-sources.md)。
 

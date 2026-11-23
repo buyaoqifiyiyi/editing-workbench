@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,7 +42,15 @@ CHECKS = {
     'rough_cut': ('rough_cut_self_check.py', 'rough'),
     'audio_master': ('audio_master_self_check.py', 'out'),
     'sfx': ('sfx_self_check.py', 'out'),
+    'sfx_search': ('sfx_search_self_check.py', 'out'),
+    'music_structure': ('music_structure_self_check.py', 'out'),
     'motion_flow': ('motion_flow_self_check.py', 'out'),
+    'interpolate': ('interpolate_self_check.py', 'out'),
+    'depth_map': ('depth_map_self_check.py', 'out'),
+    'shot_search': ('shot_search_self_check.py', 'out'),
+    'shader_fx': ('shader_fx_self_check.py', 'out'),
+    'hyperframes': ('hyperframes_self_check.py', 'out'),
+    'audit_project': ('audit_project_self_check.py', 'out'),
 }
 
 
@@ -122,12 +131,38 @@ def skip_reason(name, spec, options):
             import scipy  # noqa: F401
         except ImportError:
             return 'numpy and scipy are required for sfx check'
-    if name == 'motion_flow':
+    if name in ('music_structure', 'sfx_search'):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            return f'numpy is required for {name} check'
+    if name in ('motion_flow', 'depth_map', 'shot_search'):
         try:
             import cv2  # noqa: F401
             import numpy  # noqa: F401
         except ImportError:
-            return 'opencv (cv2) and numpy are required for motion_flow check'
+            return f'opencv (cv2) and numpy are required for {name} check'
+    if name == 'shader_fx':
+        try:
+            import cv2  # noqa: F401
+            import moderngl  # noqa: F401
+            import numpy  # noqa: F401
+        except ImportError:
+            return 'moderngl, opencv (cv2), and numpy are required for shader_fx check'
+    if name == 'hyperframes':
+        if not shutil.which('node'):
+            return 'Node.js (>=22) is required for hyperframes check'
+        cli = runtime_paths.discover_hyperframes_cli()
+        if cli is None:
+            return 'HyperFrames CLI not found under OpenEditTools or OPENEDIT_HYPERFRAMES_CLI'
+        if runtime_paths.discover_hyperframes_gsap(cli) is None:
+            return 'Local gsap.min.js not found alongside HyperFrames CLI'
+        if runtime_paths.discover_cjk_font_file() is None:
+            return 'No local static CJK font found for offline HyperFrames rendering'
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            return 'numpy is required for hyperframes check'
     if kind == 'matting':
         if not getattr(options, 'matting_model', None):
             return 'needs --matting-model (RVM / BiRefNet / RMBG ONNX weights; engine ships none)'

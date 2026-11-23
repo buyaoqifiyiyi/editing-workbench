@@ -300,25 +300,117 @@ def _build_duck_keyframes(duck_specs, total_dur):
     return keys
 
 
+def _cues_from_structure(grid, total_dur):
+    """Synthesize musical riser/drop/whoosh cue sheet from music-structure drop points and boundaries."""
+    cues = []
+    drops = sorted({
+        round(float(d['time']), 4)
+        for d in grid.get('drop_points', [])
+        if isinstance(d, dict) and 'time' in d and 0.0 < float(d['time']) < total_dur
+    })
+    for idx, t in enumerate(drops):
+        if t >= 0.8:
+            cues.append({
+                'name': f'drop_riser_{idx + 1}',
+                'type': 'riser',
+                'time': t,
+                'align': 'end',
+                'duration': round(min(1.6, t - 0.05), 3),
+                'gain_db': -3.0,
+                'duck_db': -2.0,
+            })
+        cues.append({
+            'name': f'drop_sub_{idx + 1}',
+            'type': 'sub_drop',
+            'time': t,
+            'align': 'start',
+            'duration': round(min(1.2, max(0.25, total_dur - t)), 3),
+            'gain_db': 1.5,
+            'duck_db': -3.0,
+        })
+        cues.append({
+            'name': f'drop_impact_{idx + 1}',
+            'type': 'impact',
+            'time': t,
+            'align': 'peak',
+            'duration': 0.55,
+            'gain_db': 2.5,
+            'duck_db': -2.5,
+        })
+    bounds = [
+        round(float(b), 4)
+        for b in grid.get('boundaries', [])
+        if 0.15 < float(b) < total_dur - 0.15 and all(abs(float(b) - dt) > 0.6 for dt in drops)
+    ]
+    for idx, b in enumerate(bounds):
+        pan = -0.85 if idx % 2 == 0 else 0.85
+        cues.append({
+            'name': f'phrase_whoosh_{idx + 1}',
+            'type': 'whoosh',
+            'time': b,
+            'align': 'peak',
+            'duration': 0.42,
+            'pan_start': pan,
+            'pan_end': -pan,
+            'gain_db': -2.5,
+            'duck_db': -1.5,
+        })
+    if not cues:
+        beats = [float(b) for b in grid.get('beats', []) if 0.05 < float(b) < total_dur - 0.05]
+        picks = beats[::8] if beats else [round(total_dur * 0.5, 4)]
+        for idx, t in enumerate(picks):
+            cues.append({
+                'name': f'pulse_whoosh_{idx + 1}',
+                'type': 'whoosh',
+                'time': round(t, 4),
+                'align': 'peak',
+                'duration': 0.36,
+                'pan_start': -0.6 if idx % 2 == 0 else 0.6,
+                'pan_end': 0.6 if idx % 2 == 0 else -0.6,
+                'gain_db': -3.0,
+                'duck_db': -1.5,
+            })
+    return cues
+
+
 def generate_sfx(args):
-    cues_path = Path(args.cues).expanduser().resolve()
-    if not cues_path.is_file():
-        raise ValueError(f'Cues file does not exist: {cues_path}')
-    total_dur = core.number(args.duration, 'duration', 0.1, 3600.0)
+    from_struct = getattr(args, 'from_structure', None)
+    has_cues = bool(getattr(args, 'cues', None))
+    has_struct = bool(from_struct)
+    if has_cues == has_struct:
+        raise ValueError('Provide exactly one of --cues or --from-structure')
+
+    struct_source = None
+    if has_struct:
+        import music_structure
+        grid = music_structure.load_rhythm_grid(from_struct)
+        if grid['kind'] != 'music_structure':
+            raise ValueError(f'--from-structure requires music-structure output (structure.json): {from_struct}')
+        struct_source = grid['structure_file']
+        raw_dur = args.duration if args.duration is not None else grid['duration']
+        total_dur = core.number(raw_dur, 'duration', 0.1, 3600.0)
+        cues = _cues_from_structure(grid, total_dur)
+        explicit_ducks = []
+    else:
+        if args.duration is None:
+            raise ValueError('--duration is required when using --cues')
+        cues_path = Path(args.cues).expanduser().resolve()
+        if not cues_path.is_file():
+            raise ValueError(f'Cues file does not exist: {cues_path}')
+        total_dur = core.number(args.duration, 'duration', 0.1, 3600.0)
+        payload = core.read_json(cues_path)
+        if isinstance(payload, list):
+            cues = payload
+            explicit_ducks = []
+        elif isinstance(payload, dict):
+            cues = payload.get('cues')
+            explicit_ducks = list(payload.get('duck_events', []))
+        else:
+            raise ValueError('--cues JSON must be a cue array or {"cues": [...]}')
     sr = int(args.sample_rate)
     if not 16000 <= sr <= 96000:
         raise ValueError(f'sample_rate must be in [16000, 96000], got {sr}')
     peak_db = core.number(args.master_peak_db, 'master_peak_db', -18.0, -0.1)
-
-    payload = core.read_json(cues_path)
-    if isinstance(payload, list):
-        cues = payload
-        explicit_ducks = []
-    elif isinstance(payload, dict):
-        cues = payload.get('cues')
-        explicit_ducks = list(payload.get('duck_events', []))
-    else:
-        raise ValueError('--cues JSON must be a cue array or {"cues": [...]}')
     if not isinstance(cues, list) or not cues:
         raise ValueError('cues must be a non-empty array')
 
@@ -432,6 +524,7 @@ def generate_sfx(args):
     report = {
         'status': 'passed',
         'operation': 'sfx',
+        'from_structure': struct_source,
         'sample_rate': sr,
         'channels': 2,
         'duration': round(total_dur, 6),
@@ -465,8 +558,9 @@ def main(argv=None):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--cues', required=True, help='JSON file with cue array or {"cues": [...], "duck_events": [...]}')
-    parser.add_argument('--duration', type=float, required=True, help='Output timeline bed duration in seconds')
+    parser.add_argument('--cues', default=None, help='JSON file with cue array or {"cues": [...], "duck_events": [...]}')
+    parser.add_argument('--from-structure', default=None, help='Optional music-structure output (structure.json or dir) to auto-generate riser/drop/whoosh cues')
+    parser.add_argument('--duration', type=float, default=None, help='Output timeline bed duration in seconds (optional when --from-structure is set)')
     parser.add_argument('--out', required=True, help='New output directory for sfx_bed.wav, sfx-report.json, and bgm_duck_keyframes.json')
     parser.add_argument('--sample-rate', type=int, default=48000, help='WAV sample rate (default 48000)')
     parser.add_argument('--master-peak-db', type=float, default=-1.5, help='Ceiling sample peak in dBFS in [-18, -0.1] (default -1.5)')

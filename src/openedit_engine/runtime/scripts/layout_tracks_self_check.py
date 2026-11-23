@@ -209,6 +209,33 @@ class LayoutTests(unittest.TestCase):
             self.assertFalse((output_dir/'occupied.json').exists())
             self.assertEqual(source.read_bytes(),before)
 
+    def test_overlays_track_blocks_overlapping_cross_and_allows_disjoint_merge(self):
+        plan=synthetic([clip('video',0,8),clip('a',0,2),clip('b',4,2)],
+                       ['video','a','overlay','b'])
+        plan['overlays']=[{'name':'fx','track':'overlay','start':4,'duration':2}]
+        result,report=layout_tracks.compact(plan)
+        self.assertIn('b',result['layer_order'])
+        self.assertIn('overlay',result['layer_order'])
+        self.assertEqual(report['status'],'unchanged')
+        plan['overlays'][0]['start']=2
+        plan['overlays'][0]['duration']=1
+        result,report=layout_tracks.compact(plan)
+        self.assertEqual(report['status'],'compacted')
+        self.assertEqual(result['layer_order'],['video','复用叠层1','overlay'])
+        self.assertEqual(result['clips'][2]['track'],'复用叠层1')
+
+    def test_blend_mode_track_is_protected(self):
+        plan=synthetic([clip('video',0,8),clip('a',0,2),clip('b',4,2,blend_mode='screen')],
+                       ['video','a','b'])
+        result,report=layout_tracks.compact(plan)
+        self.assertEqual(result['layer_order'],['video','a','b'])
+        self.assertEqual(report['status'],'unchanged')
+        plan2=synthetic([clip('video',0,8),clip('a',0,2,blend_mode='screen'),clip('b',4,2)],
+                        ['video','a','b'])
+        result2,report2=layout_tracks.compact(plan2)
+        self.assertEqual(result2['layer_order'],['video','a','b'])
+        self.assertEqual(report2['status'],'unchanged')
+
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)

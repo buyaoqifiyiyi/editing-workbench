@@ -22,5 +22,5 @@
 
 接入新宿主 Agent 后建议依次验证：
 1. 客户端成功列出 7 个 MCP 工具，`describe_operations(include_backends=True)` 只返回 `filmcraft`、`effectcraft`、`ffmpeg` 三个开源后端且全部 `selectable: true`。
-2. `read_guide("capabilities")` 返回完整 19 项开源能力锚点无截断，`search_knowledge("EffectCraft", 1)` 命中 `reference/openedit`。
-3. 以独享临时目录跑通 `openedit validate` -> `openedit build --preview-times ... --export ...` 并经 FFmpeg 严格全解码验收，最后交由使用者在 GUI 打开明文 `.fcproj` 做主观视听确认。
+2. `read_guide("capabilities")` 返回完整 27 项开源能力锚点无截断，`search_knowledge("EffectCraft", 1)` 命中 `reference/openedit`。
+3. 以独享临时目录跑通 `openedit validate` -> `openedit build --preview-times ... --export ...` -> `openedit audit --contact-sheet` 并经 FFmpeg 严格全解码验收，最后交由使用者在 GUI 打开明文 `.fcproj` 做主观视听确认。

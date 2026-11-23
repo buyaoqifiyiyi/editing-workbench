@@ -426,13 +426,30 @@ def compile_edit(bundle, output, backend='openedit', width=1920, height=1080, be
     analysis = validate_analysis(read_json(root / 'analysis.json'), request)
     number(snap_window, 'snap_window', 0, .25)
     points = []
+    beat_source_kind = None
     music_path = (root / manifest['files']['music_wav']).resolve()
     if beats_dir:
-        detected = beats.load_result(beats_dir)
-        if Path(detected['source']['path']).resolve() != music_path:
-            raise ValueError('Beat candidates must come from this bundle music.wav (selection-local clock)')
-        points = [detected['selection']['start_us'] / 1e6 + sample / detected['selection']['sample_rate']
-                  for sample in detected['beat_samples']]
+        bpath = Path(beats_dir).resolve()
+        struct_cand = bpath if (bpath.is_file() and bpath.name == 'structure.json') else (bpath / 'structure.json')
+        if struct_cand.is_file():
+            import music_structure
+            grid = music_structure.load_rhythm_grid(bpath)
+            if Path(grid['source_path']).resolve() != music_path:
+                raise ValueError('Beat candidates must come from this bundle music.wav (selection-local clock)')
+            s0 = grid['start_seconds']
+            pts = {round(s0 + t, 6) for t in grid['beats']}
+            for dp in grid.get('drop_points', []):
+                if isinstance(dp, dict) and 'time' in dp:
+                    pts.add(round(s0 + float(dp['time']), 6))
+            points = sorted(pts)
+            beat_source_kind = 'music_structure'
+        else:
+            detected = beats.load_result(beats_dir)
+            if Path(detected['source']['path']).resolve() != music_path:
+                raise ValueError('Beat candidates must come from this bundle music.wav (selection-local clock)')
+            points = [detected['selection']['start_us'] / 1e6 + sample / detected['selection']['sample_rate']
+                      for sample in detected['beat_samples']]
+            beat_source_kind = 'beats'
 
     def snap(value):
         candidate = min(points, key=lambda point: abs(point - value)) if points else value
@@ -488,6 +505,7 @@ def compile_edit(bundle, output, backend='openedit', width=1920, height=1080, be
     editor.write_json(output / 'edit-plan.json', plan)
     editor.write_json(output / 'alignment.json', {'backend': backend, 'fps': FPS, 'decisions': decisions,
                       'music_sections': analysis['music_sections'], 'beat_candidates_used': bool(points),
+                      'beat_source_kind': beat_source_kind,
                       'analysis_sha256': report['analysis_sha256'], 'source_timing': 'model_estimates',
                       'continuous_audiovisual_review': 'unverified', 'native_build': 'not_run'})
     return {'status': 'plan_validated', 'plan': str(output / 'edit-plan.json'), 'alignment': str(output / 'alignment.json'),

@@ -21,6 +21,28 @@ def _micros(value):
     return int(scaled)
 
 
+def _is_structure_source(beats_path):
+    p = Path(beats_path).resolve()
+    return (p.is_file() and p.name == 'structure.json') or (p.is_dir() and (p / 'structure.json').is_file())
+
+
+def _load_structure_grid(beats_path, music, *, use_downbeats=False):
+    import music_structure
+    grid = music_structure.load_rhythm_grid(beats_path)
+    if Path(music['path']).resolve() != Path(grid['source_path']).resolve():
+        raise ValueError('Beat report source must be the exact plan music source')
+    raw_times = grid['downbeats'] if use_downbeats else grid['beats']
+    if not raw_times:
+        kind_label = 'downbeats' if use_downbeats else 'beats'
+        raise ValueError(f'music-structure report contains no {kind_label}')
+    start_us = round(Decimal(str(grid['start_seconds'])) * 1_000_000)
+    dur_us = round(Decimal(str(grid['duration'])) * 1_000_000)
+    pts_us = [start_us + round(Decimal(str(t)) * 1_000_000) for t in raw_times]
+    if any(a >= b for a, b in zip(pts_us, pts_us[1:])):
+        raise ValueError('music-structure beat timestamps must strictly increase')
+    return grid, pts_us, start_us, start_us + dur_us
+
+
 def mark_audio(args, plan, before, source_plan, out, every):
     import beats
     if len(plan['audio']) != 1:
@@ -28,23 +50,28 @@ def mark_audio(args, plan, before, source_plan, out, every):
     music = plan['audio'][0]
     if 'beat_marks' in music:
         raise ValueError('Beat mapping will not replace existing beat_marks')
-    result = beats.load_result(Path(args.beats).resolve())
-    if Path(music['path']).resolve() != Path(result['source']['path']).resolve():
-        raise ValueError('Beat report source must be the exact plan music source')
-    selection = result['selection']
-    rate = selection['sample_rate']
     low = _micros(music['source_in'])
     high = low + _micros(music['duration'])
-    coverage_low = Fraction(selection['start_us'])
-    coverage_high = coverage_low + Fraction(selection['sample_count'] * 1_000_000, rate)
-    candidates = []
-    for sample in result['beat_samples']:
-        point = coverage_low + Fraction(sample * 1_000_000, rate)
-        if low <= point < high:
-            value = round(point)
-            if not (low <= value < high and coverage_low <= value < coverage_high):
-                raise ValueError('Quantized mark falls outside music selection or analyzed coverage')
-            candidates.append(value)
+    use_downbeats = bool(getattr(args, 'use_downbeats', False))
+    if _is_structure_source(args.beats):
+        _, pts_us, coverage_low_us, coverage_high_us = _load_structure_grid(args.beats, music, use_downbeats=use_downbeats)
+        candidates = [value for value in pts_us if low <= value < high and coverage_low_us <= value < coverage_high_us]
+    else:
+        result = beats.load_result(Path(args.beats).resolve())
+        if Path(music['path']).resolve() != Path(result['source']['path']).resolve():
+            raise ValueError('Beat report source must be the exact plan music source')
+        selection = result['selection']
+        rate = selection['sample_rate']
+        coverage_low = Fraction(selection['start_us'])
+        coverage_high = coverage_low + Fraction(selection['sample_count'] * 1_000_000, rate)
+        candidates = []
+        for sample in result['beat_samples']:
+            point = coverage_low + Fraction(sample * 1_000_000, rate)
+            if low <= point < high:
+                value = round(point)
+                if not (low <= value < high and coverage_low <= value < coverage_high):
+                    raise ValueError('Quantized mark falls outside music selection or analyzed coverage')
+                candidates.append(value)
     if any(a >= b for a, b in zip(candidates, candidates[1:])):
         raise ValueError('Beat microsecond quantization produced duplicate or reversed marks')
     chosen = candidates[every - 1::every]
@@ -56,8 +83,8 @@ def mark_audio(args, plan, before, source_plan, out, every):
     warnings = write_plan(output, out, source_plan, before)
     return {'status': 'candidate_plan_created', 'mode': 'mark_audio', 'plan': str(out),
             'source_plan': str(source_plan), 'beats': str(Path(args.beats).resolve()),
-            'every': every, 'eligible_candidates': len(candidates), 'beat_marks_us': chosen,
-            'input_plan_unchanged': True, 'warnings': warnings,
+            'every': every, 'use_downbeats': use_downbeats, 'eligible_candidates': len(candidates),
+            'beat_marks_us': chosen, 'input_plan_unchanged': True, 'warnings': warnings,
             'limitations': ['Audio alignment and human listening unverified',
                             'Plan only; no project build or export performed']}
 
@@ -97,33 +124,52 @@ def apply(args):
     if (music['track'] != 'music' or music['start'] != 0 or music['speed'] != 1 or
             any(music.get(k) for k in ('fade_in', 'fade_out', 'keyframes', 'denoise', 'loudness'))):
         raise ValueError('Beat application requires music starting at zero, speed=1, without fades/keys/denoise/loudness')
-    result = beats.load_result(Path(args.beats).resolve())
-    media = Path(result['source']['path']).resolve()
-    if Path(music['path']).resolve() != media:
-        raise ValueError('Beat report source must be the exact plan music source')
-    selection = result['selection']
-    rate = selection['sample_rate']
     offset = editor.us(music['source_in'])
     original_duration = editor.us(music['duration'])
-    candidates = []
-    for sample in result['beat_samples']:
-        # Samples are indices inside the analyzed source selection; cuts use the music-local clock.
-        if not 0 <= sample < selection['sample_count']:
-            raise ValueError('Beat sample falls outside the analyzed selection')
-        numerator = (selection['start_us'] - offset) * rate + sample * 1_000_000
-        if 0 < numerator < original_duration * rate:
-            candidates.append(numerator)
-    chosen = candidates[every - 1::every][:len(plan['clips'])]
-    if len(chosen) != len(plan['clips']):
-        raise ValueError('Insufficient candidate boundaries; no invented beats or looping source clips')
+    use_downbeats = bool(getattr(args, 'use_downbeats', False))
     fps = Fraction(str(plan['canvas']['fps']))
-    frame_numbers = [0] + [round(Fraction(numerator, rate * 1_000_000) * fps) for numerator in chosen]
-    if any(a >= b for a, b in zip(frame_numbers, frame_numbers[1:])):
-        raise ValueError('Beat frame quantization produced duplicate or reversed boundaries')
-    frame_times = [Fraction(frame * 1_000_000, 1) / fps for frame in frame_numbers]
-    boundaries = [round(point) for point in frame_times]
-    detection_start = Fraction(selection['start_us'] - offset, 1)
-    detection_end = detection_start + Fraction(selection['sample_count'] * 1_000_000, rate)
+    if _is_structure_source(args.beats):
+        _, pts_us, cov_low, cov_high = _load_structure_grid(args.beats, music, use_downbeats=use_downbeats)
+        candidates_us = [pt - offset for pt in pts_us if 0 < (pt - offset) < original_duration]
+        chosen_us = candidates_us[every - 1::every][:len(plan['clips'])]
+        if len(chosen_us) != len(plan['clips']):
+            raise ValueError('Insufficient candidate boundaries; no invented beats or looping source clips')
+        frame_numbers = [0] + [round(Fraction(pt_us, 1_000_000) * fps) for pt_us in chosen_us]
+        if any(a >= b for a, b in zip(frame_numbers, frame_numbers[1:])):
+            raise ValueError('Beat frame quantization produced duplicate or reversed boundaries')
+        frame_times = [Fraction(frame * 1_000_000, 1) / fps for frame in frame_numbers]
+        boundaries = [round(point) for point in frame_times]
+        detection_start = Fraction(cov_low - offset, 1)
+        detection_end = Fraction(cov_high - offset, 1)
+        eligible_count = len(candidates_us)
+        selected_us_list = chosen_us
+    else:
+        result = beats.load_result(Path(args.beats).resolve())
+        media = Path(result['source']['path']).resolve()
+        if Path(music['path']).resolve() != media:
+            raise ValueError('Beat report source must be the exact plan music source')
+        selection = result['selection']
+        rate = selection['sample_rate']
+        candidates = []
+        for sample in result['beat_samples']:
+            # Samples are indices inside the analyzed source selection; cuts use the music-local clock.
+            if not 0 <= sample < selection['sample_count']:
+                raise ValueError('Beat sample falls outside the analyzed selection')
+            numerator = (selection['start_us'] - offset) * rate + sample * 1_000_000
+            if 0 < numerator < original_duration * rate:
+                candidates.append(numerator)
+        chosen = candidates[every - 1::every][:len(plan['clips'])]
+        if len(chosen) != len(plan['clips']):
+            raise ValueError('Insufficient candidate boundaries; no invented beats or looping source clips')
+        frame_numbers = [0] + [round(Fraction(numerator, rate * 1_000_000) * fps) for numerator in chosen]
+        if any(a >= b for a, b in zip(frame_numbers, frame_numbers[1:])):
+            raise ValueError('Beat frame quantization produced duplicate or reversed boundaries')
+        frame_times = [Fraction(frame * 1_000_000, 1) / fps for frame in frame_numbers]
+        boundaries = [round(point) for point in frame_times]
+        detection_start = Fraction(selection['start_us'] - offset, 1)
+        detection_end = detection_start + Fraction(selection['sample_count'] * 1_000_000, rate)
+        eligible_count = len(candidates)
+        selected_us_list = [round(Fraction(numerator, rate)) for numerator in chosen]
     if any(not (0 < point < original_duration and detection_start <= point < detection_end)
            for point in frame_times[1:] + boundaries[1:]):
         raise ValueError('Quantized cuts fall outside the music range or analyzed coverage')
@@ -136,8 +182,9 @@ def apply(args):
     output['notes'].append('按离线节拍候选生成；未经试听，仅作为节奏切点方案。')
     warnings = write_plan(output, out, source_plan, before)
     return {'status': 'candidate_plan_created', 'plan': str(out), 'source_plan': str(source_plan),
-            'beats': str(Path(args.beats).resolve()), 'every': every, 'eligible_candidates': len(candidates),
-            'selected_candidate_us': [round(Fraction(numerator, rate)) for numerator in chosen],
+            'beats': str(Path(args.beats).resolve()), 'every': every, 'use_downbeats': use_downbeats,
+            'eligible_candidates': eligible_count,
+            'selected_candidate_us': selected_us_list,
             'frame_numbers': frame_numbers, 'boundaries_us': boundaries,
             'duration_us': boundaries[-1], 'original_music_duration_us': original_duration,
             'input_plan_unchanged': True, 'warnings': warnings,
@@ -177,6 +224,8 @@ def main(argv=None):
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--beats', type=Path, required=True)
     parser.add_argument('--every', type=int, default=4)
+    parser.add_argument('--use-downbeats', action='store_true',
+                        help='Consume downbeats instead of all beats when --beats points to music-structure output')
     parser.add_argument('--mark-audio', action='store_true',
                         help='Map existing candidates to limited native source-clock audio beat_marks; do not cut clips')
     parser.add_argument('--out', type=Path, required=True)

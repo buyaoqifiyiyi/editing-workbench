@@ -489,6 +489,30 @@ class MusicEditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             music_edit.load_bundle(root)
 
+    def test_compile_edit_accepts_music_structure_grid(self):
+        self.receive()
+        music_wav = self.bundle / 'media/music.wav'
+        struct_dir = self.root / 'structure-grid'
+        struct_dir.mkdir()
+        editor.write_json(struct_dir / 'structure.json', {
+            'status': 'passed',
+            'operation': 'music-structure',
+            'source': {'path': str(music_wav.resolve()), 'sha256': file_hash.sha256(music_wav)},
+            'start_seconds': 0.0,
+            'duration': 4.0,
+            'bpm': 120.0,
+            'beats': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+            'downbeats': [0.5, 2.5],
+            'drop_points': [{'time': 2.0, 'type': 'chorus_drop'}],
+            'boundaries': [2.0],
+            'segments': [],
+        })
+        res = music_edit.compile_edit(self.bundle, self.root / 'plan-from-struct', 'openedit', 320, 180, beats_dir=struct_dir)
+        self.assertEqual(res['status'], 'plan_validated')
+        align = music_edit.read_json(Path(res['alignment']))
+        self.assertTrue(align['beat_candidates_used'])
+        self.assertEqual(align['beat_source_kind'], 'music_structure')
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)

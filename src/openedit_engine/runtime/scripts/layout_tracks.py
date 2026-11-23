@@ -8,7 +8,15 @@ from pathlib import Path
 
 import editor
 
-GROUPS = ('clips', 'audio', 'captions', 'effects', 'filters')
+GROUPS = ('clips', 'audio', 'captions', 'effects', 'filters', 'overlays')
+
+
+def _item_track(group, item):
+    if not isinstance(item, dict):
+        return None
+    if 'track' in item:
+        return item['track']
+    return 'overlay' if group == 'overlays' else None
 
 
 def overlaps(a, b):
@@ -18,22 +26,29 @@ def overlaps(a, b):
 def tracks_by_name(plan):
     result = {}
     for group in GROUPS:
-        for item in plan[group]:
-            result.setdefault(item['track'], []).append(item)
+        for item in plan.get(group, []):
+            track = _item_track(group, item)
+            if track is not None:
+                result.setdefault(track, []).append(item)
     return result
 
 
 def ordering_pairs(plan):
     """All overlapping item pairs and their relative original layer order."""
     order = {track: i for i, track in enumerate(plan['layer_order'])}
-    items = [(group, i, item) for group in GROUPS for i, item in enumerate(plan[group])]
+    items = []
+    for group in GROUPS:
+        for i, item in enumerate(plan.get(group, [])):
+            track = _item_track(group, item)
+            if track is not None and 'start' in item and 'duration' in item:
+                items.append((group, i, track, item))
     result = {}
-    for i, (group_a, index_a, a) in enumerate(items):
-        for group_b, index_b, b in items[i + 1:]:
+    for i, (group_a, index_a, track_a, a) in enumerate(items):
+        for group_b, index_b, track_b, b in items[i + 1:]:
             if overlaps(a, b):
-                if a['track'] == b['track']:
+                if track_a == track_b:
                     raise ValueError('Overlapping items must not share a track')
-                result[(group_a, index_a, group_b, index_b)] = order[a['track']] < order[b['track']]
+                result[(group_a, index_a, group_b, index_b)] = order[track_a] < order[track_b]
     return result
 
 
@@ -63,7 +78,7 @@ def compact(plan):
         clip_counts[clip['track']] = clip_counts.get(clip['track'], 0) + 1
     protected |= {name for name, count in clip_counts.items() if count > 1}
     protected |= {c['track'] for c in result['clips'] if any(k in c for k in
-                   ('transition', 'matting_cache', 'mix_mode', 'chroma', 'speed_curve', 'motion_easing'))}
+                   ('transition', 'matting_cache', 'mix_mode', 'blend_mode', 'chroma', 'speed_curve', 'motion_easing'))}
     merges = []
     # Only video-overlay tracks are candidates. Moving a higher lane down past
     # any active intermediate lane can change the stacking of rendered pixels.
@@ -92,9 +107,9 @@ def compact(plan):
                    for item in clips):
                 continue
             lanes = tracks_by_name(result)
-            if any(overlaps(a, b) for a in clips for b in lanes[target]):
+            if any(overlaps(a, b) for a in clips for b in lanes.get(target, ())):
                 continue
-            if any(overlaps(a, b) for a in clips for name in between for b in lanes[name]):
+            if any(overlaps(a, b) for a in clips for name in between for b in lanes.get(name, ())):
                 continue
             for item in clips:
                 item['track'] = target

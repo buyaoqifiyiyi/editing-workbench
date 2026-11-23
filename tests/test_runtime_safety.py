@@ -82,6 +82,11 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'matting').mkdir()
             (root / 'matting' / 'rvm').mkdir()
             (root / 'face').mkdir()
+            (root / 'beats').mkdir()
+            (root / 'clap' / 'onnx').mkdir(parents=True)
+            (root / 'flow').mkdir()
+            (root / 'depth' / 'depth-anything-v2-small' / 'onnx').mkdir(parents=True)
+            (root / 'siglip2' / 'onnx').mkdir(parents=True)
             (root / 'faster-whisper-tiny').mkdir()
             (root / 'faster-whisper-base').mkdir()
             (root / 'faster-whisper-tiny' / 'model.bin').write_bytes(b'tiny')
@@ -94,6 +99,16 @@ class RuntimeSafety(unittest.TestCase):
             (root / 'matting' / 'matanyone2.pth').write_bytes(b'm2')
             (root / 'matting' / 'rvm' / 'rvm_resnet50_fp32.onnx').write_bytes(b'rv')
             (root / 'face' / 'face_detection_yunet_2023mar.onnx').write_bytes(b'yn')
+            (root / 'beats' / 'beat_this_final0.onnx').write_bytes(b'bt')
+            (root / 'clap' / 'onnx' / 'audio_model_fp16.onnx').write_bytes(b'ca')
+            (root / 'clap' / 'onnx' / 'text_model_fp16.onnx').write_bytes(b'ct')
+            (root / 'clap' / 'tokenizer.json').write_text('{}', encoding='utf-8')
+            (root / 'flow' / 'neuflow_mixed.onnx').write_bytes(b'nf')
+            (root / 'depth' / 'depth-anything-v2-small' / 'onnx' / 'model_fp16.onnx').write_bytes(b'da')
+            (root / 'depth' / 'video_depth_anything_vits.pth').write_bytes(b'vd2')
+            (root / 'siglip2' / 'onnx' / 'vision_model_fp16.onnx').write_bytes(b'sv')
+            (root / 'siglip2' / 'onnx' / 'text_model_fp16.onnx').write_bytes(b'st')
+            (root / 'siglip2' / 'tokenizer.json').write_text('{}', encoding='utf-8')
             clean_env = {
                 'OPENEDIT_MODELS_DIR': str(root),
                 'OPENEDIT_NO_AUTO_MODELS': '',
@@ -107,10 +122,22 @@ class RuntimeSafety(unittest.TestCase):
                 'OPENEDIT_MATANYONE2_PYTHON': '',
                 'OPENEDIT_RVM_MODEL': '',
                 'OPENEDIT_FACE_MODEL': '',
+                'OPENEDIT_BEAT_THIS_MODEL': '',
+                'OPENEDIT_CLAP_MODEL': '',
+                'OPENEDIT_FLOW_MODEL': '',
+                'OPENEDIT_DEPTH_MODEL': '',
+                'OPENEDIT_DEPTH_VIDEO_MODEL': '',
+                'OPENEDIT_SIGLIP2_MODEL': '',
+                'OPENEDIT_RIFE_CLI': '',
+                'OPENEDIT_HYPERFRAMES_CLI': '',
             }
             with patch.dict(editor.os.environ, clean_env, clear=False):
                 inv = runtime_paths.discover_local_models()
-                self.assertTrue(all(inv[k]['available'] for k in ('demucs', 'whisper', 'vad', 'matting', 'face', 'rvm')))
+                self.assertEqual(len(inv), 13)
+                self.assertTrue(all(inv[k]['available'] for k in (
+                    'demucs', 'whisper', 'vad', 'matting', 'face', 'rvm',
+                    'beat_this', 'clap', 'flow', 'depth', 'depth_video', 'siglip2',
+                )))
                 self.assertEqual(Path(inv['whisper']['path']).name, 'faster-whisper-base')
                 self.assertEqual(Path(inv['matting']['path']).name, 'birefnet_general.onnx')
                 self.assertEqual(Path(runtime_paths.discover_model('matting', prefer_fp16=True)).name, 'birefnet_lite_fp16.onnx')
@@ -119,6 +146,12 @@ class RuntimeSafety(unittest.TestCase):
                 self.assertEqual(Path(inv['rvm']['path']).name, 'rvm_resnet50_fp32.onnx')
                 self.assertIn('NTU S-Lab License 1.0', inv['matanyone2']['license_note'])
                 self.assertIn('GPL-3.0', inv['rvm']['license_note'])
+                self.assertIn('Beat This', inv['beat_this']['license_note'])
+                self.assertIn('CLAP', inv['clap']['license_note'])
+                self.assertIn('NeuFlow v2', inv['flow']['license_note'])
+                self.assertIn('Depth Anything V2', inv['depth']['license_note'])
+                self.assertIn('Video Depth Anything', inv['depth_video']['license_note'])
+                self.assertIn('SigLIP 2', inv['siglip2']['license_note'])
                 self.assertEqual(Path(inv['face']['path']).name, 'face_detection_yunet_2023mar.onnx')
                 provs = runtime_paths.resolve_ort_providers(['CUDAExecutionProvider', 'CPUExecutionProvider'], gpu=True)
                 self.assertEqual(provs[0][0], 'CUDAExecutionProvider')
@@ -127,6 +160,14 @@ class RuntimeSafety(unittest.TestCase):
                     self.assertIsNone(runtime_paths.discover_model('demucs'))
                     self.assertIsNone(runtime_paths.discover_model('whisper'))
                     self.assertIsNone(runtime_paths.discover_model('face'))
+                    self.assertIsNone(runtime_paths.discover_model('beat_this'))
+                    self.assertIsNone(runtime_paths.discover_model('clap'))
+                    self.assertIsNone(runtime_paths.discover_model('flow'))
+                    self.assertIsNone(runtime_paths.discover_model('depth'))
+                    self.assertIsNone(runtime_paths.discover_model('depth_video'))
+                    self.assertIsNone(runtime_paths.discover_model('siglip2'))
+                    self.assertIsNone(runtime_paths.discover_rife_cli())
+                    self.assertIsNone(runtime_paths.discover_hyperframes_cli())
 
     def test_runtime_common_locks_and_validators(self):
         with tempfile.TemporaryDirectory(prefix='oe-common-') as folder:
@@ -160,7 +201,7 @@ class RuntimeSafety(unittest.TestCase):
     def test_open_scripts_import_cleanly_in_fresh_process(self):
         probe_cmd = [
             sys.executable, '-c',
-            'import sys; sys.path.insert(0, %r); import runtime_core, craft_rpc, media_prep, effectcraft_backend, filmcraft_backend, open_engine, editor' % SCRIPTS,
+            'import sys; sys.path.insert(0, %r); import runtime_core, craft_rpc, media_prep, effectcraft_backend, hyperframes_backend, filmcraft_backend, open_engine, editor' % SCRIPTS,
         ]
         subprocess.run(probe_cmd, check=True)
         for symbol in ('validate_plan', 'probe', 'snap_range', 'provenance', 'source_delivery', 'build_draft', 'doctor'):

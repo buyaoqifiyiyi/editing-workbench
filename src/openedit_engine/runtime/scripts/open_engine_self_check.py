@@ -513,6 +513,7 @@ class OpenEngineTests(unittest.TestCase):
                 'title_card', 'lower_third', 'keyword_callout', 'beat_flash',
                 'cinematic_bars', 'progress_banner', 'chapter_opener',
                 'pip_card', 'split_screen_frame', 'wipe_transition',
+                'whip_transition', 'impact_punch', 'parallax_3d_scene',
             },
         )
         sample_specs = [

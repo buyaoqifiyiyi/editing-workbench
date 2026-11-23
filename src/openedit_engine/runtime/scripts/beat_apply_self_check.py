@@ -285,6 +285,28 @@ def check(root):
     assert round(placed[2]['sourceIn'] * 1_000_000 / editor.TICKS_PER_SEC) == 250000
     checks.append('formal openedit build preserves clip/music microsecond boundaries')
     assert source.read_bytes() == original
+    struct_dir = root / 'music-structure-candidates'
+    struct_dir.mkdir()
+    editor.write_json(struct_dir / 'structure.json', {
+        'status': 'passed',
+        'operation': 'music-structure',
+        'source': {'path': str((media / 'music.wav').resolve()), 'sha256': data['source']['sha256']},
+        'start_seconds': 0.25,
+        'duration': 4.0,
+        'bpm': 120.0,
+        'beats': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+        'downbeats': [0.5, 2.0],
+        'drop_points': [{'time': 2.0, 'type': 'energy_surge'}],
+        'boundaries': [2.0],
+        'segments': [{'label': 'verse', 'start': 0.0, 'end': 2.0}, {'label': 'chorus', 'start': 2.0, 'end': 4.0}],
+    })
+    ms_cut_out = root / 'outputs' / 'structure-downbeats.json'
+    ms_cut_rep = beat_apply.apply(Args(plan=source, beats=struct_dir, every=1, use_downbeats=True, out=ms_cut_out))
+    assert ms_cut_rep['use_downbeats'] is True and ms_cut_rep['boundaries_us'] == [0, 500000, 2000000], ms_cut_rep
+    ms_mark_out = root / 'outputs' / 'structure-marks.json'
+    ms_mark_rep = beat_apply.apply(Args(plan=source, beats=struct_dir, every=1, use_downbeats=True, mark_audio=True, out=ms_mark_out))
+    assert ms_mark_rep['beat_marks_us'] == [750000, 2250000], ms_mark_rep
+    checks.append('music-structure structure.json -> beat-apply --use-downbeats cuts and audio beat_marks')
     checks.extend(check_marks(root / 'open-marks'))
     report = {'status': 'passed', 'check_count': len(checks), 'checks': checks,
               'candidate_source': 'mocked load_result & synthetic reports with real load_result; mocked FilmCraft RPC',

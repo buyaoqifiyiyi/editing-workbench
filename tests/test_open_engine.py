@@ -14,6 +14,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'src/openedit_engine/runtime/scr
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 import effectcraft_backend  # noqa: E402
+import hyperframes_backend  # noqa: E402
 from open_engine_self_check import OpenEngineTests  # noqa: F401, E402
 
 
@@ -161,6 +162,65 @@ class OverlayCacheTests(unittest.TestCase):
                 self.assertEqual(im_m.getpixel((160, 90))[3], 255)
                 self.assertEqual(im_e.getpixel((160, 90))[3], 0)
 
+    def test_hero_recipes_path_resolution_provenance_and_real_render(self):
+        import file_hash
+        import overlay_recipes
+        import runtime_core as core
+
+        self.assertEqual(len(overlay_recipes.list_recipes()), 13)
+        with tempfile.TemporaryDirectory(prefix='oe-hero-recipes-') as tmp:
+            root = Path(tmp)
+            a = root / 'a.png'
+            b = root / 'b.png'
+            fg = root / 'fg.png'
+            Image.new('RGB', (320, 180), (210, 40, 40)).save(a)
+            Image.new('RGB', (320, 180), (40, 120, 210)).save(b)
+            im = Image.new('RGBA', (320, 180), (0, 0, 0, 0))
+            for x in range(110, 210):
+                for y in range(40, 140):
+                    im.putpixel((x, y), (240, 200, 80, 255))
+            im.save(fg)
+
+            # Relative media path resolution and provenance tracking inside hero recipes
+            plan_path = root / 'plan.json'
+            plan_data = {
+                'schema_version': 1,
+                'name': 'hero-recipe-test',
+                'canvas': {'width': 320, 'height': 180, 'fps': 30},
+                'clips': [{'path': 'a.png', 'start': 0.0, 'duration': 1.0, 'volume': 0}],
+                'overlays': [
+                    {'name': 'hero_whip', 'track': 'overlay', 'start': 0.0, 'duration': 0.6,
+                     'recipe': 'whip_transition', 'params': {'clip_a': 'a.png', 'clip_b': 'b.png'}},
+                    {'name': 'hero_3d', 'track': 'V3', 'start': 0.0, 'duration': 0.6,
+                     'recipe': 'parallax_3d_scene', 'params': {'background': 'a.png', 'foreground': 'fg.png', 'clones': True, 'orbit_rings': True}},
+                ],
+            }
+            core.write_json(plan_path, plan_data)
+            # Corrupt sidecar on b.png must be rejected by provenance(plan) via recipe media paths
+            sidecar_b = root / 'b.png.provenance.json'
+            core.write_json(sidecar_b, {'license_verification': 'agent_review_recorded', 'review_note': 'ok', 'sha256': '0' * 64})
+            norm_plan, _, _ = core.validate_plan(plan_path)
+            self.assertEqual(norm_plan['overlays'][0]['params']['clip_b'], str(b.resolve()))
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                core.provenance(norm_plan)
+
+            core.write_json(sidecar_b, {'license_verification': 'agent_review_recorded', 'review_note': 'ok', 'sha256': file_hash.sha256(b)})
+            records = core.provenance(norm_plan)
+            self.assertTrue(any(r.get('sha256') == file_hash.sha256(b) and r.get('review_note') == 'ok' for r in records))
+            self.assertTrue(any(r.get('local_path') == str(fg.resolve()) for r in records))
+
+            # Real EffectCraft ProRes 4444 render for whip_transition + impact_punch
+            whip_out = effectcraft_backend.build_overlay(norm_plan['overlays'][0], root / 'whip_out', render_video=True, use_cache=False)
+            self.assertEqual(whip_out['overlay_video']['strict_decode'], 'passed')
+            self.assertEqual(whip_out['overlay_video']['pix_fmt'], 'yuva444p12le')
+
+            punch_spec = {
+                'name': 'hero_punch', 'width': 320, 'height': 180, 'fps': 30, 'duration': 0.6,
+                'recipe': 'impact_punch', 'params': {'clip': str(a), 'peak_time': 0.25},
+            }
+            punch_out = effectcraft_backend.build_overlay(punch_spec, root / 'punch_out', render_video=True, use_cache=False)
+            self.assertEqual(punch_out['overlay_video']['strict_decode'], 'passed')
+
 
 class CompatibilityAliasTests(unittest.TestCase):
     def test_jianying_engine_cli_and_package_aliases_match_openedit_engine(self):
@@ -212,6 +272,176 @@ class DraftPreviewFlagsTests(unittest.TestCase):
             self.assertEqual(export_cmd[export_cmd.index('--gpu-rendering') + 1], 'off')
             settings = json.loads(export_cmd[export_cmd.index('--settings') + 1])
             self.assertEqual(settings['crf'], 28)
+
+
+class HyperFramesOverlayTests(unittest.TestCase):
+    def test_hyperframes_recipe_validation_isolation_and_cache_key(self):
+        import runtime_core as core
+
+        self.assertEqual(len(hyperframes_backend.list_recipes()), 4)
+        with tempfile.TemporaryDirectory(prefix='oe-hf-val-') as tmp:
+            root = Path(tmp)
+            bg = root / 'bg.png'
+            Image.new('RGB', (640, 360), (20, 60, 120)).save(bg)
+
+            valid_specs = [
+                {
+                    'name': 'hf_bar', 'backend': 'hyperframes', 'track': 'overlay', 'start': 0.0, 'duration': 2.0,
+                    'recipe': 'kpi_bar_chart',
+                    'params': {
+                        'title': '季度转化增长', 'kpi_target': 248,
+                        'bars': [{'label': 'W1', 'value': 40}, {'label': 'W2', 'value': 248, 'highlight': True}],
+                    },
+                },
+                {
+                    'name': 'hf_cnt', 'backend': 'hyperframes', 'track': 'V3', 'start': 2.0, 'duration': 1.5,
+                    'recipe': 'kpi_counter_banner',
+                    'params': {'metrics': [{'label': '曝光', 'target': 520, 'suffix': '万'}]},
+                },
+                {
+                    'name': 'hf_cmp', 'backend': 'hyperframes', 'track': 'V4', 'start': 3.5, 'duration': 1.5,
+                    'recipe': 'comparison_table',
+                    'params': {'title': '版本对比', 'rows': [{'label': '画质', 'left': '720p', 'right': '4K'}, {'label': 'Alpha', 'left': '无', 'right': '4444'}]},
+                },
+                {
+                    'name': 'hf_mile', 'backend': 'hyperframes', 'track': 'V5', 'start': 5.0, 'duration': 1.5,
+                    'recipe': 'milestone_progress',
+                    'params': {'title': '达标进度', 'steps': [{'label': '初筛', 'value': '80%', 'percent': 80}, {'label': '复核', 'value': '98%', 'percent': 98}]},
+                },
+            ]
+            plan_path = root / 'plan.json'
+            core.write_json(plan_path, {
+                'schema_version': 2,
+                'name': 'hf-val',
+                'canvas': {'width': 640, 'height': 360, 'fps': 30},
+                'clips': [{'path': str(bg), 'start': 0.0, 'duration': 6.5, 'volume': 0.0}],
+                'overlays': valid_specs,
+            })
+            norm_plan, _, _ = core.validate_plan(plan_path)
+            self.assertEqual(len(norm_plan['overlays']), 4)
+
+            # Reject cross-backend fields and unpermitted external network URLs.
+            bad_cases = [
+                ({'name': 'x', 'start': 0, 'duration': 1, 'backend': 'hyperframes', 'recipe': 'kpi_bar_chart', 'layers': []}, 'only supported with backend="effectcraft"'),
+                ({'name': 'x', 'start': 0, 'duration': 1, 'backend': 'effectcraft', 'recipe': 'beat_flash', 'html': '<div></div>'}, 'only supported with backend="hyperframes"'),
+                ({'name': 'x', 'start': 0, 'duration': 1, 'backend': 'hyperframes', 'html': '<script src="https://cdn.example.com/gsap.js"></script>'}, 'external HTTP'),
+                ({'name': 'x', 'start': 0, 'duration': 1, 'backend': 'hyperframes', 'recipe': 'kpi_bar_chart', 'params': {'title': 'A', 'kpi_target': 10, 'bars': [{'label': 'only1', 'value': 1}]}}, '2\\.\\.6'),
+            ]
+            for bad_ov, pattern in bad_cases:
+                bad_plan = root / 'bad.json'
+                core.write_json(bad_plan, {
+                    'schema_version': 2, 'name': 'bad', 'canvas': {'width': 640, 'height': 360, 'fps': 30},
+                    'clips': [{'path': str(bg), 'start': 0.0, 'duration': 1.0, 'volume': 0.0}],
+                    'overlays': [bad_ov],
+                })
+                with self.assertRaisesRegex(ValueError, pattern):
+                    core.validate_plan(bad_plan)
+
+            # allow_network=true permits explicit external URLs during validation.
+            net_ok = hyperframes_backend.validate_overlay_spec({
+                'name': 'net', 'duration': 1.0, 'backend': 'hyperframes',
+                'html': '<script src="https://cdn.example.com/gsap.js"></script>', 'allow_network': True,
+            })
+            self.assertTrue(net_ok['allow_network'])
+
+            # Cache key ignores start/track and changes when params or draft quality change.
+            fake_cli = root / 'hyperframes.mjs'
+            fake_cli.write_text('console.log(1)', encoding='utf-8')
+            fake_font = root / 'cjk.ttf'
+            fake_font.write_bytes(b'fontdata')
+            fake_gsap = root / 'gsap.min.js'
+            fake_gsap.write_text('window.gsap={};', encoding='utf-8')
+            sp_a = norm_plan['overlays'][0]
+            sp_b = {**sp_a, 'track': 'V9', 'start': 3.0}
+            files_a = hyperframes_backend._build_recipe_files(sp_a['recipe'], sp_a['params'], width=640, height=360, fps=30, duration=2.0)
+            ka = hyperframes_backend._overlay_cache_key(
+                fake_cli, sp_a, width=640, height=360, fps=30, duration=2.0, render_video=True,
+                preview_time=1.0, gpu=False, quality='looks', generated_files=files_a, font_file=fake_font, gsap_file=fake_gsap,
+            )
+            kb = hyperframes_backend._overlay_cache_key(
+                fake_cli, sp_b, width=640, height=360, fps=30, duration=2.0, render_video=True,
+                preview_time=1.0, gpu=False, quality='looks', generated_files=files_a, font_file=fake_font, gsap_file=fake_gsap,
+            )
+            kd = hyperframes_backend._overlay_cache_key(
+                fake_cli, sp_a, width=640, height=360, fps=30, duration=2.0, render_video=True,
+                preview_time=1.0, gpu=False, quality='draft', generated_files=files_a, font_file=fake_font, gsap_file=fake_gsap,
+            )
+            self.assertEqual(ka, kb)
+            self.assertNotEqual(ka, kd)
+
+    def test_real_hyperframes_overlay_cache_and_filmcraft_build(self):
+        import numpy as np
+        import open_engine
+        import runtime_paths
+
+        if runtime_paths.discover_hyperframes_cli() is None or runtime_paths.discover_cjk_font_file() is None:
+            self.skipTest('HyperFrames CLI or static CJK font unavailable on host')
+
+        with tempfile.TemporaryDirectory(prefix='oe-hf-e2e-') as tmp:
+            root = Path(tmp)
+            cache_dir = root / 'cache'
+            bg = root / 'bg.png'
+            Image.new('RGB', (640, 360), (20, 140, 210)).save(bg)
+
+            ov_spec = {
+                'name': 'ad_kpi',
+                'backend': 'hyperframes',
+                'track': 'overlay',
+                'start': 0.0,
+                'duration': 0.6,
+                'recipe': 'kpi_bar_chart',
+                'params': {
+                    'title': '转化跃升实测',
+                    'kpi_label': '线索提升',
+                    'kpi_target': 248,
+                    'bars': [
+                        {'label': 'W1', 'value': 50, 'display': '+50%'},
+                        {'label': 'W2', 'value': 130, 'display': '+130%'},
+                        {'label': 'W3', 'value': 248, 'display': '+248%', 'highlight': True},
+                    ],
+                },
+            }
+            plan_path = root / 'plan.json'
+            plan_path.write_text(json.dumps({
+                'schema_version': 2,
+                'name': 'hf-filmcraft-e2e',
+                'canvas': {'width': 640, 'height': 360, 'fps': 30},
+                'clips': [{'path': str(bg), 'start': 0.0, 'duration': 0.6, 'volume': 0.0}],
+                'overlays': [ov_spec],
+                'export': {'format': 'h264', 'crf': 24, 'hardware_encoding': 'off', 'audio': False, 'burn_captions': False},
+            }, ensure_ascii=False), encoding='utf-8')
+
+            with patch.dict(os.environ, {'OPENEDIT_OVERLAY_CACHE_DIR': str(cache_dir)}):
+                build_dir = root / 'build_1'
+                export_mp4 = root / 'final.mp4'
+                report = open_engine.build(
+                    str(plan_path), str(build_dir),
+                    export_path=str(export_mp4),
+                    preview_times=[0.3],
+                    draft=True,
+                )
+                self.assertEqual(report['status'], 'passed')
+                self.assertEqual(report['export']['strict_decode'], 'passed')
+                self.assertEqual(len(report['overlays']), 1)
+                ov_rep = report['overlays'][0]
+                self.assertEqual(ov_rep['backend'], 'hyperframes')
+                self.assertEqual(ov_rep['overlay_video']['pix_fmt'], 'yuva444p12le')
+                self.assertFalse(ov_rep['cache']['hit'])
+
+                with Image.open(ov_rep['preview_png']) as ov_im:
+                    arr = np.array(ov_im.convert('RGBA'))
+                    self.assertEqual(int(arr[:, :200, 3].max()), 0)
+                    self.assertGreater(int(arr[180, 480, 3]), 200)
+
+                # Verify FilmCraft preview left transparent region preserves blue background rather than black occlusion.
+                with Image.open(report['previews'][0]['path']) as comp_im:
+                    px = comp_im.convert('RGB').getpixel((80, 180))
+                    self.assertGreater(px[2], 170, f'Expected blue background passthrough, got {px}')
+
+                # Second build hits HyperFrames overlay cache.
+                report2 = open_engine.build(str(plan_path), str(root / 'build_2'), draft=True)
+                self.assertTrue(report2['overlays'][0]['cache']['hit'])
+                self.assertEqual(report2['overlays'][0]['overlay_video']['sha256'], ov_rep['overlay_video']['sha256'])
 
 if __name__ == '__main__':
     unittest.main()

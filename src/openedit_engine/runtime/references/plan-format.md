@@ -96,9 +96,10 @@
 }
 ```
 
-- 每项必须唯一命名 `name`（1..64 安全字符），指定 `start`、`duration`（`0.04..3600`s），可覆盖 `width`/`height`/`fps`（否则继承画布设置），可选顶层 `motion_blur`（开启合成运动模糊 `comp.setSwitch`），默认进入 `track: "overlay"`。
-- 必须提供 `recipe`（推荐，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text` 与 `camera`；其中 `footage` 支持 `time`/`in`/`out`/`duration`/`anchor` 及 `time_remap`/`timeRemap` S 形曲线时间重映射，可见图元支持 `three_d` Z 轴景深坐标 `[x, y, z]` 与单层 `motion_blur`，`camera` 支持 `camera_type`/`preset`/`position`/`poi` 与 `transform/position`/`cameraOptions/zoom` 关键帧；保留 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。内置 10 个分辨率自适应配方 `title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition` 详见 [动效配方与手法映射](recipes.md)。
-- 构建时自动由 EffectCraft 无头渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)`，经完整 Alpha 与严格解码校验后置于 FilmCraft 对应视频轨。
+- 每项必须唯一命名 `name`（1..64 安全字符），指定 `start`、`duration`（`0.04..3600`s），可覆盖 `width`/`height`/`fps`（否则继承画布设置），可选 `backend`（`"effectcraft"` 默认，或 `"hyperframes"`），可选顶层 `motion_blur`（仅 EffectCraft，开启合成运动模糊 `comp.setSwitch`），默认进入 `track: "overlay"`。
+- 当 `backend: "effectcraft"`（默认）：必须提供 `recipe`（13 个 EffectCraft 配方，配合可选 `params`，与 `layers`/`script` 互斥）、`layers`（支持 `solid`、`shape`、`footage`、`text` 与 `camera`；其中 `footage` 支持 `time`/`in`/`out`/`duration`/`anchor` 及 `time_remap`/`timeRemap` S 形曲线时间重映射，可见图元支持 `three_d` Z 轴景深坐标 `[x, y, z]` 与单层 `motion_blur`，`camera` 支持 `camera_type`/`preset`/`position`/`poi` 与 `transform/position`/`cameraOptions/zoom` 关键帧；保留 `keyframes`/`expressions`/`effects`/`highlights`/`text_preset`/`styles`/`masks`/`blend_mode`/`builtin_presets`）或 `script`（AE 风格 `.jsx` / JS 源码）。
+- 当 `backend: "hyperframes"`（可选数据动画与 UI 叠层后端，Apache-2.0）：支持 `recipe`（`kpi_bar_chart`、`kpi_counter_banner`、`comparison_table`、`milestone_progress` 配合 `params`）或 `html`（本地 `.html` 文件路径或内联 HTML 字符串，与 `recipe` 互斥，不可混用 EffectCraft 的 `layers`/`script`/`effects`/`motion_blur`），另支持可选 `variables`（JSON 参数对象，仅搭配 `html`）、`check`（布尔，非草稿模式追加运行 `hyperframes check` 布局与对比度质检）、`allow_network`（默认 `false`，拒绝外部 HTTP(S) 资源）与 `font_path`（覆盖本地静态 CJK `.ttf`/`.otf` 字体）。详见 [动效配方与手法映射](recipes.md)。
+- 构建时自动由对应后端无头渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)`，经完整 Alpha 与严格解码校验后置于 FilmCraft 对应视频轨。
 
 ## 嵌套合成组：`composites[]`
 
@@ -109,5 +110,12 @@
 ## 轨道顺序与来源 Sidecar 约束
 
 - **轨道类型与重叠校验**：同一 `track` 名称不能同时承载不同类型的项目（`video` / `text` / `audio` / `effect` / `filter`），且同一轨道内不可发生区间重叠。
-- **`layer_order`**：若显式提供，必须不重复、无空白、且与工程中**实际出现的所有非空轨道集合完全一致**（包括视频、图形字幕、Subtitle 字幕轨与音频轨名称，若连带音轨 `A1` 会由 `clips[].volume > 0` 自动激活，也可先省略或显式列出所有活跃轨名）。
+- **`layer_order`**：若显式提供，必须不重复、无空白、且与工程中**实际出现的所有非空轨道集合完全一致**（包括视频、透明叠层 `overlay`、图形字幕、Subtitle 字幕轨与音频轨名称，若连带音轨 `A1` 会由 `clips[].volume > 0` 自动激活，也可先省略或显式列出所有活跃轨名）。
 - **`.provenance.json` Sidecar**：若引用媒体同目录存在 `<文件名>.provenance.json`，则必须同时包含 `"license_verification": "agent_review_recorded"`、非空 `review_note` 与匹配的实时 `sha256` 摘要，否则 `build` 在建目录前即中止并报错。
+
+## 安全轨道复用
+
+`openedit layout-tracks --plan <已生成计划> --out <不存在的新计划.json>` 对含显式 `layer_order` 的多轨计划，按整轨尝试复用不同时段的普通视频叠层轨，独立输出新计划与 `.layout.json` 映射报告，便于使用者在 FilmCraft GUI 中打开 `.fcproj` 人工微调，同时保持源计划与已保存工程原样不动（目标或报告已存在时直接拒绝）。
+
+- **安全边界与受保护轨道**：主视频轨 `video`、已有多片段职责轨、`composites` 成员轨、`overlays` 透明叠层轨、`captions` 字幕轨、`audio` 音轨、`effects`/`filters` 屏障，以及含 `transition`、`matting_cache`、`mix_mode`、`blend_mode`、`chroma`、`speed_curve` 或 `motion_easing` 的片段轨均保持不合并、不越过重叠区。
+- **映射核查**：合并后的轨名为 `复用叠层N`，`.layout.json` 记录原轨、片段序号、起止时间与合并原因。无显式 `layer_order` 或无安全可合并轨道时返回 `unchanged`，沿用原计划；轨道整理不改变画面与声音内容，也不替代预览核帧与用户人工微调验证。

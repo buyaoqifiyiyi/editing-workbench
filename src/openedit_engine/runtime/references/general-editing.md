@@ -27,7 +27,7 @@
 | 声音组织 | 选择有意义的原声、对白、BGM和音效源段，跨画面切点连接声音，按试听调整分段音量和淡化 | `audio[]` 源范围、增益、`fade_in`/`fade_out`、`loudness` 与 `keyframes`；结合 [离线人声分离](capabilities.md#separation)（`separate --gpu`）、[自动闪避](capabilities.md#ducking)（`ducking`）、[FFT 降噪](capabilities.md#offline-denoise)（`denoise-audio`）与 [响度母带](capabilities.md#audio-master)（`audio-master`）；独立多段参量 EQ 未单设 CLI |
 | 构图与图层 | 按主体及信息重点设计裁切、大小、位置、层序，直接创建需要的多轨与局部强调 | fit/transform/layer_order，以及当前已支持的蒙版、色键、AI 抠像和混合字段 |
 | 文字与运动 | 写有镜头依据的文字，确定层级、位置和停留，自行设计入场、到位及释放 | `captions[]`（含 `highlights`/`font_path`/`keyframes`）、`rough-cut --karaoke-mode` 与 [透明叠层配方](recipes.md) |
-| 局部视觉处理 | 决定何处需要过渡、滤镜、调色或透视叠层，直接查询可靠枚举并写参数 | FilmCraft 完整 Lumetri（曲线/色轮/HSL/LUT/`local_circle`）、`composites[]` 统调、`effects`/`filters` 与 [透明叠层](capabilities.md#effectcraft-overlays)（308 特效/JSX 表达式/10 套配方）；非线性曲线变速坡道与光流补帧未内置自动管线 |
+| 局部视觉处理 | 决定何处需要过渡、滤镜、调色或透视叠层，直接查询可靠枚举并写参数 | FilmCraft 完整 Lumetri（曲线/色轮/HSL/LUT/`local_circle`）、`composites[]` 统调、`effects`/`filters` 与 [透明叠层](capabilities.md#effectcraft-overlays)（308 特效/JSX 表达式/13 套配方），含 [补帧慢放](capabilities.md#interpolate)（Vulkan RIFE）与 EffectCraft `time_remap`/`impact_punch` 贝塞尔变速坡道；FilmCraft 主轨仍为片段固定 `speed` |
 
 以上是可按内容选用的操作范围，不是每部作品必须逐项添加的清单。能力与单位统一查 [计划格式](plan-format.md)、[纯开源手法映射与配方](recipes.md) 与 [能力状态](capabilities.md)；后台生成明文 `.fcproj` / `.ecproj` 即可完整编辑参数，亦可随时用 FilmCraft / EffectCraft GUI 打开精修。
 

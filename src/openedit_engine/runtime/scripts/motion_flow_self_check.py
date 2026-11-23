@@ -10,6 +10,7 @@ import numpy as np
 
 import motion_flow
 import runtime_core as core
+import runtime_paths
 
 
 def _run_main(arguments):
@@ -65,10 +66,11 @@ def check(root):
     out_pan = root / 'pan_out'
     code_p, rep_p = _run_main([
         '--input', pan_clip, '--out', out_pan,
+        '--backend', 'farneback',
         '--sample-fps', 30, '--window', 0.25,
         '--make-lut', 'steel_violet', '--lut-size', 33,
     ])
-    assert code_p == 0 and rep_p['status'] == 'passed', rep_p
+    assert code_p == 0 and rep_p['status'] == 'passed' and rep_p['flow_backend'] == 'opencv_farneback', rep_p
     pan_info = rep_p['clips'][0]
     assert pan_info['overall']['vx'] > 1.0, pan_info
     assert pan_info['overall']['direction'] == 'right', pan_info
@@ -79,15 +81,49 @@ def check(root):
     assert lut_lines[1] == 'LUT_3D_SIZE 33'
     data_lines = [ln for ln in lut_lines if ln and not ln.startswith(('TITLE', 'LUT_3D_SIZE', 'DOMAIN_'))]
     assert len(data_lines) == 33 ** 3
-    checks.append(f'pan_right optical flow detected vx={pan_info["overall"]["vx"]} dir=right + valid 33^3 steel_violet.cube')
+    checks.append(f'farneback pan_right vx={pan_info["overall"]["vx"]} dir=right + valid 33^3 steel_violet.cube')
 
     out_zoom = root / 'zoom_out'
-    code_z, rep_z = _run_main(['--input', zoom_clip, '--out', out_zoom, '--sample-fps', 30, '--window', 0.25])
+    code_z, rep_z = _run_main([
+        '--input', zoom_clip, '--out', out_zoom, '--backend', 'farneback', '--sample-fps', 30, '--window', 0.25,
+    ])
     assert code_z == 0 and rep_z['status'] == 'passed', rep_z
     zoom_info = rep_z['clips'][0]
     assert zoom_info['overall']['zoom_divergence'] > 0.3, zoom_info
     assert zoom_info['overall']['zoom'] == 'push_in', zoom_info
-    checks.append(f'zoom_in divergence={zoom_info["overall"]["zoom_divergence"]} zoom=push_in')
+    checks.append(f'farneback zoom_in divergence={zoom_info["overall"]["zoom_divergence"]} zoom=push_in')
+
+    if runtime_paths.discover_model('flow') is not None:
+        out_nf = root / 'neuflow_out'
+        c_nf, r_nf = _run_main([
+            '--input', pan_clip, '--out', out_nf, '--backend', 'neuflow', '--gpu', '--sample-fps', 30, '--window', 0.25,
+        ])
+        assert c_nf == 0 and r_nf['status'] == 'passed' and r_nf['flow_backend'] == 'neuflow_v2_onnx', r_nf
+        nf_info = r_nf['clips'][0]
+        assert nf_info['overall']['vx'] > 1.0 and nf_info['overall']['direction'] == 'right', nf_info
+        checks.append(f'NeuFlow v2 ONNX ({r_nf["flow_provider"]}) pan_right vx={nf_info["overall"]["vx"]} dir=right')
+    else:
+        checks.append('NeuFlow v2 ONNX skipped: weights not installed')
+
+    # Standalone OCIO 2.6 AgX and ACES 2.0 3D .cube LUT verification
+    n_lut = 33
+    for preset in ('agx_punchy', 'aces_cinema'):
+        out_lut = root / f'lut_{preset}'
+        cl, rl = _run_main(['--out', out_lut, '--make-lut', preset, '--lut-size', str(n_lut)])
+        assert cl == 0 and rl['status'] == 'passed' and rl['mode'] == 'lut_only', rl
+        assert rl['lut']['engine'] == 'opencolorio_2.6' and rl['lut']['entries'] == n_lut ** 3, rl
+        lines = [
+            ln for ln in Path(rl['lut']['path']).read_text(encoding='utf-8').splitlines()
+            if ln and not ln.startswith(('TITLE', 'LUT_3D_SIZE', 'DOMAIN_'))
+        ]
+        assert len(lines) == n_lut ** 3
+        table = np.array([[float(v) for v in ln.split()] for ln in lines]).reshape(n_lut, n_lut, n_lut, 3)
+        gray = [float(np.mean(table[i, i, i])) for i in range(n_lut)]
+        assert gray[0] <= 0.05 and gray[-1] >= 0.92, (preset, gray[0], gray[-1])
+        assert all(b >= a - 1e-4 for a, b in zip(gray, gray[1:])), (preset, 'non-monotonic gray ramp')
+        red_corner = table[0, 0, -1]  # Adobe order (B, G, R): R=1, G=0, B=0
+        assert red_corner[0] > 0.7 and red_corner[1] > 0.05, (preset, red_corner)
+        checks.append(f'OCIO 2.6 {preset}: 33^3 monotonic gray={gray[0]:.3f}->{gray[-1]:.3f}, highlight_red={np.round(red_corner, 3).tolist()}')
 
     code_b, rep_b = _run_main(['--input', root / 'missing.mp4', '--out', root / 'bad_out'])
     assert code_b == 1 and rep_b['status'] == 'failed' and not (root / 'bad_out').exists()

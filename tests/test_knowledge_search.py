@@ -114,12 +114,34 @@ class KnowledgeInterfaceTests(unittest.TestCase):
 
     def test_capability_anchors_and_search_hints(self):
         text = api.read_guide('capabilities')
-        for anchor_id in (
-            'filmcraft-editing', 'effectcraft-overlays', 'filmcraft-grading', 'filmcraft-blend',
-            'text-highlights', 'media-prep', 'transcription', 'separation', 'ducking',
-            'offline-denoise', 'beat-editing', 'offline-tracking',
-        ):
+        self.assertLess(len(text), 131072)
+        expected_anchors = (
+            'filmcraft-editing', 'effectcraft-overlays', 'hyperframes-data-motion',
+            'filmcraft-grading', 'filmcraft-blend',
+            'text-highlights', 'media-prep', 'transcription', 'separation', 'auto-cut',
+            'ai-matting', 'auto-reframe', 'rough-cut', 'audio-master', 'music-structure',
+            'sfx-design', 'sfx-search', 'motion-flow', 'interpolate', 'depth-parallax',
+            'shot-search', 'shader-fx', 'ducking', 'offline-denoise', 'beat-editing',
+            'offline-tracking', 'project-audit',
+        )
+        self.assertEqual(len(expected_anchors), 27)
+        for anchor_id in expected_anchors:
             self.assertIn(f'<a id="{anchor_id}"></a>', text)
+        for q in (
+            'Beat This 乐段结构',
+            'CLAP 本地音效搜索',
+            'RIFE 补帧慢动作',
+            'OpenColorIO AgX ACES LUT',
+            'Video Depth Anything 景深视差',
+            'SigLIP 2 语义搜镜',
+            'ModernGL GL-Transitions ISF',
+            'openedit audit',
+            'whip_transition',
+            'parallax_3d_scene',
+            'HyperFrames 数据动画',
+            'kpi_bar_chart',
+        ):
+            self.assertTrue(api.search_knowledge(q, 5)['results'], q)
         cap_lines = text.splitlines()
         hints = [h for item in api.search_knowledge('ProRes 透明通道动效', 5)['results']
                  for h in item.get('capability_hints', [])]
@@ -210,6 +232,11 @@ class KnowledgeInterfaceTests(unittest.TestCase):
             '内置 6 个分辨率自适应配方',
             '没有可靠的原生动态压低接口',
             '已有登记但封面异常',
+            'resolve-workflow.md',
+            'adobe-workflow.md',
+            'native-preview.md',
+            'EffectCraft 10 套声明式配方',
+            '内置 10 个分辨率自适应配方',
         )
         hits = []
         for md in sorted(runtime_root.rglob('*.md')):
@@ -220,17 +247,42 @@ class KnowledgeInterfaceTests(unittest.TestCase):
                     hits.append(f'{rel}: {phrase}')
         self.assertEqual(hits, [])
 
+    def test_planning_decision_layer_and_track_reuse_are_complete_and_searchable(self):
+        planning_text = api.read_guide('planning')
+        self.assertLess(len(planning_text), 131072)
+        for heading in (
+            '分流（唯一维护位置）',
+            '每版同时设计剧情与剪辑',
+            '剪辑前先看同款作品',
+            '创作判断流程',
+            '从连续素材确认事件',
+            '在关键连接处作选择',
+            '把技巧变成适量且可执行的表现',
+            '用短段结果回看决定',
+            '给用户的方向与交接',
+            '交付与两类验收分离',
+        ):
+            self.assertIn(heading, planning_text)
+
+        self.assertIn('planning', {r['guide'] for r in api.search_knowledge('剪辑前先看同款作品', 5)['results']})
+        self.assertIn('planning', {r['guide'] for r in api.search_knowledge('分流 只有素材 方向建议', 5)['results']})
+        self.assertIn('plan-format', {r['guide'] for r in api.search_knowledge('安全轨道复用 layout-tracks', 5)['results']})
+        audit_res = api.search_knowledge('openedit audit 质检 联系表', 5)['results']
+        audit_hints = {h['anchor'] for r in audit_res for h in r.get('capability_hints', [])}
+        self.assertIn('project-audit', audit_hints)
+
 
 class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
     async def test_mcp_retrieves_knowledge_and_explains_endpoints(self):
         with tempfile.TemporaryDirectory() as state:
             async with Client(create_server(state)) as client:
                 self.assertIn('FilmCraft', client.instructions)
+                self.assertIn('planning', client.instructions)
                 info = (await client.call_tool('describe_operations', {})).structured_content
                 self.assertIn('reference/creative-knowledge', info['guides'])
                 self.assertIn('reference/course-techniques-openedit', info['guides'])
                 self.assertIn('multimodal', info['operations']['music-edit'])
-                for name in GUIDES + ('reference/course-techniques-openedit',):
+                for name in GUIDES + ('planning', 'editing', 'plan-format', 'reference/course-techniques-openedit'):
                     result = (await client.call_tool('read_guide', {'name': name})).structured_content
                     self.assertFalse(result.get('truncated'), name)
                     self.assertTrue(result['text'].strip(), name)
@@ -249,8 +301,12 @@ class KnowledgeMcpTests(unittest.IsolatedAsyncioTestCase):
                 args=['-m', 'openedit_engine.mcp_server', '--state-dir', state], env=env)
             async with Client(params) as client:
                 self.assertIn('FilmCraft', client.instructions)
+                self.assertIn('planning', client.instructions)
                 info = (await client.call_tool('describe_operations', {})).structured_content
                 self.assertIn('reference/creative-knowledge', info['guides'])
+                planning_guide = (await client.call_tool('read_guide', {'name': 'planning'})).structured_content
+                self.assertFalse(planning_guide['truncated'])
+                self.assertIn('每版同时设计剧情与剪辑', planning_guide['text'])
                 guide = (await client.call_tool('read_guide',
                          {'name': 'reference/creative-knowledge-story'})).structured_content
                 self.assertFalse(guide['truncated'])

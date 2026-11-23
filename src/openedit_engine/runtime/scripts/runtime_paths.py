@@ -1,6 +1,7 @@
 """Portable runtime resources and external state paths; never reads credentials."""
 import os
 from pathlib import Path
+import shutil
 import site
 import sys
 
@@ -48,6 +49,12 @@ _MODEL_ENV_VARS = {
     'matanyone2': ('OPENEDIT_MATANYONE2_MODEL',),
     'rvm': ('OPENEDIT_RVM_MODEL',),
     'face': ('OPENEDIT_FACE_MODEL',),
+    'beat_this': ('OPENEDIT_BEAT_THIS_MODEL',),
+    'clap': ('OPENEDIT_CLAP_MODEL',),
+    'flow': ('OPENEDIT_FLOW_MODEL',),
+    'depth': ('OPENEDIT_DEPTH_MODEL',),
+    'depth_video': ('OPENEDIT_DEPTH_VIDEO_MODEL',),
+    'siglip2': ('OPENEDIT_SIGLIP2_MODEL',),
 }
 
 
@@ -65,6 +72,161 @@ def discover_matanyone2_python():
         cand = base / rel
         if cand.is_file():
             return cand.resolve()
+    return None
+
+
+def discover_torch_worker_python():
+    """Locate isolated CUDA PyTorch Python interpreter (music_ai / matanyone2)."""
+    for env_key in ('OPENEDIT_TORCH_PYTHON', 'OPENEDIT_MATANYONE2_PYTHON'):
+        explicit = os.environ.get(env_key, '').strip()
+        if explicit:
+            cand = Path(os.path.expandvars(explicit)).expanduser().resolve()
+            return cand if cand.is_file() else None
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    venvs_root = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools' / 'venvs'
+    for name in ('music_ai', 'matanyone2'):
+        for rel in ('Scripts/python.exe', 'bin/python'):
+            cand = venvs_root / name / rel
+            if cand.is_file():
+                return cand.resolve()
+    return None
+
+
+def discover_vendor_dir(name):
+    """Locate external vendor repository under %LOCALAPPDATA%\\OpenEditTools\\vendors."""
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    cand = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools' / 'vendors' / str(name)
+    return cand.resolve() if cand.is_dir() else None
+
+
+def discover_rife_cli():
+    """Locate rife-ncnn-vulkan portable executable (OPENEDIT_RIFE_CLI, OpenEditTools, or PATH)."""
+    explicit = os.environ.get('OPENEDIT_RIFE_CLI', '').strip()
+    if explicit:
+        cand = Path(os.path.expandvars(explicit)).expanduser().resolve()
+        return cand if cand.is_file() else None
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    tools_root = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools'
+    if tools_root.is_dir():
+        exe_names = ('rife-ncnn-vulkan.exe', 'rife-ncnn-vulkan') if os.name == 'nt' else ('rife-ncnn-vulkan',)
+        for folder in sorted(tools_root.glob('rife-ncnn-vulkan*'), reverse=True):
+            if folder.is_dir():
+                for exe_name in exe_names:
+                    cand = folder / exe_name
+                    if cand.is_file():
+                        return cand.resolve()
+    found = shutil.which('rife-ncnn-vulkan')
+    return Path(found).resolve() if found else None
+
+
+def discover_hyperframes_cli():
+    """Locate HyperFrames CLI entry (OPENEDIT_HYPERFRAMES_CLI, OpenEditTools, or PATH)."""
+    explicit = os.environ.get('OPENEDIT_HYPERFRAMES_CLI', '').strip()
+    if explicit:
+        cand = Path(os.path.expandvars(explicit)).expanduser().resolve()
+        return cand if cand.is_file() else None
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled in ('1', 'true', 'yes'):
+        return None
+    tools_root = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools'
+    if tools_root.is_dir():
+        rel_cands = (
+            ('node_modules/hyperframes/bin/hyperframes.mjs', 'node_modules/.bin/hyperframes.cmd')
+            if os.name == 'nt'
+            else ('node_modules/hyperframes/bin/hyperframes.mjs', 'node_modules/.bin/hyperframes')
+        )
+        for folder in sorted(tools_root.glob('hyperframes*'), reverse=True):
+            if folder.is_dir() and not folder.name.startswith('hyperframes-poc'):
+                for rel in rel_cands:
+                    cand = folder / rel
+                    if cand.is_file():
+                        return cand.resolve()
+    found = shutil.which('hyperframes')
+    return Path(found).resolve() if found else None
+
+
+def discover_hyperframes_gsap(cli_path=None):
+    """Locate local gsap.min.js bundled alongside HyperFrames for offline renders."""
+    roots = []
+    if cli_path:
+        p = Path(cli_path).resolve()
+        for parent in (p.parent, *p.parents):
+            if parent.name == 'node_modules':
+                roots.append(parent)
+                break
+            nm = parent / 'node_modules'
+            if nm.is_dir():
+                roots.append(nm)
+                break
+    disabled = os.environ.get('OPENEDIT_NO_AUTO_MODELS', '').strip().lower()
+    if disabled not in ('1', 'true', 'yes'):
+        tools_root = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditTools'
+        if tools_root.is_dir():
+            for folder in sorted(tools_root.glob('hyperframes*'), reverse=True):
+                if folder.is_dir() and not folder.name.startswith('hyperframes-poc'):
+                    nm = folder / 'node_modules'
+                    if nm.is_dir():
+                        roots.append(nm)
+    for nm in roots:
+        cand = nm / 'gsap' / 'dist' / 'gsap.min.js'
+        if cand.is_file():
+            return cand.resolve()
+    return None
+
+
+def discover_cjk_font_file(explicit=None):
+    """Locate a standalone static CJK TTF/OTF font file for deterministic offline @font-face."""
+    if explicit:
+        cand = Path(os.path.expandvars(str(explicit))).expanduser().resolve()
+        if not cand.is_file():
+            raise ValueError(f'CJK font file not found: {explicit}')
+        return cand
+    env_font = os.environ.get('OPENEDIT_CJK_FONT_PATH', '').strip()
+    if env_font:
+        cand = Path(os.path.expandvars(env_font)).expanduser().resolve()
+        if cand.is_file():
+            return cand
+    cands = [
+        Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Fonts' / 'simhei.ttf',
+        Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'),
+        Path('/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc'),
+        Path('/usr/share/fonts/truetype/noto/NotoSansSC-Regular.ttf'),
+        Path('/System/Library/Fonts/STHeiti Medium.ttc'),
+    ]
+    for cand in cands:
+        if cand.is_file():
+            return cand.resolve()
+    return None
+
+
+def discover_chromium_browser():
+    """Locate a local Chromium-based browser executable without downloading on first use."""
+    for var in ('HYPERFRAMES_BROWSER_PATH', 'OPENEDIT_BROWSER_PATH'):
+        raw = os.environ.get(var, '').strip()
+        if raw:
+            cand = Path(os.path.expandvars(raw)).expanduser().resolve()
+            if cand.is_file():
+                return cand
+    fixed = (
+        Path(r'C:\Program Files\Google\Chrome\Application\chrome.exe'),
+        Path(r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'),
+        Path(r'C:\Program Files\Microsoft\Edge\Application\msedge.exe'),
+        Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+        Path('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
+    )
+    for cand in fixed:
+        if cand.is_file():
+            return cand.resolve()
+    for name in ('chrome', 'google-chrome', 'chromium', 'chromium-browser', 'msedge'):
+        found = shutil.which(name)
+        if found:
+            return Path(found).resolve()
     return None
 _WHISPER_PREFERRED = (
     'faster-whisper-large-v3-turbo',
@@ -146,6 +308,31 @@ def _discover_onnx_patterns(root, subdirs, patterns, *, fallback_subdir=None, ex
     return None
 
 
+def _bundle_has_files(bundle_dir, required_groups):
+    """Return True if bundle_dir contains at least one matching file for every glob group."""
+    if not bundle_dir or not bundle_dir.is_dir():
+        return False
+    for group in required_groups:
+        if not any(bundle_dir.glob(pat) for pat in group):
+            return False
+    return True
+
+
+def _discover_bundle_dir(root, subdirs, required_groups):
+    for sub in subdirs:
+        base = (root / sub) if sub else root
+        if _bundle_has_files(base, required_groups):
+            return base.resolve()
+    return None
+
+
+def _bundle_onnx_bytes(bundle_dir):
+    if not bundle_dir or not bundle_dir.is_dir():
+        return None
+    total = sum(p.stat().st_size for p in bundle_dir.rglob('*.onnx') if p.is_file() and '.cache' not in p.parts)
+    return total or None
+
+
 def discover_model(kind, *, include_env=True, prefer_fp16=False):
     """Resolve an explicit env override or auto-discover local offline AI weights; never downloads."""
     if kind not in _MODEL_ENV_VARS:
@@ -171,6 +358,47 @@ def discover_model(kind, *, include_env=True, prefer_fp16=False):
     if kind == 'face':
         return _discover_onnx_patterns(
             root, ('face', ''), ('*yunet*.onnx', '*face*.onnx'), fallback_subdir='face',
+        )
+    if kind == 'beat_this':
+        return _discover_onnx_patterns(
+            root, ('beats', 'beat_this', ''), ('beat_this_final*.onnx', 'beat_this_*.onnx'),
+        )
+    if kind == 'clap':
+        return _discover_bundle_dir(
+            root, ('clap', ''), (
+                ('onnx/audio_model*.onnx', 'audio_model*.onnx'),
+                ('onnx/text_model*.onnx', 'text_model*.onnx'),
+                ('tokenizer.json',),
+            ),
+        )
+    if kind == 'flow':
+        return _discover_onnx_patterns(
+            root, ('flow', 'optical_flow', ''), ('neuflow_mixed.onnx', 'neuflow*.onnx'), fallback_subdir='flow',
+        )
+    if kind == 'depth_video':
+        return _discover_onnx_patterns(
+            root, ('depth', 'depth_video', ''), ('video_depth_anything*.pth', '*video_depth*.pth'),
+        )
+    if kind == 'depth':
+        if prefer_fp16:
+            fp16 = _discover_onnx_patterns(
+                root, ('depth/depth-anything-v2-small/onnx', 'depth/onnx', 'depth'), ('model_fp16.onnx', '*depth*fp16*.onnx'),
+            )
+            if fp16 is not None:
+                return fp16
+        return _discover_onnx_patterns(
+            root,
+            ('depth/depth-anything-v2-small/onnx', 'depth/onnx', 'depth'),
+            ('model_fp16.onnx', 'model*.onnx', '*depth*v2*.onnx', '*depth*.onnx'),
+            fallback_subdir='depth',
+        )
+    if kind == 'siglip2':
+        return _discover_bundle_dir(
+            root, ('siglip2', ''), (
+                ('onnx/vision_model*.onnx', 'vision_model*.onnx'),
+                ('onnx/text_model*.onnx', 'text_model*.onnx'),
+                ('tokenizer.json',),
+            ),
         )
     if kind == 'matanyone2':
         return _discover_onnx_patterns(
@@ -212,6 +440,18 @@ def model_license_note(kind, path):
         return 'MIT (Silero VAD ONNX)'
     if kind == 'face':
         return 'MIT (OpenCV Zoo YuNet ONNX)'
+    if kind == 'beat_this':
+        return 'MIT (Beat This! CP-JKU ONNX)'
+    if kind == 'clap':
+        return 'Apache-2.0 / CC0-derived (LAION CLAP HTSAT ONNX)'
+    if kind == 'flow':
+        return 'Apache-2.0 (NeuFlow v2 ONNX)'
+    if kind == 'depth':
+        return 'Apache-2.0 (Depth Anything V2 Small ONNX)'
+    if kind == 'depth_video':
+        return 'Apache-2.0 (Video Depth Anything Small)'
+    if kind == 'siglip2':
+        return 'Apache-2.0 (Google SigLIP 2 ONNX)'
     if kind == 'matanyone2':
         return 'NTU S-Lab License 1.0 (MatAnyone 2, non-commercial default; commercial use requires author permission)'
     if kind == 'rvm':
@@ -244,11 +484,18 @@ def _whisper_model_bin_bytes(path):
 def discover_local_models():
     """Return read-only inventory of offline AI weights detected on disk."""
     inventory = {}
-    for kind in ('demucs', 'whisper', 'vad', 'matting', 'face', 'matanyone2', 'rvm'):
+    kinds = (
+        'demucs', 'whisper', 'vad', 'matting', 'face', 'matanyone2', 'rvm',
+        'beat_this', 'clap', 'flow', 'depth', 'depth_video', 'siglip2',
+    )
+    for kind in kinds:
         cand = discover_model(kind)
         if kind == 'whisper':
             ok = bool(cand is not None and _is_whisper_dir(cand))
             size_bytes = _whisper_model_bin_bytes(cand) if ok else None
+        elif kind in ('clap', 'siglip2'):
+            ok = bool(cand is not None and cand.is_dir())
+            size_bytes = _bundle_onnx_bytes(cand) if ok else None
         else:
             ok = bool(cand is not None and cand.is_file())
             size_bytes = cand.stat().st_size if ok else None

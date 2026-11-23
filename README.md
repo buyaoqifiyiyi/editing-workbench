@@ -10,14 +10,15 @@
 |---|---|---|---|
 | **ArtCraft FilmCraft** (`filmcraft-cli`) | MIT OR Apache-2.0 | 多轨 V/A 时间轴、硬切/转场、变速倒放、Lumetri 曲线/色轮/HSL/LUT 调色、26 种混合模式、CJK 图形文字/多色重点词高亮、Subtitle 字幕轨、OTIO/FCPXML 互操作与成片导出 | 明文 `.fcproj`、`.otio`、`.fcpxml`、PNG 预览帧、H.264/HEVC/ProRes/NVENC 成片 |
 | **ArtCraft EffectCraft** (`effectcraft-cli`) | MIT OR Apache-2.0 | 308 种特效、9 种图层样式、形状/纯色/文字/素材层、文字动画器、蒙版、表达式、3D 相机/灯光、时间重映射/运动模糊、AE 风格 JSX 脚本 | 明文 `.ecproj`、RGBA 预览 PNG、锁定 **`ProRes 4444 RGBA (.mov)`** 透明叠层 |
+| **HyperFrames**（可选数据动画叠层） | Apache-2.0 | 纯离线无头 HTML/CSS/SVG/GSAP 数据动画（4 套商业广告配方 `kpi_bar_chart`/`kpi_counter_banner`/`comparison_table`/`milestone_progress` + 自定义离线 HTML）与布局/WCAG 对比度质检 | 透明 RGBA 预览 PNG、锁定 **`ProRes 4444 RGBA (.mov)`** 直通 FilmCraft 叠层 |
 | **FFmpeg / FFprobe** | LGPL / GPL | 媒体流探测、手机 VFR 可变帧率转码标准化（`normalize-media`）、参考抽帧与导出后严格全解码核验 | 标准 CFR 中间件、严格全解码回执（`ffmpeg -v error -xerror`） |
-| **离线开源 AI 工具** | MIT / Apache-2.0 / BSD | 竖屏跟拍重构图（`auto-reframe`，PySceneDetect + YuNet）、一键粗剪字幕流水线（`rough-cut`）、EBU R128 响度母带质检（`audio-master`）、非绿幕 AI 抠像（`matting`，MatAnyone 2/BiRefNet/RVM/RMBG）、程序化音效与 BGM 闪避（`sfx`）、光流运镜衔接分析与 33³ `.cube` LUT 生成（`motion-analyze`）、去气口（`auto-cut`）、语音转写（`faster-whisper`）、人声分离（Demucs ONNX）、按拍切镜（`librosa`）、CSRT 单目标跟踪（支持可选 `--gpu` CUDA 加速） | `edit-plan.json` 增补轨迹/关键帧/字幕、`ProRes 4444` 透明通道及母带音频 |
+| **离线开源 AI 工具** | MIT / Apache-2.0 / BSD | 节拍乐段结构（`music-structure`，Beat This! ONNX + allin1 CUDA）、本地零样本音效搜素（`sfx-search`，CLAP ONNX + Freesound CC0）、Vulkan 补帧慢放（`interpolate`，`rife-ncnn-vulkan`）、时域深度景深与 2.5D 视差（`depth`，Video Depth Anything / Depth Anything V2）、双语自然语言搜镜（`shot-search`，SigLIP 2 ONNX）、无头 GPU Shader 转场/特效（`shader-fx`，ModernGL GL-Transitions & ISF）、竖屏跟拍（`auto-reframe`）、一键粗剪（`rough-cut`）、EBU R128 母带 + `afir` 混响/侧链（`audio-master`）、非绿幕抠像（`matting`）、程序化音效（`sfx`）、NeuFlow v2 光流 & OpenColorIO 2.6 AgX/ACES 3D LUT（`motion-analyze`）、`auto-cut`、`faster-whisper`、Demucs ONNX、`librosa`、CSRT 跟踪 | `edit-plan.json` 增补轨迹/关键帧/字幕、`ProRes 4444` 透明通道、深度视差层、3D LUT 及母带音频 |
 | **创作知识库与全模态选配** | — | BM25 节级知识检索引擎（`search_knowledge`）；可选调用用户自配 OpenAI 兼容或 Gemini 原生多模态服务的 `music-edit` | 创作方法引用、`analysis.json` / `review.json` |
 
 ### 已解除的商业边界锁
 - **自由画布与帧率**：支持 `64..7680` × `64..4320` 分辨率与 `1..120fps`，移除曾经的 `640×360` / `720p`、2s/4s/20s 时长上限与离散数值白名单。
 - **全明文可审阅工程**：所有 `.fcproj` / `.ecproj` 均为清晰明文 JSON，用户随时可用 FilmCraft / EffectCraft 桌面客户端打开微调，无草稿加密与版本号漂移。
-- **自动全链路严格校验**：每次构建校验 `.provenance.json` 来源 SHA-256、导出后自动运行 `ffprobe` 与 `ffmpeg -v error -xerror` 全解码验证，并写出 `剪辑交付.md` 与 `素材来源.md`。
+- **自动全链路严格校验**：每次构建校验 `.provenance.json` 来源 SHA-256、导出后自动运行 `ffprobe` 与 `ffmpeg -v error -xerror` 全解码验证，写出 `剪辑交付.md` 与 `素材来源.md`，并可通过 `openedit audit` 一次性完成重复源区间审计、全资产解码、响度/0削波体检、节拍对齐误差与联系表拼图。
 
 ## 安装与常用命令
 
@@ -41,6 +42,7 @@ $enginePython = Join-Path $engineVenv 'Scripts\python.exe'
 & $enginePython -m openedit_engine capabilities --query blur --live
 & $enginePython -m openedit_engine validate --plan edit-plan.json
 & $enginePython -m openedit_engine build --plan edit-plan.json --out build-out --preview-times 0.5 2.0 --export final.mp4 --export-otio timeline.otio --export-fcpxml timeline.fcpxml
+& $enginePython -m openedit_engine audit --plan edit-plan.json --build-dir build-out --export final.mp4 --contact-sheet --out audit-out
 & $enginePython -m openedit_engine checks
 & $enginePython -m openedit_engine guide editing
 & $enginePython -m openedit_engine knowledge "EffectCraft"
