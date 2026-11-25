@@ -29,9 +29,9 @@
 
 ---
 
-## 13 个内置 EffectCraft 声明式配方（`overlays[].recipe`）
+## 16 个内置 EffectCraft 声明式配方（`overlays[].recipe`）
 
-在 `edit-plan.json` 的 `overlays[]`（或 `render-overlay --spec ...`）中直接声明 `recipe` 与 `params`，无需手写长 `layers` 数组或 JSX 脚本；注意**不能与 `layers` 或 `script` 混用**，且画布尺寸/安全区按当前项目 `width` / `height` 自适应缩放；引用本地素材的配方（`whip_transition`、`impact_punch`、`parallax_3d_scene`）同样经 `.provenance.json` 校验并入 `素材来源.md`。
+在 `edit-plan.json` 的 `overlays[]`（或 `render-overlay --spec ...`）中直接声明 `recipe` 与 `params`，无需手写长 `layers` 数组或 JSX 脚本；注意**不能与 `layers` 或 `script` 混用**，且画布尺寸/安全区按当前项目 `width` / `height` 自适应缩放；引用本地素材的配方（`whip_transition`、`impact_punch`、`parallax_3d_scene`、`hero_ring_cutout`）同样经 `.provenance.json` 校验并入 `素材来源.md`。`hero_ring_cutout` 与 `editorial_card` 支持共享 `theme` 视觉令牌（`editorial_scrapbook` / `neon_cyber` / `cinema_clean`）。
 
 ### 1. `title_card` — 居中主副标题卡片
 
@@ -115,7 +115,7 @@
   "start": 0.0,
   "duration": 2.2,
   "recipe": "chapter_opener",
-  "params": {"badge": "PART 01", "title": "开源剪辑工作流", "subtitle": "支持 13 套透明与 Hero 配方"}
+  "params": {"badge": "PART 01", "title": "开源剪辑工作流", "subtitle": "支持 16 套透明与 Hero 配方"}
 }
 ```
 
@@ -123,6 +123,11 @@
 
 - **必填**：`clip_a`（出画素材路径）、`clip_b`（入画素材路径）。
 - **可选**：`direction`（`left` | `right` | `up` | `down`，默认 `left`）、`cut_ratio`（`0.15..0.85`，默认 `0.35`）、`scale_kick`（`100..160`，默认 `118`）、`blur_length`（`0..200`，默认 `90`）、`optics_fov`（`0..120`，默认 `54`）、`chromatic`（`0..60`，默认 `22`）、`glow`（默认 `true`）。自动启用 `motion_blur: true`。
+
+### 12. `velocity_cut` — AE 速度曲线跨切点动势接力（素材 Hero 配方）
+
+- **必填**：`clip_a`（出画素材路径）、`clip_b`（入画素材路径）。
+- **可选**：`mode`（`zoom_in` | `zoom_out` | `slide_left` | `slide_right` | `slide_up` | `slide_down` | `spin_cw` | `spin_ccw`，默认 `zoom_in`）、`cut_ratio`（`0.2..0.8`，默认 `0.48`）、`velocity_curve`（`expo` | `snap` | `overshoot`，默认 `expo`）、`strength`（`0.3..2.0`，默认 `1.0`）、`drift_scale`（`0.0..0.15` 落位后持续微呼吸漂移，默认 `0.05`，绝不死停）、`blur_strength`（`0..120`，默认 `48`）、`optics_fov`（`0..95`，默认 `52`）、`chromatic`（`0..28`，默认 `9`）、`glow`（默认 `false`，`true` 时施加柔和高光微闪）、`time_ramp_boost`（`1.0..4.0` 可选源 `timeRemap` 速度坡道，默认 `1.0`）。自动开启 `motion_blur: true` 与 `motiontile` 镜像扩边。
 
 ### 12. `impact_punch` — 重拍冲击与可选 `timeRemap` 速度坡道（素材 Hero 配方）
 
@@ -134,13 +139,22 @@
 - **必填**：`background`（后景层路径，置于 `z=+320`）、`foreground`（ProRes 4444 RGBA 透明前景，适配 `matting` 或 `depth --parallax-layers` 输出，置于 `z=0`）。
 - **可选**：`title`（`<= 120`）、`subtitle`（`<= 160`）、`accent_color`（默认 `#38BDF8`）、`secondary_color`（默认 `#A855F7`）、`bg_exposure`（`-3..3`，默认 `-0.5`）、`camera_pan_x`（`-400..400`，默认 `90`）、`camera_zoom_delta`（`-400..400`，默认 `90`）、`clones`（默认 `false`，左右虚影分身）、`orbit_rings`（默认 `false`，前后 3D 能量环绕光环）。
 
-> 边界：上述 3 套素材驱动配方引用的媒体文件同样会经过 `validate_plan` 本地安全路径解析与 `.provenance.json` 来源 SHA-256 核验；EffectCraft 渲染时自动加入内容寻址缓存键。
+### 14. `hero_ring_cutout` — 抠像破框 + 旋转机械圆环 + 拉焦登场（素材 Hero 配方）
+
+- **必填**：`foreground`（本地 RGBA / ProRes 4444 透明人物前景，如 `openedit matting --bottom-feather 0.12 --defringe 1` 输出）。
+- **可选**：`background`（省略时直接透明叠加在 FilmCraft 主视频轨之上）、`theme`（`editorial_scrapbook|neon_cyber|cinema_clean`）、`title` / `subtitle`（自动带暗底档案衬卡）、`accent_color`、`secondary_color`、`bg_color`、`ring_count`（`1..3`，默认 `2`）、`ring_speed`（`-360..360` deg/s）、`focus_pull_s`（入场高斯拉焦时长 `0..2.0`s）、`focus_pull_blur`（初始虚焦半径 `0..60`）、`fg_scale`（`50..160`）、`fg_offset_x`/`fg_offset_y`（`-0.4..0.4`）、`glow`。
+
+### 15. `editorial_card` — 透明内框多栏剪贴簿卡片边框
+
+- **可选**：`theme`、`panels`（`1..3` 栏，框内保持 100% 透明 Alpha 直透主视频）、`labels`（各栏左下暗底角标数组）、`header`（顶部档案标题徽章）、`border_color`、`accent_color`、`badge_bg`、`border_width`（`2..20`）、`gap_px`、`margin_ratio`、`animate_in`、`glow`。
+
+> 边界：上述素材驱动配方引用的媒体文件同样会经过 `validate_plan` 本地安全路径解析与 `.provenance.json` 来源 SHA-256 核验；EffectCraft 渲染时自动加入内容寻址缓存键。
 
 ---
 
-## 4 个 HyperFrames 商业广告数据动画配方（`backend: "hyperframes"`）
+## 10 个 HyperFrames 动画、UI 连续舞台与技术流 MG 配方（`backend: "hyperframes"`）
 
-当需要制作**KPI 核心指标跳字、柱状图与趋势折线、参数对比表、阶段进度条**或现代 HTML/CSS/SVG 数据卡片叠层时，可在 `overlays[]`（或 `render-overlay --spec`）中指定 `"backend": "hyperframes"`，引擎会将其纯离线渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)` 并复用 `overlay-cache` 缓存直接合成进 FilmCraft：
+当需要制作**KPI 数据图表**、**UI 级连续画布过渡**或**平面剪贴簿 / 技术流 MG 包装**时，可在 `overlays[]`（或 `render-overlay --spec`）中指定 `"backend": "hyperframes"`，引擎会将其纯离线渲染为 `ProRes 4444 RGBA (.mov, yuva444p12le)` 并复用 `overlay-cache` 缓存直接合成进 FilmCraft：
 
 | 配方名 | 核心用途 | 必填与常用参数 | 说明与防踩坑设计 |
 |---|---|---|---|
@@ -148,29 +162,28 @@
 | `kpi_counter_banner` | 多指标战报数字滚动横幅 | `metrics: [{label, target, prefix?, suffix?, decimals?, accent?}]` (`1..4` 项), `title`, `badge`, `position` (`bottom\|center\|top`) | 适合口播底部/产品片尾多组战报指标同步跳数 |
 | `comparison_table` | 双方案参数逐行对比卡 | `title`, `rows: [{label, left, right}]` (`2..5` 项), `subtitle`, `badge`, `left_header`, `right_header`, `position` | 右列高亮强调优势参数，逐行滑入入场 |
 | `milestone_progress` | 阶段达成进度条逐项推进卡 | `title`, `steps: [{label, value, percent}]` (`2..5` 项), `badge`, `position` | 适合漏斗转化率、项目进度或实测得分演示 |
+| `viewfinder_hud` | 透明取景器 HUD（四角框 + `REC` 闪烁 + 实时时间码） | `theme`, `rec_label`, `show_rec`, `blink_hz`, `timecode_fps`, `start_seconds`, `top_right`, `bottom_left`, `pill_opacity`, `show_crosshair`, `margin_px` | 内框 100% 透明；时间码与 `REC` 自动加半透明暗底防过亮背景吞字 |
+| `polaroid_grid` | 四联 / 三联拍立得照片墙 + 外圈手绘红圈点亮 | `theme`, `cards: [{label, sublabel?, image?|video?, source_in?, tilt_deg?}]` (`2..4` 项), `highlight_index`, `circle_color`, `layout`, `stagger` | **原生支持活视频（`video` + `source_in` 自动同步/短片循环）** 与静图；自动护头顶比例裁切、红圈永不压盖底部标签 |
+| `filmstrip_reel` | 35mm 齿孔胶片卷轴连播 | `theme`, `frames: [{label?, image?|video?, source_in?}]` (`2..8` 项), `top_code`, `bottom_code`, `height_ratio`, `position_y`, `pulse_beats` | **支持每格独立活视频连播**；齿孔轨与片号标签严格分区不重叠；矢量 SVG 播放角标免豆腐块 |
+| `text_matte_dissolve` | 大字标题遮罩填充 + 方向性星尘粒子消散 | `theme`, `text`, `subtitle`, `fill_image?|fill_video?`, `source_in?`, `dissolve_start`, `dissolve_direction` (`right\|left\|up`), `particle_count`, `font_size`, `glow` | 支持动态视频实时绘制字内流动画面（`fill_video`）或静图填充 + 确定性粒子星尘消散 |
+| `ui_flow_stage` | 单画布共享元素 FLIP 展开 + RK4 弹簧物理 + 虚拟相机推拉摇移 | `theme`, `cards: [{title, subtitle?, tag?, image?|video?, source_in?, accent_color?}]` (`2..4` 项), `focus_index`, `states` (`overview\|focus\|split\|hero_zoom`), `spring_stiffness`, `spring_damping`, `camera_zoom`, `motion_blur_strength` | **多卡同播 60fps 活视频（告别 PPT 静图）**，同一连续画布完成列表→聚焦→大特写 UI 切换与速度耦合方向模糊 |
+| `kinetic_ui_title` | 现代 UI 三联动微交互标题（`blur + scale + y` 微距错峰 + 玻璃衬卡） | `theme`, `title`, `subtitle`, `badge`, `stagger_ms`, `reveal_style` (`blur_scale_y\|clip_wipe\|spring_card`), `spring_stiffness`, `spring_damping`, `glass_card` | 按中英文语义拆词 20–40ms 弹性错峰入场，支持剪贴蒙版展开与克制玻璃卡片 |
 
-- **通用样式与质检参数**：上述 4 套配方均支持 `accent_color`、`highlight_color`、`bg_color`（`#RRGGBB`）、`bg_opacity`（`0.4..1.0`，默认 `0.94` 保证复杂实拍背景可读性），支持横/竖屏及 4K 按短边自适应缩放；设 `"check": true` 可额外执行 `hyperframes check` 布局与 WCAG 对比度核验。
+- **通用样式与质检参数**：数据动画 4 套配方支持 `accent_color`、`highlight_color`、`bg_color`、`bg_opacity`；UI 连续动效与技术流 6 套 MG 配方支持 `theme`（`editorial_scrapbook` / `neon_cyber` / `cinema_clean`）统配色盘，支持横/竖屏及 4K 按短边自适应缩放，容器配方优先传本地 **`video` + `source_in`**（自动转码预裁为同帧率静音 H.264 进 `assets/` 防冻帧，保留 `image`/`fill_image` 向后兼容）并自动进 `.provenance.json` 溯源与 `overlay-cache` 哈希；设 `"check": true` 可额外执行 `hyperframes check` 布局与 WCAG 对比度核验。
 
 ```json
 {
-  "name": "q4_growth_chart",
+  "name": "hud_overlay",
   "backend": "hyperframes",
-  "track": "overlay",
-  "start": 0.5,
-  "duration": 4.0,
-  "recipe": "kpi_bar_chart",
+  "track": "V3",
+  "start": 0.0,
+  "duration": 8.0,
+  "recipe": "viewfinder_hud",
   "params": {
-    "badge": "AI 智能投放实测",
-    "title": "转化效率阶梯跃升",
-    "kpi_label": "有效线索转化提升",
-    "kpi_target": 248,
-    "pill_text": "获客成本 -38.4%",
-    "bars": [
-      {"label": "第1周", "value": 42, "display": "+42%"},
-      {"label": "第2周", "value": 88, "display": "+88%"},
-      {"label": "第3周", "value": 156, "display": "+156%"},
-      {"label": "第4周", "value": 248, "display": "+248%", "highlight": true}
-    ]
+    "theme": "editorial_scrapbook",
+    "top_right": "4:3 · 60FPS",
+    "bottom_left": "RE:SCRAPBOOK",
+    "timecode_fps": 30
   }
 }
 ```

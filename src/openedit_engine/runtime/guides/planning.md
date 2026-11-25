@@ -13,7 +13,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 - **FilmCraft（主剪辑 / 调色 / 字幕 / 导出）**：承接多轨 V/A 时间轴、硬切与转场、变速/倒放、Lumetri 曲线/色轮/HSL/LUT、26 种混合模式、富文本多色重点词高亮、图形与烧录字幕、OTIO/FCPXML 交换与 H.264/HEVC/ProRes 导出，产出可由桌面端直接打开微调的明文 `.fcproj` 工程。
 - **EffectCraft（高级动效 / 特效 / 透明叠层）**：当仅用 FilmCraft 基础运动/调色不足以完成高级文字动画、图层样式、复杂遮罩、表达式或 3D 合成时，通过 `overlays[]` / `render-overlay` 固定渲染为 **ProRes 4444 RGBA (.mov, `yuva444p12le`)** 叠层并自动合入主时间轴，或通过 `effectcraft-exec` 直通调用。
-- **FFmpeg 与离线 AI 工具（按需白名单辅助）**：`inspect`、`reference [--detector pyscenedetect]`、`normalize-media`、`music-structure`、`shot-search [--with-motion]`、`motion-analyze`、`sfx [--from-structure]` / `sfx-search`、`interpolate`、`depth`、`shader-fx`、`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `beat-apply [--use-downbeats]` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` / `layout-tracks` 及 `audit` 仅按具体创作问题选用（不为了堆技术而强制启用）。
+- **FFmpeg 与离线 AI 工具（按需白名单辅助）**：`inspect`、`reference [--detector pyscenedetect]`、`normalize-media`、`mesh-avatar`（真 2D 网格 Live2D 人物驱动）、`music-structure`、`shot-search [--with-motion]`、`motion-analyze`、`sfx [--from-structure]` / `sfx-search`、`interpolate`、`depth`、`shader-fx`、`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `beat-apply [--use-downbeats]` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` / `layout-tracks` 及 `audit` 仅按具体创作问题选用（不为了堆技术而强制启用）。
 
 单独特效、调色或音频任务只处理相关部分，不强行建立完整主时间轴。
 
@@ -36,6 +36,20 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 每个制作版本同时形成并落实两条思路：**剧情思路**决定观众获知什么、人物关系或情绪怎样变化；**剪辑思路**决定用哪些镜头、切点、节奏、构图与声画关系让变化发生。第一版可以粗糙，两条思路都要在实际片段中可辨认；不能先拼完故事，再把剪辑表现留到下一版。非叙事作品对应内容组织与视听表达；只读分析与方向建议仍以文本为终点，不因本要求扩大授权。
 
 **剪辑前先看同款作品。** 新建、整体重剪或需要重做表现时，在可访问的视频网站主动搜索与题材、片型、目标情绪和制作要求相近的作品（优先用户指定参考，再找同素材或相近目标的不同作品）。对能实际读取的参考视频挑选有代表性的连续片段拆看：叙事信息如何推进、镜头与景别怎样连接、节奏怎样起伏、构图与层次如何发展、声音如何参与；本地参考视频可配合 `openedit reference --detector pyscenedetect` 提取切点候选（仅给候选边界，不能代替观看运镜、变速与特效）。记录来源、实际观看范围与可核实观察；仅看到标题、封面、文字或字幕时标为线索，不称为看过剪辑或听过音乐；借鉴方法而不照搬作品、未经授权素材或虚构参数，区分参考片源运动与后期加工。项目内已有近期适用的已观看参考可复用；局部小修只查受影响内容，用户要求不联网时遵从，查找参考不授权外发用户素材或新增付费。
+
+- **仿剪参考片风格指纹拆解协议（遇到“仿照某视频剪辑”时优先执行）**：
+  1. **先判片型本质**：明确参考片属于 **平面 MG 容器流**（画布底纹、边框卡片、拍立得/胶片卷轴、取景器 HUD 等容器组织画面）、**节奏变速流**（曲线速度坡道、动作匹配与光流接力）还是**情绪叙事流**（长镜停留、口型对白与关系留白），严禁把平面 MG 作品直接扁平化为全屏硬切。
+  2. **提取 5 项风格指纹后再选型写码**：
+     - **画幅与常驻框架**：画幅比（如 4:3 / 16:9 / 9:16）、底纹（如点阵/暗板）与常驻透明 HUD（`viewfinder_hud` 四角框 / `REC` / 时间码）；
+     - **色彩比例与情绪分工**：全片单色/双色调（`duotone_grade`）与关键拍全彩/局部留色（`color_pop`）的大致节奏配比及暗底衬托方案；
+     - **运动曲线与残影规则**：统一缓动（如快出缓停）以及仅在位移/冲击瞬间出现、静止自动归零的残影与 RGB 色散（`echo_chromatic_snap`）；
+     - **逐小节核心视觉机关映射**：将每段主力机关显式映射到 `overlays[].recipe` / `shader-fx`（选框、三格切分、AI 抠像破框+机械圆环、拍立得+避让手绘红圈、35mm 胶片卷轴、字体遮罩星尘消散等）；
+     - **文字与角色符号迁移表**：将原片角色名、徽章、标语与日期全量替换为目标 IP 语义，并在渲染前用 `audit --font-check`（或字体字形预检）确认目标字体完整覆盖所有符号（杜绝 `[?]` 豆腐块）。
+     - **拉片节奏谱与参考色板同步提取**：对本地参考片先运行 `openedit reference --detector pyscenedetect` 读取 `editing_rhythm`（ASL 平均镜头时长、4 分段速率曲线 `pacing_quarters_cpm`、主色 Oklab 三色板、景别交替序列），并按需用 `openedit motion-analyze --make-lut match_reference --match-reference <参考片或截帧>` 导出带 OpenDRT 高光肩部滚落的 Oklab MKL 电影 LUT。
+  3. **Director → Trim Refiner → Reviewer 审美迭代闭环**：
+     - **Director（选镜与景别编排）**：先跑 `openedit inspect --contact-sheet --analyze-framing`，依据 `shot_scale`（`ECU/CU/MCU/MS/WS`）、`aesthetic_score`、`rule_of_thirds_crop` 与 `sharpness_score` 安排景别起伏与重点构图；
+     - **Trim Refiner（活视频容器、动势接力与审美克制）**：对照 `trim_suggestion` 剔除首尾滞留暗场；**多卡/胶片/字体遮罩容器（`ui_flow_stage`、`polaroid_grid`、`filmstrip_reel`、`text_matte_dissolve`）优先传入活视频 `video` + `source_in` 而非静图以杜绝 PPT 僵硬感**；相邻镜头善用 `clips[].camera_motion`（`whip_out_* -> whip_in_*` / `zoom_*` + 持续 `drift` 微推进防死停）与 EffectCraft `velocity_cut` 做跨切点速度继承；坚持视觉语言统一克制，避免在单支短片内硬塞风格打架的网页磨砂玻璃弹窗与过多模板组件；
+     - **Reviewer（动态与静帧双线自审）**：渲染后结合 `audit --contact-sheet --visual-qc --motion-review` 同时核查 `qc_contact_sheet.jpg`、`cut_strips.jpg`、`motion_review.mp4` 与 `motion_qc`（`frozen_segments` 冻屏扫描、`cut_continuity` 切点动势衔接、过曝及节奏变化），消除静态 PPT 死区与“匀速节拍器硬切”。
 
 将上述参考观察与知识检索贯彻到以下 5 项动作中（沿用项目分析、`creative-brief.json` 或 `notes`，不另建强制表单）：
 
@@ -89,8 +103,9 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 按纯开源能力与素材条件落实参数：
 
-- **轨道与职责**：主剪辑、Lumetri 调色、遮罩、嵌套、多色高亮图形及烧录字幕使用 FilmCraft（有双语歌词/对白时在 `layer_order` 将字幕轨置于常规特效叠层上方）；高阶透明动效、表达式与真 3D 视差使用 EffectCraft `overlays[]`（13 套自适应/Hero 配方如 `whip_transition`、`impact_punch`、`parallax_3d_scene`，锁定 `ProRes 4444 RGBA`）。
-- **AI 视效素材前提**：`matting` 须检查 `dropout_warning`、擦除与前景完整度；合入 `parallax_3d_scene` 等前景分离合成时，底景板应先剔除原主体/做浅景深洁净化处理并控制相机偏移防“双影重影”；`interpolate` 传入自定义 `--slow-factor` 时使用 `--model auto`（`rife-v4.6`）；`depth` 避开大面积镜面与玻璃反光镜次；`shader-fx`（如 `directionalwarp`、`radial`）须抽帧核对边界拉伸或接缝，优先选用边缘收敛稳定的预设（如 `crosszoom`、`dreamy_zoom`）。
+- **轨道与职责**：主剪辑、Lumetri 调色、`camera_motion` 曲线动效、遮罩、嵌套、多色高亮图形及烧录字幕使用 FilmCraft（有双语歌词/对白时在 `layer_order` 将字幕轨置于常规特效叠层上方）；高阶透明动效、表达式与真 3D 视差使用 EffectCraft `overlays[]`（**16 套** 自适应/Hero 配方含 `velocity_cut`、`whip_transition`、`impact_punch`、`parallax_3d_scene`、`hero_ring_cutout`）或 HyperFrames `overlays[]`（**10 套** 离线数据与活视频 UI 连续画布配方如 `ui_flow_stage`、`kinetic_ui_title`、`viewfinder_hud`，锁定 `ProRes 4444 RGBA`）。
+- **禁止闭门造车与工具盘点前置**：开工设计任何视觉/运动机制前，必须先核对 `openedit doctor`、全量 `describe_operations` / `capabilities` 与本机已配组件（如 `mesh-avatar`、`hyperframes`、EffectCraft/FilmCraft 原生能力）；**引擎已有专业网格/合成能力时，严禁私自手搓降级替代滤镜**（如用整图 UV 正弦波冒充 Live2D 发丝与眨眼）。
+- **AI 视效素材前提与适用边界**：`mesh-avatar` 仅用于**正面或微侧半身透明立绘**（90° 纯侧脸保持刚体动效配合 `layer_motion_blur` + `light_wrap`）；`matting` 须检查 `dropout_warning`、擦除与前景完整度；合入 `parallax_3d_scene` 等前景分离合成时，底景板应先剔除原主体/做浅景深洁净化处理并控制相机偏移防“双影重影”；`interpolate` 传入自定义 `--slow-factor` 时使用 `--model auto`（`rife-v4.6`）；`depth` 避开大面积镜面与玻璃反光镜次；`shader-fx`（如 `directionalwarp`、`radial`）须抽帧核对边界拉伸或接缝，优先选用边缘收敛稳定的预设（如 `crosszoom`、`dreamy_zoom`）。
 - **整洁计划与安全轨道复用**：复杂段落可在项目内写 `creative-brief.json` 记录源范围、层职责与起止变化，执行计划 `edit-plan.json` 严格只写允许字段并以整微秒算术防浮点边界重叠；带显式 `layer_order` 的多轨计划可在 `build` 前按 [安全轨道复用](../references/plan-format.md#安全轨道复用) 运行 `openedit layout-tracks` 审阅映射，仅在方便用户在 GUI 微调且画面核查通过时采用新计划，不强求固定轨数，不改动用户已保存工程。
 
 实现前区分直接可用、满足前提才可用与当前缺口，不可等价实现时如实说明，不静默删去核心要求。
@@ -99,9 +114,9 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 ### 6. 用短段结果回看决定
 
-初版优先检查代表性或高风险段落及前后接点。建议先以 `build --draft` 半分辨率快审，或先跑带 `--preview-times` 的 `build`（暂不急于全片 `export`）生成 `.fcproj` 与关键帧 PNG，重点核查注意力交接、动作/反应可读性、字幕安全区、Alpha 贴合、双影重影与着色器接缝；确认后再全分辨率 `export` 避免长片盲导返工。
+初版优先检查代表性或高风险段落及前后接点。**任何新增人物动画或陌生动态表现，必须先挑 1 个典型镜头跑出 3–5 秒单镜头纯底小样并在目标帧率下核查连贯动作与关键帧切片（严禁把“帧间像素 diff > 0”或自动 audit 全绿当成动作自然），验真后才能全片批处理。** 完整成片建议先以 `build --draft` 半分辨率快审，或先跑带 `--preview-times` 的 `build`（暂不急于全片 `export`）生成 `.fcproj` 与关键帧 PNG，重点核查注意力交接、动作/反应可读性、字幕安全区、Alpha 贴合、双影重影与着色器接缝；确认后再全分辨率 `export` 避免长片盲导返工。
 
-交付前运行 `openedit audit --plan <edit-plan.json> --build-dir <build目录> --export <输出.mp4> [--beats <structure目录>] --contact-sheet --out <audit目录>` 一次性检查主轨源区间重复、成片及 `overlays/*.mov` 全流严格解码、EBU R128 响度与 0 削波、节拍/Drop 偏差与 `qc_contact_sheet.jpg` 联系表。
+交付前运行 `openedit audit --plan <edit-plan.json> --build-dir <build目录> --export <输出.mp4> [--beats <structure目录>] --contact-sheet --motion-review --out <audit目录>` 一次性检查主轨源区间重复、成片及 `overlays/*.mov` 全流严格解码、EBU R128 响度与 0 削波、节拍/Drop 偏差、`motion_qc` 静态冻屏扫描、360p/15fps `motion_review.mp4`、切点四联 `cut_strips.jpg` 与 `qc_contact_sheet.jpg` 联系表。
 
 存在关键不确定性时，在同一源素材、同一 BGM 与同一目标下仅改变一个关键变量对比受影响短段（如接动作 vs 留反应、无效果 vs 锚点接管），并用 [practice-compare](../references/creative-knowledge-workflows.md#参考片分析与实操对照) 与 [短段比较与反馈积累](../references/creative-review.md#短段比较与反馈积累) 记录条件、结论与成对偏好案例。
 

@@ -43,6 +43,14 @@
 
 同源层先核对源时间、构图和缩放，再安排错开入场与局部变化；分屏完成后及时回到可辨认的主动作。滤镜和闪白加强设计，不能替代层序、窗口或运动。复杂背景人物抠像可调用 [`openedit matting --gpu`](../capabilities.md#ai-matting) 生成透明前景，几何动态变化使用 `clips[].mask` 关键帧，3D 空间/透视叠层交由 `overlays[]` 渲染；若当前素材缺可用前景通道，仍应如实记录条件限制，不把普通矩形原画面板说成透明人物抠像或三维透视。更多课程实战映射见 [已学课程总手册](../course-techniques-openedit.md)。
 
+### 平面剪贴簿 / 技术流 MG 审美纪律
+
+- **全片统一视觉令牌与 GPU 着色器**：在同一计划的 `overlays[]` 中复用统一的 `theme`（如 `editorial_scrapbook` / `neon_cyber` / `cinema_clean`），并配合 `shader-fx effect`（`duotone_grade`、`color_pop`、`neon_strobe`、`dot_grid_backdrop`、`echo_chromatic_snap`）保持统一色板、粒子颗粒度与速度耦合残影/色散，避免逐段各长各的。
+- **高光防爆顶与 HUD 暗底对比**：高亮度原画叠亮色 LUT 或分屏卡片时，启用高光上限与暗化压缩（如 `duotone_grade` 的 `highlightCap`）；取景器时间码、档案标语等细字叠层需保留半透明暗底衬条（`viewfinder_hud` `pill_opacity`）防止淹没在亮发色或亮背景中。
+- **动漫 AI 抠像精修与半身融入**：人物近景/半身抠像建议配合 `openedit matting --target-fps 30 --defringe 1 [--clean-color-holes blue_sky] [--bottom-feather 0.12]`；30fps 智能抽帧可直接降低半数推理耗时并去除外缘白边，闭合发丝/丝带洞通过 HSV 色孔清理穿透，底部柔化渐变或贴底对齐可消除“纸片剪贴硬边感”。
+- **矢量图标替代冷门字模符号 & 单轮密检**：胶片播放角标等装饰符号统一采用 `filmstrip_reel` 内置矢量 SVG 路径而非高风险字符（如部分等宽字体缺失 `▶`），导出前先跑 `openedit inspect --contact-sheet --analyze-framing` 读取 `shot_scale`、`aesthetic_score`、`rule_of_thirds_crop` 与 `trim_suggestion` 剪掉首尾冗余滞留帧，再在正式全导前执行 `openedit audit --contact-sheet --visual-qc` 一次筛除过曝、死黑、`pacing_qc` 匀速节拍器、相邻 Oklab 跳变与缺字豆腐块。
+- **UI 级丝滑连续切换、活视频容器 & 动势接力**：需要多个画面/卡片像产品 UI 一样丝滑展开、聚焦与退回时，优先采用 HyperFrames `ui_flow_stage`（**直接传入 `video` + `source_in` 播活视频** + 单世界画布 + 确定性 RK4 弹簧物理 + FLIP 共享元素展开 + 速度耦合 SVG 运动模糊）；克制使用风格匹配的标题而不在非科技/古风/日漫正片强插网页玻璃弹窗。主轨切点优先使用 `clips[].camera_motion`（`whip_out_* -> whip_in_*` / `zoom_*` + 持续微呼吸 `drift` 防死停；缩框透明立绘与虚影请设置 `auto_overscan: false` 搭配温和单向漂移防果冻抽动）或 EffectCraft **`velocity_cut`** 实现速度继承；需要真 Live2D 眨眼、发丝物理飘动、慢呼吸与微转头时，针对**正面或微侧半身透明立绘**直接调用引擎内置 [`openedit mesh-avatar`](../capabilities.md#mesh-avatar)（绝不对整图外缘刷正弦波扭曲），而 **90° 纯侧脸及刚体前景抠像**保持锐利剪影并配合 `shader-fx effect` 的 **`layer_motion_blur`**（进出场甩入模糊）与 **`light_wrap --bg`**（背景亮边光学包裹融光）融入环境；配合 5 级 Mipmap **`deep_glow`** 与 **`shutter_motion_blur`**，并在全导后用 `audit --motion-review` 审阅 `motion_review.mp4`、`cut_strips.jpg` 与 `motion_qc` 扫除冻屏 PPT 段落。
+
 文案、排版与技术展示分别判断；类似修订读 [剪辑修订与表达判断](../creative-review.md)。保留明确认可的内容，画面强变化后交还完整动作，认可不提升为兼容、试听或导出验收。
 
 ## 文字作为画面元素

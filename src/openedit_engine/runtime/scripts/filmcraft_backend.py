@@ -9,6 +9,7 @@ import craft_rpc
 import effectcraft_backend
 import file_hash
 import hyperframes_backend
+import motion_curves
 import runtime_core as core
 
 TICKS_PER_SEC = core.TICKS_PER_SEC
@@ -483,7 +484,15 @@ def _apply_clip_transforms_and_keys(client, clip_id, item, canvas, fit_scale=(1.
     source_in = float(item.get('source_in', 0.0))
     speed = float(item.get('speed', 1.0))
     easing = item.get('motion_easing')
-    keyframes = item.get('keyframes', [])
+    keyframes = list(item.get('keyframes', []))
+    if item.get('camera_motion'):
+        keyframes.extend(
+            motion_curves.compile_camera_motion(
+                item['camera_motion'],
+                float(item.get('duration', 1.0)),
+                base_transform=tx_spec,
+            )
+        )
     non_uniform_fit_or_keys = abs(fit_sx - fit_sy) > 1e-4 or any(k['property'] == 'scale_x' for k in keyframes)
 
     # Merge position_x/position_y keyframes at the same time into Vec2 motion/position keys.

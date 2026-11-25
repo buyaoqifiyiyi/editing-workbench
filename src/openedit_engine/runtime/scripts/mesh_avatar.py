@@ -12,6 +12,7 @@ import tempfile
 import re
 from PIL import Image, ImageDraw
 import file_hash
+import runtime_paths
 
 RANGES = {'angleX':(-30,30),'angleY':(-30,30),'angleZ':(-30,30),'breath':(0,1),
           'eyeLOpen':(0,1.25),'eyeROpen':(0,1.25),'mouthOpen':(0,1),'mouthForm':(-1,1)}
@@ -19,6 +20,28 @@ RANGES = {'angleX':(-30,30),'angleY':(-30,30),'angleZ':(-30,30),'breath':(0,1),
 def config_path():
     base = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))
     return base / 'OpenEditEngine' / 'mesh-avatar.json'
+
+def resolve_browser(value):
+    if value is not None:
+        cand = Path(value).resolve(strict=True)
+        if not cand.is_file():
+            raise ValueError(f'Browser executable not found: {cand}')
+        return cand
+    browser = runtime_paths.discover_chromium_browser()
+    if browser is None:
+        raise ValueError('No local Chrome/Edge browser found; pass --browser or set OPENEDIT_BROWSER_PATH')
+    return browser
+
+def status(args):
+    explicit = getattr(args, 'studio', None)
+    info = runtime_paths.discover_mesh_avatar_studio(explicit)
+    projects = []
+    if info['studio_path']:
+        proj_dir = Path(info['studio_path']) / 'projects'
+        if proj_dir.is_dir():
+            projects = sorted(p.name for p in proj_dir.iterdir() if p.is_dir())
+    state = 'ready' if info['available'] else ('unconfigured' if not info['configured'] else 'incomplete')
+    return {'status': state, **info, 'projects': projects}
 
 def studio_path(value):
     if value is None:
@@ -135,25 +158,49 @@ def render(args):
     if not avatar.is_file() or avatar.suffix.lower() != '.mavatar': raise ValueError('avatar must be an existing .mavatar file')
     runtime = studio/'packages'/'runtime'/'dist'/'index.js'; playwright = studio/'node_modules'/'playwright'
     if not runtime.is_file() or not playwright.is_dir(): raise ValueError('studio requires built runtime and installed Playwright')
-    browser = args.browser.resolve(strict=True)
+    width = getattr(args, 'width', 1280)
+    height = getattr(args, 'height', 720)
+    fps = getattr(args, 'fps', 30)
+    codec = getattr(args, 'codec', 'png')
+    fit = getattr(args, 'fit', 'contain')
+    if type(width) is not int or not (64 <= width <= 4096) or width % 2 != 0:
+        raise ValueError('width must be an even integer in [64, 4096]')
+    if type(height) is not int or not (64 <= height <= 4096) or height % 2 != 0:
+        raise ValueError('height must be an even integer in [64, 4096]')
+    if type(fps) is not int or not (1 <= fps <= 120):
+        raise ValueError('fps must be an integer in [1, 120]')
+    if codec not in ('png', 'prores_4444'):
+        raise ValueError("codec must be 'png' or 'prores_4444'")
+    if fit not in ('contain', 'cover'):
+        raise ValueError("fit must be 'contain' or 'cover'")
+    if type(args.frames) is not int or not 1 <= args.frames <= 1800 or (args.frames / fps) > 30.0:
+        raise ValueError('frames must be in [1, 1800] and total duration <= 30s')
+    browser = resolve_browser(getattr(args, 'browser', None))
     node = shutil.which('node'); ffmpeg = shutil.which('ffmpeg'); ffprobe = shutil.which('ffprobe')
     if not node or not ffmpeg or not ffprobe: raise ValueError('node, ffmpeg and ffprobe must be available on PATH')
-    if not 1 <= args.frames <= 300: raise ValueError('frames must be from 1 to 300 at 30fps')
-    duration = args.frames / 30
+    duration = args.frames / fps
     keys = read_keys(args.keyframes, duration)
     out = args.out.resolve(); out.mkdir(parents=True, exist_ok=False)
     frames = out/'frames'; frames.mkdir()
-    config = out/'motion.json'; config.write_text(json.dumps({'frames':args.frames,'keyframes':keys},ensure_ascii=False,indent=2),encoding='utf-8')
+    config = out/'motion.json'; config.write_text(json.dumps({'frames':args.frames,'width':width,'height':height,'fps':fps,'fit':fit,'keyframes':keys},ensure_ascii=False,indent=2),encoding='utf-8')
     driver = Path(__file__).with_name('mesh_avatar_render.cjs')
     result = subprocess.run([node,str(driver),str(studio),str(avatar),str(frames),str(config),str(browser)],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=900)
     if result.returncode: raise RuntimeError(f'Mesh Avatar render failed: {result.stderr[-4000:]}')
     movie = out/'avatar.mov'
-    encode = subprocess.run([ffmpeg,'-v','error','-framerate','30','-i',str(frames/'%05d.png'),'-frames:v',str(args.frames),'-c:v','png','-pix_fmt','rgba','-n',str(movie)],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=600)
+    if codec == 'prores_4444':
+        encode_cmd = [ffmpeg,'-v','error','-framerate',str(fps),'-i',str(frames/'%05d.png'),'-frames:v',str(args.frames),'-c:v','prores_ks','-profile:v','4','-pix_fmt','yuva444p12le','-vendor','apl0','-n',str(movie)]
+        expected = ('prores','yuva444p12le',width,height,f'{fps}/1',args.frames)
+    else:
+        encode_cmd = [ffmpeg,'-v','error','-framerate',str(fps),'-i',str(frames/'%05d.png'),'-frames:v',str(args.frames),'-c:v','png','-pix_fmt','rgba','-n',str(movie)]
+        expected = ('png','rgba',width,height,f'{fps}/1',args.frames)
+    encode = subprocess.run(encode_cmd,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=600)
     if encode.returncode: raise RuntimeError(f'FFmpeg encoding failed: {encode.stderr[-4000:]}')
     info = json.loads(subprocess.check_output([ffprobe,'-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=codec_name,pix_fmt,width,height,avg_frame_rate,nb_read_frames','-of','json',str(movie)],text=True,encoding='utf-8'))['streams'][0]
-    if (info.get('codec_name'),info.get('pix_fmt'),info.get('width'),info.get('height'),info.get('avg_frame_rate'),int(info.get('nb_read_frames',0))) != ('png','rgba',1280,720,'30/1',args.frames):
+    if (info.get('codec_name'),info.get('pix_fmt'),info.get('width'),info.get('height'),info.get('avg_frame_rate'),int(info.get('nb_read_frames',0))) != expected:
         raise RuntimeError(f'encoded video does not meet contract: {info}')
-    receipt={'status':'rendered','video':str(movie),'frames':args.frames,'fps':30,'duration':duration,'avatar_sha256':digest(avatar),'runtime_sha256':digest(runtime),'motion_sha256':digest(config),'video_sha256':digest(movie),'media':info,'limitations':['No speech or music analysis','Pixel-level repeatability is not guaranteed','Native playback and export require project verification']}
+    strict = subprocess.run([ffmpeg,'-v','error','-xerror','-i',str(movie),'-f','null','-'],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=300)
+    if strict.returncode: raise RuntimeError(f'Strict FFmpeg decode failed: {strict.stderr[-2000:]}')
+    receipt={'status':'rendered','video':str(movie),'frames':args.frames,'fps':fps,'width':width,'height':height,'codec':codec,'pix_fmt':info.get('pix_fmt'),'fit':fit,'duration':duration,'strict_decode':'passed','avatar_sha256':digest(avatar),'runtime_sha256':digest(runtime),'motion_sha256':digest(config),'video_sha256':digest(movie),'media':info,'limitations':['No speech or music analysis','Pixel-level repeatability is not guaranteed','Native playback and export require project verification']}
     (out/'receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2),encoding='utf-8')
     return receipt
 
@@ -162,7 +209,11 @@ def attach(args):
     if out.parent != source.parent: raise ValueError('output plan must be next to the source plan to preserve relative paths')
     if out.exists(): raise FileExistsError('output plan already exists')
     plan=json.loads(source.read_text(encoding='utf-8-sig'))
-    if plan.get('canvas') != {'width':1280,'height':720,'fps':30}: raise ValueError('only 1280x720 30fps plans are supported')
+    canvas=plan.get('canvas')
+    if not isinstance(canvas,dict): raise ValueError('plan canvas must be an object with width, height, and fps')
+    cw,ch,cfps=canvas.get('width'),canvas.get('height'),canvas.get('fps')
+    if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) for v in (cw,ch,cfps)) or not (64<=cw<=7680 and 64<=ch<=4320 and 1<=cfps<=120):
+        raise ValueError('plan canvas width/height/fps out of supported bounds')
     order=plan.get('layer_order'); clips=plan.get('clips')
     if not isinstance(order,list) or not isinstance(clips,list) or args.track in order: raise ValueError('plan must have layer_order and a new track name')
     if not math.isfinite(args.start) or args.start < 0: raise ValueError('start must be nonnegative')
@@ -358,6 +409,7 @@ def main():
     if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
     if hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(encoding='utf-8')
     parser=argparse.ArgumentParser(description=__doc__); sub=parser.add_subparsers(dest='command',required=True)
+    p=sub.add_parser('status'); p.add_argument('--studio',type=Path)
     p=sub.add_parser('configure'); p.add_argument('--studio',type=Path,required=True)
     p=sub.add_parser('inspect-video'); p.add_argument('--video',type=Path,required=True); p.add_argument('--out',type=Path,required=True); p.add_argument('--start',type=float,default=0); p.add_argument('--duration',type=float); p.add_argument('--samples',type=int,default=12)
     p=sub.add_parser('prepare-character'); p.add_argument('--studio',type=Path); p.add_argument('--image',type=Path,required=True); p.add_argument('--video',type=Path,required=True); p.add_argument('--times',type=float,nargs='+',required=True); p.add_argument('--name')
@@ -366,11 +418,14 @@ def main():
     p=sub.add_parser('build-character'); p.add_argument('--studio',type=Path); p.add_argument('--project',type=Path,required=True)
     p=sub.add_parser('pack-character'); p.add_argument('--studio',type=Path); p.add_argument('--project',type=Path,required=True); p.add_argument('--out',type=Path,required=True); p.add_argument('--require-sprites',action='store_true')
     p=sub.add_parser('render'); p.add_argument('--studio',type=Path); p.add_argument('--avatar',type=Path,required=True,help='Validated .mavatar or completed Studio project; project render requires all selected variants accepted and pose-reviewed'); p.add_argument('--out',type=Path,required=True)
-    p.add_argument('--frames',type=int,required=True); p.add_argument('--keyframes',type=Path); p.add_argument('--browser',type=Path,default=Path(os.environ.get('ProgramFiles(x86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe')
+    p.add_argument('--frames',type=int,required=True); p.add_argument('--keyframes',type=Path); p.add_argument('--browser',type=Path,default=None)
+    p.add_argument('--width',type=int,default=1280); p.add_argument('--height',type=int,default=720); p.add_argument('--fps',type=int,default=30)
+    p.add_argument('--codec',choices=('png','prores_4444'),default='png'); p.add_argument('--fit',choices=('contain','cover'),default='contain')
     p=sub.add_parser('attach'); p.add_argument('--plan',type=Path,required=True);p.add_argument('--video',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--start',type=float,required=True);p.add_argument('--track',default='avatar')
     args=parser.parse_args()
     try:
-        if args.command=='prepare-character': result=prepare_character(args)
+        if args.command=='status': result=status(args)
+        elif args.command=='prepare-character': result=prepare_character(args)
         elif args.command=='prepare-variants': result=prepare_variants(args)
         elif args.command=='plan-variants': result=plan_variants(args)
         elif args.command=='build-character': result=build_character(args)

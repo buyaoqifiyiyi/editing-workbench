@@ -1,4 +1,5 @@
 """Portable runtime resources and external state paths; never reads credentials."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -591,3 +592,79 @@ def stock_config():
         return path.resolve()
     base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
     return base / 'OpenEditEngine' / 'config.env'
+
+
+def discover_mesh_avatar_studio(explicit=None):
+    """Read-only probe of configured Mesh Avatar Studio installation and headless render dependencies."""
+    cfg_file = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OpenEditEngine' / 'mesh-avatar.json'
+    raw_studio = explicit
+    source = 'explicit' if explicit else None
+    node = shutil.which('node')
+    browser = discover_chromium_browser()
+    if raw_studio is None:
+        env_studio = os.environ.get('OPENEDIT_MESH_AVATAR_STUDIO', '').strip()
+        if env_studio:
+            raw_studio = env_studio
+            source = 'env'
+        elif cfg_file.is_file():
+            source = 'config'
+            try:
+                data = json.loads(cfg_file.read_text(encoding='utf-8-sig'))
+                if isinstance(data, dict) and data.get('studio'):
+                    raw_studio = str(data['studio'])
+            except Exception as exc:
+                return {
+                    'configured': True,
+                    'available': False,
+                    'source': source,
+                    'config_path': str(cfg_file),
+                    'studio_path': None,
+                    'runtime_built': False,
+                    'playwright_installed': False,
+                    'node': node,
+                    'browser': str(browser) if browser else None,
+                    'license': 'MIT (Mesh Avatar Studio runtime)',
+                    'error': f'Invalid mesh-avatar config JSON: {exc}',
+                }
+    if not raw_studio:
+        return {
+            'configured': False,
+            'available': False,
+            'source': None,
+            'config_path': str(cfg_file),
+            'studio_path': None,
+            'runtime_built': False,
+            'playwright_installed': False,
+            'node': node,
+            'browser': str(browser) if browser else None,
+            'license': 'MIT (Mesh Avatar Studio runtime)',
+            'error': None,
+        }
+    studio_cand = Path(os.path.expandvars(str(raw_studio))).expanduser()
+    exists = studio_cand.is_dir()
+    studio_res = str(studio_cand.resolve()) if exists else str(studio_cand)
+    runtime_built = bool(exists and (studio_cand / 'packages' / 'runtime' / 'dist' / 'index.js').is_file())
+    playwright_installed = bool(exists and (studio_cand / 'node_modules' / 'playwright').is_dir())
+    err = None
+    if not exists:
+        err = f'Mesh Avatar Studio directory not found: {studio_cand}'
+    elif not runtime_built or not playwright_installed:
+        err = 'studio requires built runtime and installed Playwright'
+    elif not node:
+        err = 'node must be available on PATH'
+    elif not browser:
+        err = 'no local Chrome/Edge Chromium browser found'
+    available = bool(exists and runtime_built and playwright_installed and node and browser)
+    return {
+        'configured': True,
+        'available': available,
+        'source': source,
+        'config_path': str(cfg_file),
+        'studio_path': studio_res,
+        'runtime_built': runtime_built,
+        'playwright_installed': playwright_installed,
+        'node': node,
+        'browser': str(browser) if browser else None,
+        'license': 'MIT (Mesh Avatar Studio runtime)',
+        'error': err,
+    }

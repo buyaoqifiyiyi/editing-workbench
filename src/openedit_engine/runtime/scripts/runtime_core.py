@@ -11,6 +11,7 @@ import sys
 
 import file_hash
 import hyperframes_backend
+import motion_curves
 import overlay_recipes
 import runtime_common
 import runtime_paths
@@ -644,7 +645,7 @@ def _validate_composites(composites, track_types, canvas):
         raise ValueError('composites must be an array')
     allowed = {
         'name', 'tracks', 'start', 'duration', 'transform', 'keyframes',
-        'motion_easing', 'blend_mode', 'mix_mode', 'mask', 'grading', 'effects', 'filters',
+        'motion_easing', 'camera_motion', 'blend_mode', 'mix_mode', 'mask', 'grading', 'effects', 'filters',
     }
     for idx, spec in enumerate(composites):
         label = f'composites[{idx}]'
@@ -669,6 +670,10 @@ def _validate_composites(composites, track_types, canvas):
             _validate_keyframes(spec['keyframes'], duration, label=label)
         if 'motion_easing' in spec and spec['motion_easing'] not in EASINGS:
             raise ValueError(f'{label}.motion_easing must be one of {sorted(EASINGS)}')
+        if 'camera_motion' in spec:
+            spec['camera_motion'] = motion_curves.validate_camera_motion(
+                spec['camera_motion'], duration, label=label, existing_keyframes=spec.get('keyframes'),
+            )
         if 'mask' in spec:
             _validate_mask(spec['mask'], duration, canvas, label)
         if 'grading' in spec:
@@ -840,6 +845,9 @@ def provenance(plan):
                 paths.append(layer['path'])
         for rpath in overlay_recipes.iter_recipe_media_paths(ov):
             paths.append(rpath)
+        if ov.get('backend') == 'hyperframes':
+            for rpath in hyperframes_backend.iter_recipe_media_paths(ov):
+                paths.append(rpath)
     records = []
     for material in dict.fromkeys(paths):
         path = Path(material)
@@ -931,7 +939,7 @@ def validate_plan(plan_path, user_data=None):
 
     allowed_clip = {
         'path', 'start', 'duration', 'source_in', 'speed', 'reverse', 'volume', 'track', 'fit',
-        'transform', 'keyframes', 'motion_easing', 'mix_mode', 'blend_mode', 'transition',
+        'transform', 'keyframes', 'motion_easing', 'camera_motion', 'mix_mode', 'blend_mode', 'transition',
         'grading', 'effects', 'filters', 'mask', 'background', 'animations', 'reason', 'notes',
         'loudness', 'denoise', 'chroma',
     }
@@ -972,6 +980,10 @@ def validate_plan(plan_path, user_data=None):
             _validate_keyframes(clip['keyframes'], duration, source_in, speed, label=label)
         if 'motion_easing' in clip and clip['motion_easing'] not in EASINGS:
             raise ValueError(f'{label}.motion_easing must be one of {sorted(EASINGS)}')
+        if 'camera_motion' in clip:
+            clip['camera_motion'] = motion_curves.validate_camera_motion(
+                clip['camera_motion'], duration, label=label, existing_keyframes=clip.get('keyframes'),
+            )
         if 'grading' in clip:
             _validate_grading(clip['grading'], label)
         if 'mask' in clip:

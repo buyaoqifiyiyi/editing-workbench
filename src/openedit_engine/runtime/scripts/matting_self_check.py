@@ -159,7 +159,14 @@ def check(root, model):
     assert int(cleaned[11, 24, 0]) > 120 and int(cleaned[24, 24, 0]) == 240
     drop_info = matting._dropout_metrics([0.45, 0.44, 0.43], [0.5, 0.0, 0.5])
     assert drop_info['dropout_warning'] is True and drop_info['top_band_min_fg_ratio'] == 0.0
-    checks.append('decontaminate & dropout telemetry contracts verified')
+    hole_rgb = np.full((32, 32, 3), (255, 220, 195), dtype=np.uint8)
+    hole_rgb[8:16, 8:16] = (90, 175, 250)
+    hole_alpha = np.ones((32, 32), dtype=np.float32)
+    punched = matting.clean_color_holes(hole_rgb, hole_alpha, matting.parse_color_hole_spec('blue_sky'))
+    assert float(punched[12, 12]) < 0.05 and float(punched[2, 2]) > 0.99
+    feathered = matting.apply_bottom_feather(np.ones((40, 20), dtype=np.float32), 0.2)
+    assert float(feathered[-1, 10]) == 0.0 and float(feathered[0, 10]) == 1.0
+    checks.append('decontaminate, color-hole cleanup, bottom-feather & dropout contracts verified')
 
     still_path, vid_path, audio_path = _make_fixtures(root)
 

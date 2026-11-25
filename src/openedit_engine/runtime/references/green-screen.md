@@ -66,8 +66,8 @@
 
 ### 非绿幕复杂背景离线 AI 抠像（`openedit matting`）
 
-- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|matanyone2|rvm|birefnet|rmbg] [--device auto|cpu|cuda] [--gpu] [--model <path>] [--mask <seed.png>] [--decontaminate] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
-- **模型自动发现与 GPU 加速**：`auto` / `birefnet` 自动扫描 `%LOCALAPPDATA%\OpenEditTools\models\matting\` 并默认选用 MIT `BiRefNet`；`--backend rvm` 扫描 `models\matting\rvm\`（或指定 `--model`）启用 RVM 时域视频抠像；`--backend matanyone2` 调用隔离 `OpenEditTools\venvs\matanyone2` CUDA 环境执行跨帧记忆传播抠像（未传 `--mask` 时自动用本地 BiRefNet 在第 0 帧生成 `seed_mask.png`，可叠加 `--decontaminate` 消除半透明边缘底色溢色）。
+- **命令入口**：`openedit matting --input <前景视频或图片> --out <新目录> [--backend auto|matanyone2|rvm|birefnet|rmbg] [--device auto|cpu|cuda] [--gpu] [--model <path>] [--mask <seed.png>] [--decontaminate] [--target-fps 30] [--defringe 1] [--clean-color-holes blue_sky] [--bottom-feather 0.12] [--start 0 --duration 5] [--alpha-feather 0.5] [--keep-audio]`
+- **模型自动发现与动漫精修**：`auto` / `birefnet` 自动扫描 `%LOCALAPPDATA%\OpenEditTools\models\matting\` 并默认选用 MIT `BiRefNet`；`--backend rvm` 扫描 `models\matting\rvm\`（或指定 `--model`）启用 RVM 时域视频抠像；`--backend matanyone2` 调用隔离 `OpenEditTools\venvs\matanyone2` CUDA 环境执行跨帧记忆传播抠像（未传 `--mask` 时自动用本地 BiRefNet 在第 0 帧生成 `seed_mask.png`，可叠加 `--decontaminate` / `--defringe` 消除半透明边缘底色与白边溢色、`--target-fps 30` 动漫智能抽帧提速、`--clean-color-holes blue_sky` 穿孔清理发丝丝带残留背景色、`--bottom-feather` 半身像底部渐隐融底）。
 - **输出**：视频默认输出锁定格式的 `matte.mov`（`prores_ks 4444`, `yuva444p12le`, `has_alpha: true` + `ffmpeg -v error -xerror` 全解码验证）及 `preview_rgba.png` / `preview_alpha.png` / `matting-report.json`；图片模式输出 `matte_rgba.png` 与 `matte_alpha.png`。
 - **模型兼容与许可证边界**：
   - **MatAnyone 2**（`matanyone2.pth`，CVPR 2026 记忆传播视频抠像，真人和动漫通用）：**NTU S-Lab License 1.0（默认仅限非商业用途**；商业交付或分发须联系作者获取书面授权）。

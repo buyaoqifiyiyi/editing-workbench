@@ -168,7 +168,7 @@ class OverlayCacheTests(unittest.TestCase):
         import overlay_recipes
         import runtime_core as core
 
-        self.assertEqual(len(overlay_recipes.list_recipes()), 13)
+        self.assertEqual(len(overlay_recipes.list_recipes()), 16)
         with tempfile.TemporaryDirectory(prefix='oe-hero-recipes-') as tmp:
             root = Path(tmp)
             a = root / 'a.png'
@@ -222,6 +222,36 @@ class OverlayCacheTests(unittest.TestCase):
             punch_out = effectcraft_backend.build_overlay(punch_spec, root / 'punch_out', render_video=True, use_cache=False)
             self.assertEqual(punch_out['overlay_video']['strict_decode'], 'passed')
 
+            vel_spec = {
+                'name': 'hero_vel', 'width': 320, 'height': 180, 'fps': 30, 'duration': 0.8,
+                'recipe': 'velocity_cut',
+                'params': {'clip_a': str(a), 'clip_b': str(b), 'mode': 'slide_left', 'velocity_curve': 'expo'},
+            }
+            vel_out = effectcraft_backend.build_overlay(vel_spec, root / 'vel_out', render_video=True, use_cache=False)
+            self.assertEqual(vel_out['overlay_video']['strict_decode'], 'passed')
+            self.assertEqual(vel_out['overlay_video']['pix_fmt'], 'yuva444p12le')
+
+            # Editorial card keeps panel interiors 100% transparent while drawing crisp borders
+            ed_spec = {
+                'name': 'ed_real', 'width': 640, 'height': 360, 'fps': 30, 'duration': 1.0,
+                'recipe': 'editorial_card',
+                'params': {'theme': 'editorial_scrapbook', 'panels': 2, 'header': '档案卡', 'labels': ['CUT A', 'CUT B']},
+            }
+            ed_out = effectcraft_backend.build_overlay(ed_spec, root / 'ed_out', render_video=False, preview_time=0.5, use_cache=False)
+            with Image.open(ed_out['preview_png']).convert('RGBA') as ed_im:
+                self.assertEqual(ed_im.getpixel((175, 200))[3], 0)
+                self.assertEqual(ed_im.getpixel((465, 200))[3], 0)
+
+            # hero_ring_cutout optional background + rotating rings + focus pull -> ProRes 4444 RGBA
+            ring_spec = {
+                'name': 'hero_ring', 'width': 320, 'height': 180, 'fps': 30, 'duration': 0.6,
+                'recipe': 'hero_ring_cutout',
+                'params': {'foreground': str(fg), 'theme': 'editorial_scrapbook', 'ring_count': 2, 'title': 'EMILIA'},
+            }
+            ring_out = effectcraft_backend.build_overlay(ring_spec, root / 'ring_out', render_video=True, use_cache=False)
+            self.assertEqual(ring_out['overlay_video']['pix_fmt'], 'yuva444p12le')
+            self.assertEqual(ring_out['overlay_video']['strict_decode'], 'passed')
+
 
 class OpenEditCliVersionTests(unittest.TestCase):
     def test_openedit_engine_version_and_no_legacy_shim_package(self):
@@ -269,7 +299,7 @@ class HyperFramesOverlayTests(unittest.TestCase):
     def test_hyperframes_recipe_validation_isolation_and_cache_key(self):
         import runtime_core as core
 
-        self.assertEqual(len(hyperframes_backend.list_recipes()), 4)
+        self.assertEqual(len(hyperframes_backend.list_recipes()), 10)
         with tempfile.TemporaryDirectory(prefix='oe-hf-val-') as tmp:
             root = Path(tmp)
             bg = root / 'bg.png'
@@ -299,17 +329,60 @@ class HyperFramesOverlayTests(unittest.TestCase):
                     'recipe': 'milestone_progress',
                     'params': {'title': '达标进度', 'steps': [{'label': '初筛', 'value': '80%', 'percent': 80}, {'label': '复核', 'value': '98%', 'percent': 98}]},
                 },
+                {
+                    'name': 'hf_hud', 'backend': 'hyperframes', 'track': 'V6', 'start': 6.5, 'duration': 1.0,
+                    'recipe': 'viewfinder_hud',
+                    'params': {'theme': 'editorial_scrapbook', 'top_right': '4:3'},
+                },
+                {
+                    'name': 'hf_pol', 'backend': 'hyperframes', 'track': 'V7', 'start': 7.5, 'duration': 1.0,
+                    'recipe': 'polaroid_grid',
+                    'params': {'theme': 'editorial_scrapbook', 'highlight_index': 1, 'cards': [{'label': 'FR.01', 'image': 'bg.png'}, {'label': 'FR.02'}]},
+                },
+                {
+                    'name': 'hf_reel', 'backend': 'hyperframes', 'track': 'V8', 'start': 8.5, 'duration': 1.0,
+                    'recipe': 'filmstrip_reel',
+                    'params': {'frames': [{'label': '1A', 'image': 'bg.png'}, {'label': '2A'}]},
+                },
+                {
+                    'name': 'hf_txt', 'backend': 'hyperframes', 'track': 'V9', 'start': 9.5, 'duration': 1.0,
+                    'recipe': 'text_matte_dissolve',
+                    'params': {'theme': 'editorial_scrapbook', 'text': 'EMILIA', 'fill_image': 'bg.png'},
+                },
+                {
+                    'name': 'hf_ui', 'backend': 'hyperframes', 'track': 'V10', 'start': 10.5, 'duration': 1.5,
+                    'recipe': 'ui_flow_stage',
+                    'params': {
+                        'theme': 'editorial_scrapbook', 'focus_index': 0,
+                        'states': ['overview', 'focus', 'hero_zoom'],
+                        'cards': [{'title': '主视觉卡', 'image': 'bg.png'}, {'title': '对照卡'}],
+                    },
+                },
+                {
+                    'name': 'hf_kui', 'backend': 'hyperframes', 'track': 'V11', 'start': 12.0, 'duration': 1.2,
+                    'recipe': 'kinetic_ui_title',
+                    'params': {'theme': 'neon_cyber', 'badge': 'CH.01', 'title': '丝滑切换标题', 'subtitle': 'RK4 Spring UI'},
+                },
             ]
             plan_path = root / 'plan.json'
             core.write_json(plan_path, {
                 'schema_version': 2,
                 'name': 'hf-val',
                 'canvas': {'width': 640, 'height': 360, 'fps': 30},
-                'clips': [{'path': str(bg), 'start': 0.0, 'duration': 6.5, 'volume': 0.0}],
+                'clips': [{'path': str(bg), 'start': 0.0, 'duration': 13.5, 'volume': 0.0}],
                 'overlays': valid_specs,
             })
             norm_plan, _, _ = core.validate_plan(plan_path)
-            self.assertEqual(len(norm_plan['overlays']), 4)
+            self.assertEqual(len(norm_plan['overlays']), 10)
+            prov_records = core.provenance(norm_plan)
+            self.assertTrue(any(r.get('local_path') == str(bg.resolve()) for r in prov_records))
+
+            for ov in norm_plan['overlays']:
+                g_files = hyperframes_backend._build_recipe_files(
+                    ov['recipe'], ov['params'], width=640, height=360, fps=30, duration=float(ov['duration'])
+                )
+                self.assertIn(f'data-composition-id="{ov["recipe"]}"', g_files['compositions/card.html'])
+                self.assertIn(f'window.__timelines["{ov["recipe"]}"]', g_files['compositions/card.html'])
 
             # Reject cross-backend fields and unpermitted external network URLs.
             bad_cases = [
@@ -433,6 +506,192 @@ class HyperFramesOverlayTests(unittest.TestCase):
                 report2 = open_engine.build(str(plan_path), str(root / 'build_2'), draft=True)
                 self.assertTrue(report2['overlays'][0]['cache']['hit'])
                 self.assertEqual(report2['overlays'][0]['overlay_video']['sha256'], ov_rep['overlay_video']['sha256'])
+
+
+class InspectTriageTests(unittest.TestCase):
+    def test_inspect_contact_sheet_and_framing_scan(self):
+        import media_prep
+        import runtime_core as core
+
+        with tempfile.TemporaryDirectory(prefix='oe-inspect-triage-') as tmp:
+            root = Path(tmp)
+            clip_dir = root / 'clips'
+            frames_dir = root / 'frames'
+            clip_dir.mkdir()
+            frames_dir.mkdir()
+            for idx in range(20):
+                col = (220, 30, 30) if idx < 10 else (20, 210, 40)
+                Image.new('RGB', (320, 180), col).save(frames_dir / f'f_{idx:03d}.png')
+            mp4 = clip_dir / 'cut_clip.mp4'
+            core.run([
+                core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+                '-framerate', '10', '-i', str(frames_dir / 'f_%03d.png'),
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', str(mp4),
+            ])
+            report = media_prep.inspect_media(
+                clip_dir, root / 'insp_out', frames=2, contact_sheet=True, analyze_framing=True,
+            )
+            self.assertEqual(report['count'], 1)
+            self.assertTrue(Path(report['contact_sheet']['path']).is_file())
+            framing = report['items'][0]['framing']
+            self.assertEqual(len(framing['subject_center']), 2)
+            self.assertIn('recommended_crop_bias_y', framing)
+            self.assertIn(framing['shot_scale'], ('ECU', 'CU', 'MCU', 'MS', 'WS'))
+            self.assertGreaterEqual(framing['aesthetic_score'], 0.0)
+            self.assertLessEqual(framing['aesthetic_score'], 100.0)
+            self.assertIn('target_9_16', framing['rule_of_thirds_crop'])
+            self.assertIn('skip_leading_s', framing['trim_suggestion'])
+            self.assertTrue(framing['internal_cut_detected'])
+            self.assertIn('possible_internal_cut', framing['hazards'])
+
+            ref_rep = media_prep.extract_reference(mp4, root / 'ref_out', max_frames=6)
+            rhythm = ref_rep['editing_rhythm']
+            self.assertGreater(rhythm['asl_seconds'], 0.0)
+            self.assertEqual(len(rhythm['pacing_quarters_cpm']), 4)
+            self.assertTrue(len(rhythm['dominant_palette_hex']) >= 1)
+            self.assertIn('monochrome_ratio', rhythm)
+            self.assertTrue(len(rhythm['shot_scale_sequence']) >= 1)
+
+
+class Round3MotionAndLiveVideoTests(unittest.TestCase):
+    def test_motion_curves_validation_overscan_and_layout_protection(self):
+        import layout_tracks
+        import motion_curves
+        import runtime_core as core
+
+        self.assertGreater(motion_curves.eval_curve(0.25, 'expo_out'), 0.75)
+        self.assertLess(motion_curves.eval_curve(0.75, 'expo_in'), 0.25)
+
+        kfs = motion_curves.compile_camera_motion(
+            {'in_preset': 'whip_in_right', 'out_preset': 'whip_out_right', 'curve': 'expo_out', 'drift': 0.05},
+            1.6,
+        )
+        props = {k['property'] for k in kfs}
+        self.assertTrue({'position_x', 'uniform_scale'}.issubset(props))
+        scales = [k['value'] for k in kfs if k['property'] == 'uniform_scale']
+        self.assertTrue(all(s >= 1.0 for s in scales), scales)
+        for prop in props:
+            ts = [k['time'] for k in kfs if k['property'] == prop]
+            self.assertEqual(ts, sorted(ts))
+            self.assertEqual(len(ts), len(set(ts)))
+
+        compact_kfs = motion_curves.compile_camera_motion(
+            {'drift_mode': 'drift_push', 'drift': 0.04, 'auto_overscan': False},
+            1.4,
+            base_transform={'transform_x': -0.34, 'transform_y': -0.45, 'scale_x': 0.58, 'scale_y': 0.58},
+        )
+        compact_scales = [k['value'] for k in compact_kfs if k['property'] == 'uniform_scale']
+        self.assertTrue(all(0.55 <= s <= 0.65 for s in compact_scales), compact_scales)
+        with self.assertRaisesRegex(ValueError, 'auto_overscan must be a boolean'):
+            motion_curves.validate_camera_motion({'drift_mode': 'drift_push', 'auto_overscan': 'no'}, 1.0)
+        with self.assertRaisesRegex(ValueError, 'drift_mode'):
+            motion_curves.validate_camera_motion({'drift_mode': 'hover_float'}, 1.0)
+
+        import open_engine
+        doc = open_engine.doctor()
+        self.assertIn('mesh_avatar', doc)
+        self.assertIsInstance(doc['mesh_avatar'], dict)
+        caps = open_engine.capabilities()
+        self.assertIn('mesh_avatar', caps)
+        self.assertTrue(any('mesh-avatar' in item for item in caps['offline_ai_and_media']))
+
+        with tempfile.TemporaryDirectory(prefix='oe-r3-cm-') as tmp:
+            root = Path(tmp)
+            bg = root / 'bg.png'
+            vid = root / 'v.mp4'
+            Image.new('RGB', (320, 180), (40, 80, 160)).save(bg)
+            core.run([
+                core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+                '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30:d=1.0',
+                '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(vid),
+            ])
+
+            plan_path = root / 'cm_plan.json'
+            core.write_json(plan_path, {
+                'schema_version': 2,
+                'name': 'cm-plan',
+                'canvas': {'width': 320, 'height': 180, 'fps': 30},
+                'layer_order': ['video', 'b_roll'],
+                'clips': [
+                    {'path': str(bg), 'start': 0.0, 'duration': 0.8, 'track': 'video',
+                     'camera_motion': {'out_preset': 'whip_out_right', 'drift': 0.04}},
+                    {'path': str(bg), 'start': 0.8, 'duration': 0.8, 'track': 'video',
+                     'camera_motion': {'in_preset': 'whip_in_right', 'drift': 0.04}},
+                    {'path': str(bg), 'start': 0.0, 'duration': 0.5, 'track': 'b_roll',
+                     'camera_motion': {'preset': 'zoom_punch'}},
+                ],
+                'overlays': [
+                    {'name': 'hf_live', 'backend': 'hyperframes', 'track': 'video', 'start': 0.0, 'duration': 0.6,
+                     'recipe': 'ui_flow_stage',
+                     'params': {'cards': [{'title': 'A', 'video': 'v.mp4', 'source_in': 0.1}, {'title': 'B'}]}},
+                ],
+            })
+            # Reject track type conflict ('video' overlay on same track name), then use distinct track & test provenance/cache.
+            with self.assertRaises(ValueError):
+                core.validate_plan(plan_path)
+
+            plan_ok = root / 'cm_ok.json'
+            core.write_json(plan_ok, {
+                'schema_version': 2,
+                'name': 'cm-ok',
+                'canvas': {'width': 320, 'height': 180, 'fps': 30},
+                'layer_order': ['video', 'b_roll', 'overlay'],
+                'clips': [
+                    {'path': str(bg), 'start': 0.0, 'duration': 0.8, 'track': 'video',
+                     'camera_motion': {'out_preset': 'whip_out_right', 'drift': 0.04}},
+                    {'path': str(bg), 'start': 0.8, 'duration': 0.8, 'track': 'video',
+                     'camera_motion': {'in_preset': 'whip_in_right', 'drift': 0.04}},
+                    {'path': str(bg), 'start': 0.0, 'duration': 0.5, 'track': 'b_roll',
+                     'camera_motion': {'preset': 'zoom_punch'}},
+                ],
+                'overlays': [
+                    {'name': 'hf_live', 'backend': 'hyperframes', 'track': 'overlay', 'start': 0.0, 'duration': 0.6,
+                     'recipe': 'ui_flow_stage',
+                     'params': {'cards': [{'title': 'A', 'video': 'v.mp4', 'source_in': 0.1}, {'title': 'B'}]}},
+                    {'name': 'hf_fill', 'backend': 'hyperframes', 'track': 'overlay', 'start': 0.8, 'duration': 0.6,
+                     'recipe': 'text_matte_dissolve',
+                     'params': {'text': 'LIVE', 'fill_video': 'v.mp4', 'source_in': 0.2}},
+                ],
+            })
+            norm_p, _, _ = core.validate_plan(plan_ok)
+            self.assertEqual(norm_p['overlays'][0]['params']['cards'][0]['video'], str(vid.resolve()))
+            prov = core.provenance(norm_p)
+            self.assertTrue(any(r['local_path'] == str(vid.resolve()) for r in prov))
+
+            # Track compaction preserves camera_motion track without merging it into another overlay lane.
+            _, lrep = layout_tracks.compact(norm_p)
+            self.assertEqual(lrep['status'], 'unchanged')
+
+            # Source_in change alters generated cache key; mixing image+video raises ValueError.
+            with self.assertRaisesRegex(ValueError, 'both image and video'):
+                hyperframes_backend.validate_overlay_spec({
+                    'name': 'bad_mix', 'duration': 1.0, 'backend': 'hyperframes', 'recipe': 'polaroid_grid',
+                    'params': {'cards': [{'label': 'X', 'image': str(bg), 'video': str(vid)}, {'label': 'Y'}]},
+                })
+
+            sp1 = norm_p['overlays'][0]
+            sp2 = json.loads(json.dumps(sp1))
+            sp2['params']['cards'][0]['source_in'] = 0.35
+            f1 = hyperframes_backend._build_recipe_files('ui_flow_stage', sp1['params'], width=320, height=180, fps=30, duration=0.6)
+            f2 = hyperframes_backend._build_recipe_files('ui_flow_stage', sp2['params'], width=320, height=180, fps=30, duration=0.6)
+            self.assertIn('<video id="hf-vid-0"', f1['compositions/card.html'])
+            fake_cli = root / 'hf.mjs'
+            fake_cli.write_text('x', encoding='utf-8')
+            k1 = hyperframes_backend._overlay_cache_key(fake_cli, sp1, width=320, height=180, fps=30, duration=0.6, render_video=True, preview_time=0.3, gpu=False, quality='draft', generated_files=f1, font_file=None, gsap_file=None)
+            k2 = hyperframes_backend._overlay_cache_key(fake_cli, sp2, width=320, height=180, fps=30, duration=0.6, render_video=True, preview_time=0.3, gpu=False, quality='draft', generated_files=f2, font_file=None, gsap_file=None)
+            self.assertNotEqual(k1, k2)
+
+            # Reject mixing camera_motion with conflicting position_x/scale keyframes.
+            bad_kf = root / 'bad_kf.json'
+            core.write_json(bad_kf, {
+                'schema_version': 2, 'name': 'bad-kf', 'canvas': {'width': 320, 'height': 180, 'fps': 30},
+                'clips': [{'path': str(bg), 'start': 0.0, 'duration': 0.8,
+                           'camera_motion': {'preset': 'zoom_punch'},
+                           'keyframes': [{'property': 'uniform_scale', 'time': 0.2, 'value': 1.2}]}],
+            })
+            with self.assertRaisesRegex(ValueError, 'cannot combine camera_motion'):
+                core.validate_plan(bad_kf)
+
 
 if __name__ == '__main__':
     unittest.main()

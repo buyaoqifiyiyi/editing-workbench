@@ -2,7 +2,7 @@
 name: editing-workbench
 description: Agent 本机剪辑技能，按素材、脚本或参考做创作规划与剪辑，直接调用纯开源剪辑引擎并应用已学方法。明确维护请求时维护引擎与知识。
 metadata:
-  version: "3.0.0-openedit"
+  version: "3.1.0-openedit"
 ---
 
 # Agent 剪辑 · 制作、规划与维护（OpenEdit 纯开源栈）

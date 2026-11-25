@@ -122,9 +122,9 @@ class KnowledgeInterfaceTests(unittest.TestCase):
             'ai-matting', 'auto-reframe', 'rough-cut', 'audio-master', 'music-structure',
             'sfx-design', 'sfx-search', 'motion-flow', 'interpolate', 'depth-parallax',
             'shot-search', 'shader-fx', 'ducking', 'offline-denoise', 'beat-editing',
-            'offline-tracking', 'project-audit',
+            'offline-tracking', 'project-audit', 'mesh-avatar',
         )
-        self.assertEqual(len(expected_anchors), 27)
+        self.assertEqual(len(expected_anchors), 28)
         for anchor_id in expected_anchors:
             self.assertIn(f'<a id="{anchor_id}"></a>', text)
         for q in (
@@ -140,8 +140,15 @@ class KnowledgeInterfaceTests(unittest.TestCase):
             'parallax_3d_scene',
             'HyperFrames 数据动画',
             'kpi_bar_chart',
+            'Live2D 眨眼 发丝飘动',
         ):
             self.assertTrue(api.search_knowledge(q, 5)['results'], q)
+        l2d = api.search_knowledge('Live2D 眨眼 发丝飘动', 5)['results']
+        l2d_guides = {r['guide'] for r in l2d}
+        self.assertTrue({'capabilities', 'reference/mesh-avatar'}.intersection(l2d_guides), l2d_guides)
+        l2d_hints = [h['anchor'] for r in l2d for h in r.get('capability_hints', [])]
+        self.assertIn('mesh-avatar', l2d_hints)
+        self.assertNotIn('character_live25d', json.dumps(l2d, ensure_ascii=False))
         cap_lines = text.splitlines()
         hints = [h for item in api.search_knowledge('ProRes 透明通道动效', 5)['results']
                  for h in item.get('capability_hints', [])]

@@ -20,6 +20,11 @@ _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 _NO_WIN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 _WORKER_SCRIPT = Path(__file__).resolve().with_name('matanyone2_worker.py')
+COLOR_HOLE_PRESETS = {
+    'blue_sky': (90, 130, 55, 115),
+    'cyan_sky': (80, 115, 45, 130),
+    'green_screen': (35, 85, 60, 60),
+}
 
 
 def _read_exact(stream, size):
@@ -246,6 +251,97 @@ def postprocess_alpha(alpha, *, prev_alpha=None, threshold=0.0, erode=0, feather
     return np.clip(out, 0.0, 1.0)
 
 
+def parse_color_hole_spec(spec):
+    """Parse preset name or 'h_min,h_max,s_min,v_min' HSV thresholds for enclosed color hole cleanup."""
+    if spec is None:
+        return None
+    if not isinstance(spec, str) or not spec.strip():
+        raise ValueError('clean_color_holes must be a preset name or "h_min,h_max,s_min,v_min"')
+    text = spec.strip()
+    if text in COLOR_HOLE_PRESETS:
+        return COLOR_HOLE_PRESETS[text]
+    parts = [p.strip() for p in text.split(',')]
+    if len(parts) != 4:
+        raise ValueError(
+            f'Invalid clean_color_holes "{spec}": expected one of {tuple(COLOR_HOLE_PRESETS)} '
+            'or 4 ints "h_min,h_max,s_min,v_min"'
+        )
+    try:
+        h_min, h_max, s_min, v_min = (int(p) for p in parts)
+    except ValueError as exc:
+        raise ValueError(f'clean_color_holes HSV values must be integers: {spec}') from exc
+    if not (0 <= h_min <= h_max <= 179 and 0 <= s_min <= 255 and 0 <= v_min <= 255):
+        raise ValueError(
+            f'clean_color_holes out of range (0<=h_min<=h_max<=179, 0<=s,v<=255): {spec}'
+        )
+    return (h_min, h_max, s_min, v_min)
+
+
+def clean_color_holes(rgb_uint8, alpha, hole_spec):
+    """Safely punch out enclosed chroma holes (e.g. blue sky inside hair/ribbons) from foreground alpha."""
+    if hole_spec is None:
+        return alpha
+    import cv2
+
+    h_min, h_max, s_min, v_min = hole_spec
+    hsv = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
+    mask = (
+        (hsv[:, :, 0] >= h_min) & (hsv[:, :, 0] <= h_max)
+        & (hsv[:, :, 1] >= s_min)
+        & (hsv[:, :, 2] >= v_min)
+        & (alpha > 0.05)
+    ).astype(np.float32)
+    if float(mask.max()) <= 0.0:
+        return alpha
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.dilate(mask, kernel)
+    mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=0.8, sigmaY=0.8)
+    return np.clip(alpha.astype(np.float32) * (1.0 - mask), 0.0, 1.0)
+
+
+def apply_bottom_feather(alpha, ratio):
+    """Apply smooth vertical cosine alpha fade across the bottom fraction of a half-body cutout."""
+    if ratio <= 0.0 or alpha.shape[0] < 2:
+        return alpha
+    band = max(1, min(alpha.shape[0], int(round(alpha.shape[0] * float(ratio)))))
+    t = np.linspace(0.0, 1.0, band, dtype=np.float32)
+    ramp = 0.5 * (1.0 + np.cos(np.pi * t))
+    out = alpha.astype(np.float32, copy=True)
+    out[-band:, :] *= ramp[:, None]
+    return np.clip(out, 0.0, 1.0)
+
+
+def _finalize_fg_alpha(
+    fg_rgb,
+    raw_alpha,
+    *,
+    prev_alpha=None,
+    threshold=0.0,
+    erode=0,
+    feather=0.0,
+    temporal_ema=0.0,
+    hole_spec=None,
+    bottom_feather=0.0,
+    decontaminate=False,
+):
+    alpha = postprocess_alpha(
+        raw_alpha,
+        prev_alpha=prev_alpha,
+        threshold=threshold,
+        erode=erode,
+        feather=feather,
+        temporal_ema=temporal_ema,
+    )
+    if hole_spec is not None:
+        alpha = clean_color_holes(fg_rgb, alpha, hole_spec)
+    if bottom_feather > 0.0:
+        alpha = apply_bottom_feather(alpha, bottom_feather)
+    if decontaminate:
+        fg_rgb = decontaminate_foreground(fg_rgb, alpha)
+    rgba = np.dstack([fg_rgb, np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)])
+    return fg_rgb, alpha, rgba
+
+
 def decontaminate_foreground(rgb_uint8, alpha):
     """Reduce background color bleed on semi-transparent edges by propagating solid foreground RGB."""
     import cv2
@@ -411,8 +507,30 @@ def run_matting(args):
     max_size = int(core.number(getattr(args, 'max_size', 720), 'max_size', -1, 4320))
     warmup = int(core.number(getattr(args, 'warmup', 10), 'warmup', 0, 60))
     decontaminate = bool(getattr(args, 'decontaminate', False))
-    if type(args.alpha_erode) is bool or abs(args.alpha_erode - erode) > 1e-9:
+    raw_defringe = getattr(args, 'defringe', 0)
+    defringe = int(core.number(raw_defringe, 'defringe', 0, 4))
+    if type(raw_defringe) is bool or abs(raw_defringe - defringe) > 1e-9:
+        raise ValueError('defringe must be an integer in [0, 4]')
+    if defringe > 0:
+        if erode >= 0:
+            erode = min(10, erode + defringe)
+        decontaminate = True
+        if feather == 0.0:
+            feather = 0.5
+    raw_hole_spec = getattr(args, 'clean_color_holes', None)
+    hole_spec = parse_color_hole_spec(raw_hole_spec)
+    bottom_feather = core.number(getattr(args, 'bottom_feather', 0.0), 'bottom_feather', 0.0, 0.45)
+    raw_target_fps = getattr(args, 'target_fps', None)
+    target_fps = core.number(raw_target_fps, 'target_fps', 1.0, 120.0) if raw_target_fps is not None else None
+    if type(args.alpha_erode) is bool or abs(args.alpha_erode - int(core.number(args.alpha_erode, 'alpha_erode', -10, 10))) > 1e-9:
         raise ValueError('alpha_erode must be an integer in [-10, 10]')
+
+    polish_meta = {
+        'target_fps': target_fps,
+        'defringe': defringe,
+        'clean_color_holes': raw_hole_spec.strip() if isinstance(raw_hole_spec, str) and raw_hole_spec.strip() else None,
+        'bottom_feather': round(bottom_feather, 4),
+    }
 
     info = core.probe(source)
     if info['kind'] not in ('image', 'video') or not info.get('has_video'):
@@ -424,6 +542,7 @@ def run_matting(args):
 
     span = None
     fps = float(info.get('fps') or 30.0)
+    out_fps = float(target_fps) if target_fps is not None else fps
     preview_time = None
     if info['kind'] == 'video':
         total_dur = float(info.get('duration') or 0.0)
@@ -432,7 +551,7 @@ def run_matting(args):
         remaining = total_dur - start
         span = min(10.0, remaining) if args.duration is None else core.number(args.duration, 'duration', 0.04, remaining)
         preview_time = span * 0.5 if args.preview_time is None else core.number(args.preview_time, 'preview_time', 0.0, span)
-        est_frames = math.ceil(span * fps)
+        est_frames = math.ceil(span * out_fps)
         if est_frames > max_frames:
             raise ValueError(
                 f'Requested range (~{est_frames} frames) exceeds --max-frames {max_frames}; '
@@ -515,10 +634,16 @@ def run_matting(args):
                 providers = [f'PyTorch:{worker_stats.get("device", worker_device)}']
         else:
             fg_rgb, raw_alpha = runner.predict(rgb)
-        alpha = postprocess_alpha(raw_alpha, threshold=threshold, erode=erode, feather=feather)
-        if decontaminate:
-            fg_rgb = decontaminate_foreground(fg_rgb, alpha)
-        rgba = np.dstack([fg_rgb, np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)])
+        fg_rgb, alpha, rgba = _finalize_fg_alpha(
+            fg_rgb,
+            raw_alpha,
+            threshold=threshold,
+            erode=erode,
+            feather=feather,
+            hole_spec=hole_spec,
+            bottom_feather=bottom_feather,
+            decontaminate=decontaminate,
+        )
         rgba_path, alpha_path = _save_alpha_previews(
             rgba, alpha, out, rgba_name='matte_rgba.png', alpha_name='matte_alpha.png',
         )
@@ -537,6 +662,7 @@ def run_matting(args):
             'input': {'path': str(source), 'width': w, 'height': h, 'sha256': file_hash.sha256(source)},
             'out': str(out),
             'decontaminated': decontaminate,
+            'polish': polish_meta,
             'seed_mask': str(mask_path) if mask_path else None,
             'worker': worker_stats,
             'metrics': {
@@ -565,14 +691,16 @@ def run_matting(args):
         ffmpeg_bin, '-hide_banner', '-loglevel', 'error', '-nostdin',
         '-protocol_whitelist', 'file,pipe',
         '-ss', str(start), '-t', str(span), '-i', str(source),
-        '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
     ]
+    if target_fps is not None:
+        dec_cmd.extend(['-vf', f'fps={out_fps:.6g}'])
+    dec_cmd.extend(['-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'])
     mov_path = out / 'matte.mov'
     enc_proc = None
     if not args.no_video:
         enc_cmd = [
             ffmpeg_bin, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-            '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', f'{w}x{h}', '-r', f'{fps:.6g}', '-i', 'pipe:0',
+            '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', f'{w}x{h}', '-r', f'{out_fps:.6g}', '-i', 'pipe:0',
         ]
         if args.keep_audio and info.get('has_audio'):
             enc_cmd.extend(['-protocol_whitelist', 'file,pipe', '-ss', str(start), '-t', str(span), '-i', str(source)])
@@ -597,7 +725,7 @@ def run_matting(args):
     )
 
     frame_bytes = w * h * 3
-    preview_idx = max(0, int(round(preview_time * fps)))
+    preview_idx = max(0, int(round(preview_time * out_fps)))
     top_h = max(1, h // 5)
     frame_count = 0
     prev_alpha = None
@@ -629,17 +757,18 @@ def run_matting(args):
                 )
             active_runner = m2_runner if m2_runner is not None else runner
             fg_rgb, raw_alpha = active_runner.predict(rgb)
-            alpha = postprocess_alpha(
+            fg_rgb, alpha, rgba = _finalize_fg_alpha(
+                fg_rgb,
                 raw_alpha,
                 prev_alpha=prev_alpha,
                 threshold=threshold,
                 erode=erode,
                 feather=feather,
                 temporal_ema=temporal_ema,
+                hole_spec=hole_spec,
+                bottom_feather=bottom_feather,
+                decontaminate=decontaminate,
             )
-            if decontaminate:
-                fg_rgb = decontaminate_foreground(fg_rgb, alpha)
-            rgba = np.dstack([fg_rgb, np.clip(np.round(alpha * 255.0), 0, 255).astype(np.uint8)])
 
             if enc_proc is not None:
                 enc_proc.stdin.write(rgba.tobytes())
@@ -731,11 +860,14 @@ def run_matting(args):
         'input': {'path': str(source), 'width': w, 'height': h, 'fps': round(fps, 3), 'sha256': file_hash.sha256(source)},
         'out': str(out),
         'decontaminated': decontaminate,
+        'polish': polish_meta,
         'seed_mask': str(mask_path) if mask_path else None,
         'worker': worker_stats,
         'range': {
             'start': round(start, 3),
             'duration': round(span, 3),
+            'fps': round(out_fps, 4),
+            'target_fps': target_fps,
             'frame_count': frame_count,
             'keep_audio': bool(args.keep_audio and info.get('has_audio')),
         },
@@ -769,6 +901,10 @@ def main(argv=None):
     parser.add_argument('--max-size', type=int, default=720, help='MatAnyone 2 shortest-side cap in px (default 720; <=0 full)')
     parser.add_argument('--warmup', type=int, default=10, help='MatAnyone 2 frame-0 warmup steps (default 10)')
     parser.add_argument('--decontaminate', action='store_true', help='Reduce background color bleed on semi-transparent edges')
+    parser.add_argument('--target-fps', type=float, default=None, help='Optional output/inference FPS in [1, 120] for video matting (e.g. 30 for 2x anime speedup)')
+    parser.add_argument('--defringe', type=int, default=0, help='Anime halo cleanup strength in [0, 4] (combines outer erode + edge decontamination)')
+    parser.add_argument('--clean-color-holes', default=None, help='Punch out enclosed chroma holes: blue_sky|cyan_sky|green_screen or h_min,h_max,s_min,v_min')
+    parser.add_argument('--bottom-feather', type=float, default=0.0, help='Bottom edge vertical alpha fade ratio in [0.0, 0.45] for half-body cutouts')
     parser.add_argument('--start', type=float, default=0.0, help='Video start offset in seconds (default 0)')
     parser.add_argument('--duration', type=float, default=None, help='Video duration slice in seconds (default min(10, remaining))')
     parser.add_argument('--max-frames', type=int, default=600, help='Maximum decoded video frames (default 600)')

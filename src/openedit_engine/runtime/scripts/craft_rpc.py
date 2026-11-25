@@ -42,7 +42,7 @@ class CraftMcpClient:
             {
                 'protocolVersion': '2025-03-26',
                 'capabilities': {},
-                'clientInfo': {'name': 'openedit-engine', 'version': '1.0.0'},
+                'clientInfo': {'name': 'openedit-engine', 'version': '1.1.0'},
             },
         )
         self.notify('notifications/initialized')

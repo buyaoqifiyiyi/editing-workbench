@@ -513,7 +513,8 @@ class OpenEngineTests(unittest.TestCase):
                 'title_card', 'lower_third', 'keyword_callout', 'beat_flash',
                 'cinematic_bars', 'progress_banner', 'chapter_opener',
                 'pip_card', 'split_screen_frame', 'wipe_transition',
-                'whip_transition', 'impact_punch', 'parallax_3d_scene',
+                'whip_transition', 'velocity_cut', 'impact_punch', 'parallax_3d_scene',
+                'hero_ring_cutout', 'editorial_card',
             },
         )
         sample_specs = [
@@ -556,6 +557,18 @@ class OpenEngineTests(unittest.TestCase):
             ('wipe_transition', (1920, 1080), {
                 'name': 'r_wipe', 'duration': 1.0, 'recipe': 'wipe_transition',
                 'params': {'direction': 'left', 'angle_offset': 10.0, 'peak_hold': 0.15},
+            }),
+            ('editorial_card', (1920, 1080), {
+                'name': 'r_ed', 'duration': 1.5, 'recipe': 'editorial_card',
+                'params': {'theme': 'editorial_scrapbook', 'panels': 3, 'labels': ['01', '02', '03'], 'header': '档案'},
+            }),
+            ('velocity_cut', (1920, 1080), {
+                'name': 'r_vel', 'duration': 1.2, 'recipe': 'velocity_cut',
+                'params': {'clip_a': str(self.v2), 'clip_b': str(self.v1), 'mode': 'zoom_in', 'velocity_curve': 'expo'},
+            }),
+            ('hero_ring_cutout', (1920, 1080), {
+                'name': 'r_ring', 'duration': 1.2, 'recipe': 'hero_ring_cutout',
+                'params': {'foreground': str(self.v2), 'theme': 'editorial_scrapbook', 'ring_count': 2, 'title': 'HERO'},
             }),
         ]
         all_calls = []

@@ -1,4 +1,4 @@
-# OpenEdit Engine（纯开源 Agent 剪辑引擎 v1.0.0）
+# OpenEdit Engine（纯开源 Agent 剪辑引擎 v1.1.0）
 
 **OpenEdit Engine** 是一个面向 AI Agent（Codex、Antigravity、DSH、OpenCode 等）与命令行的**纯开源视频剪辑、动效合成与媒体处理引擎**，由 **ArtCraft FilmCraft**、**ArtCraft EffectCraft**、**FFmpeg / FFprobe** 以及可插拔本地开源 AI 音频/视觉工具组成。
 

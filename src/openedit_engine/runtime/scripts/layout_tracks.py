@@ -78,7 +78,7 @@ def compact(plan):
         clip_counts[clip['track']] = clip_counts.get(clip['track'], 0) + 1
     protected |= {name for name, count in clip_counts.items() if count > 1}
     protected |= {c['track'] for c in result['clips'] if any(k in c for k in
-                   ('transition', 'matting_cache', 'mix_mode', 'blend_mode', 'chroma', 'speed_curve', 'motion_easing'))}
+                   ('transition', 'matting_cache', 'mix_mode', 'blend_mode', 'chroma', 'speed_curve', 'motion_easing', 'camera_motion'))}
     merges = []
     # Only video-overlay tracks are candidates. Moving a higher lane down past
     # any active intermediate lane can change the stacking of rendered pixels.

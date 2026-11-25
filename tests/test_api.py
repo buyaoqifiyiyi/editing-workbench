@@ -36,6 +36,7 @@ class EngineInterfaceTests(unittest.TestCase):
             result = json.loads(good.stdout)
             self.assertEqual(Path(result['runtime_root']), api.RUNTIME)
             self.assertEqual(set(result['backends']), {'filmcraft', 'effectcraft', 'ffmpeg'})
+            self.assertIsInstance(result.get('mesh_avatar'), dict)
             bad = subprocess.run([sys.executable, '-m', 'openedit_engine', '../editor.py'], cwd=directory,
                                  text=True, encoding='utf-8', capture_output=True)
             self.assertEqual(bad.returncode, 2)
@@ -154,6 +155,29 @@ class EngineInterfaceTests(unittest.TestCase):
              ['--project', 'p.fcproj', '--out', 'e.mp4', '--gpu-rendering', 'off', '--scale', '0.5', '--draft']),
             ('checks', {'only': ['auto_cut', 'matting', 'auto_reframe', 'rough_cut', 'audio_master'], 'no_auto_models': True},
              ['--only', 'auto_cut', 'matting', 'auto_reframe', 'rough_cut', 'audio_master', '--no-auto-models']),
+            ('inspect', {'input': 'clips_dir', 'out': 'insp_out', 'frames': 4, 'contact_sheet': True, 'analyze_framing': True},
+             ['--input', 'clips_dir', ' --out'.strip(), 'insp_out', '--frames', '4', '--contact-sheet', '--analyze-framing']),
+            ('matting', {'input': 'fg.mp4', 'out': 'm3_out', 'target_fps': 30, 'defringe': 1, 'clean_color_holes': 'blue_sky', 'bottom_feather': 0.12},
+             ['--input', 'fg.mp4', '--out', 'm3_out', '--target-fps', '30', '--defringe', '1', '--clean-color-holes', 'blue_sky', '--bottom-feather', '0.12']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'a.mp4', 'out': 'fx2_out', 'preset': 'echo_chromatic_snap', 'alpha': True},
+             ['effect', '--input', 'a.mp4', '--out', 'fx2_out', '--preset', 'echo_chromatic_snap', '--alpha']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'a.mp4', 'out': 'fx3_out', 'preset': 'deep_glow', 'alpha': True},
+             ['effect', '--input', 'a.mp4', '--out', 'fx3_out', '--preset', 'deep_glow', '--alpha']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'a.mp4', 'out': 'fx4_out', 'preset': 'shutter_motion_blur'},
+             ['effect', '--input', 'a.mp4', '--out', 'fx4_out', '--preset', 'shutter_motion_blur']),
+            ('mesh-avatar', {'subcommand': 'status'}, ['status']),
+            ('mesh-avatar', {'subcommand': 'render', 'avatar': 'char.mavatar', 'out': 'ma_out', 'frames': 150, 'width': 1920, 'height': 1080, 'fps': 30, 'codec': 'prores_4444', 'fit': 'contain'},
+             ['render', '--avatar', 'char.mavatar', '--out', 'ma_out', '--frames', '150', '--width', '1920', '--height', '1080', '--fps', '30', '--codec', 'prores_4444', '--fit', 'contain']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'fg.mov', 'out': 'fx6_out', 'preset': 'light_wrap', 'bg': 'bg.mp4', 'alpha': True},
+             ['effect', '--input', 'fg.mov', '--out', 'fx6_out', '--preset', 'light_wrap', '--bg', 'bg.mp4', '--alpha']),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'fg.mov', 'out': 'fx7_out', 'preset': 'layer_motion_blur', 'alpha': True},
+             ['effect', '--input', 'fg.mov', '--out', 'fx7_out', '--preset', 'layer_motion_blur', '--alpha']),
+            ('motion-analyze', {'out': 'lut2_out', 'make_lut': 'opendrt_filmic', 'lut_size': 33},
+             ['--out', 'lut2_out', '--make-lut', 'opendrt_filmic', '--lut-size', '33']),
+            ('motion-analyze', {'out': 'lut3_out', 'make_lut': 'match_reference', 'match_reference': 'ref.png', 'match_strength': 0.8},
+             ['--out', 'lut3_out', '--make-lut', 'match_reference', '--match-reference', 'ref.png', '--match-strength', '0.8']),
+            ('audit', {'plan': 'p.json', 'out': 'au2_out', 'export': 'final.mp4', 'visual_qc': True, 'motion_review': True, 'font_check': 'simhei.ttf'},
+             ['--plan', 'p.json', '--out', 'au2_out', '--export', 'final.mp4', '--visual-qc', '--motion-review', '--font-check', 'simhei.ttf']),
         ]
         for op, params, expected_tokens in valid_cases:
             with self.subTest(op=op):
@@ -186,6 +210,7 @@ class EngineInterfaceTests(unittest.TestCase):
             ('shot-search', {'input': 'a.mp4', 'query': 'sky', 'out': 'o', 'backend': 'bogus'}),
             ('shader-fx', {'subcommand': 'bogus'}),
             ('shader-fx', {'subcommand': 'transition', 'from': 'a.mp4', 'to': 'b.mp4', 'out': 'o', 'preset': 'bogus'}),
+            ('shader-fx', {'subcommand': 'effect', 'input': 'fg.mov', 'out': 'o', 'preset': 'character_live25d'}),
             ('audit', {'plan': 'p.json', 'out': 'o', 'preset': 'bogus'}),
         ]
         for op, params in bad_cases:

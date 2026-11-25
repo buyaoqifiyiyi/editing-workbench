@@ -1,6 +1,18 @@
-# Mesh Avatar 角色素材：原图与原视频情境变体
+# Mesh Avatar 真 2D 网格 Live2D 角色流程与规范
 
-用户提供有权使用的原角色 PNG 和目标视频。原图是身份、服饰、发型、画风和姿势基准；视频只提供被选择的情境帧。流程不从视频抠出人物，也不把视频帧整张重绘成角色。原图若带不适合角色 rig 的复杂背景，Mesh 当前不会自动抠像；先准备合法的透明底角色图。
+先用 `openedit mesh-avatar status`（或 `openedit doctor` 的 `mesh_avatar` 字段）确认本机是否已配置并就绪 **Mesh Avatar Studio**（MIT WebGL2 引擎，自动复用 `%LOCALAPPDATA%\OpenEditEngine\mesh-avatar.json` 与本机 Chrome/Edge）。**绝不在已有 `mesh-avatar` 可用时手搓整图 UV 波浪或像素假眨眼滤镜替代真实骨骼网格动画。**
+
+- **适用对象边界**：适用于**正面或微侧半身透明立绘**；若原图带复杂背景先准备透明底（可用 `matting`）；**90° 纯侧脸或背影镜**不适合硬绑正面眼鼻骨架，应保留刚体立绘配合 `layer_motion_blur` + `light_wrap --bg`。
+
+## 一、单张正面透明立绘零 ImageGen 直出短路径（最常用）
+
+1. 在 Studio 内用 `tools/new-project.py <source.png> <project_name>` 创建工程，严格按 Studio `docs/agent-guide.zh.md` 生成 5px/20px 坐标网格并精标 `rig.draft.json`（多边形眼白、睫毛 ROI、发根权重锁死 `0` 的 4 节点发束弹簧链、双肩排除范围、颈椎支点；注意 `mouth.angle` 等角度字段使用**弧度制**）。
+2. 执行 Studio `tools/build-layers.py` 拆出独立眼球/上下睫毛/眼眶补肤色底图与 `hairmask`，通过视觉代理核对叠加预览与分层图彻底隔离衣领与脸部后，运行 `npm run pack-avatar` 与 `npm run validate-avatar` 生成 `.mavatar`。
+3. 直接用 `openedit mesh-avatar render` 无头输出匹配成片规格的透明视频（默认 `1280x720 @ 30fps png`，可按主时间轴指定 `--width 1920 --height 1080 --fps 30|60 --codec prores_4444`，自动发现本机浏览器并完成 `ffmpeg -v error -xerror` 全解码检查；动作关键帧保持 `3.2–4.6s` 舒缓呼吸与自然眨眼，切忌高频振荡），再通过 `openedit mesh-avatar attach`（支持任意合法画布）或 `edit-plan.json` 挂入主时间轴。
+
+## 二、原图与原视频情境变体流程（需授权使用 ImageGen 时）
+
+用户提供有权使用的原角色 PNG 和目标视频。原图是身份、服饰、发型、画风和姿势基准；视频只提供被选择的情境帧。流程不从视频抠出人物，也不把视频帧整张重绘成角色。
 
 Studio 上游代码为 MIT，角色资产许可另计。使用本机已构建的 Mesh Avatar Studio，不自动安装/下载。初次配置：`mesh-avatar configure --studio <Studio目录>`。原图、视频和生成素材存到项目目录；不要覆盖原图或已有项目。
 

@@ -2,11 +2,14 @@
 import argparse
 import json
 import math
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 
 import file_hash
 import runtime_core as core
@@ -15,9 +18,12 @@ import runtime_paths
 LUT_PRESETS = (
     'none', 'steel_violet', 'cinema_warm', 'teal_orange',
     'agx_base', 'agx_punchy', 'aces_cinema', 'aces_filmic_warm',
+    'opendrt_filmic', 'match_reference',
 )
 OCIO_LUT_PRESETS = {'agx_base', 'agx_punchy', 'aces_cinema', 'aces_filmic_warm'}
 _VIDEO_EXT = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.mxf', '.ts'}
+_IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff'}
+_NO_WIN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 _NEUFLOW_W, _NEUFLOW_H = 768, 432
 
 
@@ -326,13 +332,177 @@ def _generate_ocio_lut(preset, r, g, b):
     return out
 
 
-def generate_cube_lut(preset, out_path, *, size=33):
-    """Write standard Adobe 3D .cube LUT (R fastest, G middle, B slowest) via OCIO 2.6 or procedural curves."""
+def _srgb_to_linear(rgb):
+    arr = np.clip(np.asarray(rgb, dtype=np.float64), 0.0, 1.0)
+    return np.where(arr <= 0.04045, arr / 12.92, np.power((arr + 0.055) / 1.055, 2.4))
+
+
+def _linear_to_srgb(lin):
+    arr = np.clip(np.asarray(lin, dtype=np.float64), 0.0, 1.0)
+    return np.where(arr <= 0.0031308, arr * 12.92, 1.055 * np.power(arr, 1.0 / 2.4) - 0.055)
+
+
+def _linear_rgb_to_oklab(lin):
+    r, g, b = lin[:, 0], lin[:, 1], lin[:, 2]
+    l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+    m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+    s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+    l_ = np.cbrt(np.maximum(l, 0.0))
+    m_ = np.cbrt(np.maximum(m, 0.0))
+    s_ = np.cbrt(np.maximum(s, 0.0))
+    L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
+    a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+    bv = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    return np.column_stack((L, a, bv))
+
+
+def _oklab_to_linear_rgb(lab):
+    L, a, bv = lab[:, 0], lab[:, 1], lab[:, 2]
+    l_ = L + 0.3963377774 * a + 0.2158037573 * bv
+    m_ = L - 0.1055613458 * a - 0.0638541728 * bv
+    s_ = L - 0.0894841775 * a - 1.2914855480 * bv
+    l = l_ * l_ * l_
+    m = m_ * m_ * m_
+    s = s_ * s_ * s_
+    r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    return np.column_stack((r, g, b))
+
+
+def _opendrt_shoulder_tonemap(lin_rgb, *, shoulder=1.18, toe=0.010, hi_desat=0.28):
+    """OpenDRT-inspired luminance-norm highlight shoulder roll-off & chroma preservation."""
+    lin = np.maximum(np.asarray(lin_rgb, dtype=np.float64), 0.0)
+    luma = 0.2126 * lin[:, 0] + 0.7152 * lin[:, 1] + 0.0722 * lin[:, 2]
+    peak = np.max(lin, axis=1)
+    norm = 0.65 * peak + 0.35 * luma
+    boosted = norm * 1.12
+    compressed = boosted / (1.0 + np.power(boosted / max(0.35, shoulder), 1.45))
+    scale_cap = 1.12 / (1.0 + math.pow(1.12 / max(0.35, shoulder), 1.45))
+    mapped_norm = np.clip(toe + (0.988 - toe) * (compressed / max(scale_cap, 1e-6)), 0.0, 1.0)
+    ratio = mapped_norm / np.maximum(norm, 1e-6)
+    toned = np.where(norm[:, None] > 1e-6, lin * ratio[:, None], toe)
+    y_out = 0.2126 * toned[:, 0:1] + 0.7152 * toned[:, 1:2] + 0.0722 * toned[:, 2:3]
+    desat_w = np.clip(hi_desat * np.power(np.clip(y_out, 0.0, 1.0), 2.2), 0.0, 0.65)
+    toned = toned + (y_out - toned) * desat_w
+    return np.clip(toned, 0.0, 1.0)
+
+
+def _sample_media_rgb_pixels(media_path, *, max_frames=6, max_pixels=24000):
+    p = Path(media_path).expanduser().resolve()
+    if not p.is_file():
+        raise ValueError(f'Reference or source media does not exist: {media_path}')
+    ext = p.suffix.lower()
+    if ext in _IMAGE_EXT:
+        with Image.open(p) as im:
+            rgb_im = im.convert('RGB')
+            rgb_im.thumbnail((320, 320))
+            arr = np.asarray(rgb_im, dtype=np.float64).reshape(-1, 3) / 255.0
+    else:
+        info = core.probe(p)
+        if not info.get('has_video'):
+            raise ValueError(f'Unsupported media without video stream: {p}')
+        dur = max(0.2, float(info.get('duration') or 1.0))
+        w_s, h_s = 256, 144
+        chunks = []
+        n_samp = max(1, min(int(max_frames), 8))
+        for k in range(n_samp):
+            ts = min(max(0.0, dur - 0.05), dur * (k + 0.5) / n_samp)
+            proc = subprocess.run(
+                [
+                    core.tool('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-nostdin',
+                    '-ss', f'{ts:.3f}', '-i', str(p),
+                    '-frames:v', '1', '-vf', f'scale={w_s}:{h_s}:flags=area',
+                    '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-',
+                ],
+                capture_output=True, check=False, timeout=30, creationflags=_NO_WIN,
+            )
+            need = w_s * h_s * 3
+            if proc.returncode == 0 and len(proc.stdout) >= need:
+                frame = np.frombuffer(proc.stdout[:need], dtype=np.uint8).reshape(-1, 3)
+                chunks.append(frame)
+        if not chunks:
+            raise ValueError(f'Could not sample RGB frames from media: {p}')
+        arr = np.vstack(chunks).astype(np.float64) / 255.0
+    if arr.shape[0] > max_pixels:
+        step = max(1, arr.shape[0] // max_pixels)
+        arr = arr[::step][:max_pixels]
+    return np.clip(arr, 0.0, 1.0)
+
+
+def _extract_oklab_palette(rgb_pixels, k=3):
+    lab = _linear_rgb_to_oklab(_srgb_to_linear(rgb_pixels))
+    if lab.shape[0] == 0:
+        return []
+    order = np.argsort(lab[:, 0])
+    idx_seeds = [order[int((i + 0.5) * (len(order) - 1) / k)] for i in range(k)]
+    centers = lab[idx_seeds].copy()
+    for _ in range(8):
+        dists = np.sum((lab[:, None, :] - centers[None, :, :]) ** 2, axis=2)
+        assign = np.argmin(dists, axis=1)
+        for ci in range(k):
+            mask = assign == ci
+            if np.any(mask):
+                centers[ci] = lab[mask].mean(axis=0)
+    counts = np.bincount(assign, minlength=k)
+    rank = np.argsort(-counts)
+    hexes = []
+    for ci in rank:
+        if counts[ci] == 0:
+            continue
+        srgb = _linear_to_srgb(_oklab_to_linear_rgb(centers[ci : ci + 1]))[0]
+        r8, g8, b8 = [int(np.clip(round(v * 255.0), 0, 255)) for v in srgb]
+        hexes.append(f'#{r8:02X}{g8:02X}{b8:02X}')
+    return hexes
+
+
+def _mat_sqrt_sym(mat, inv=False):
+    vals, vecs = np.linalg.eigh(0.5 * (mat + mat.T))
+    vals = np.maximum(vals, 1e-6)
+    pw = np.power(vals, -0.5 if inv else 0.5)
+    return (vecs * pw[None, :]) @ vecs.T
+
+
+def _apply_oklab_mkl_lut(r, g, b, src_rgb, tgt_rgb, *, strength=0.85):
+    """Perceptual Oklab Monge-Kantorovich Linear covariance color transfer + OpenDRT shoulder."""
+    src_lab = _linear_rgb_to_oklab(_srgb_to_linear(src_rgb))
+    tgt_lab = _linear_rgb_to_oklab(_srgb_to_linear(tgt_rgb))
+
+    mu_s = src_lab.mean(axis=0)
+    mu_t = tgt_lab.mean(axis=0)
+    reg = np.eye(3, dtype=np.float64) * 1.5e-4
+    cov_s = np.cov(src_lab, rowvar=False) + reg
+    cov_t = np.cov(tgt_lab, rowvar=False) + reg
+
+    s_half = _mat_sqrt_sym(cov_s, inv=False)
+    s_inv_half = _mat_sqrt_sym(cov_s, inv=True)
+    mid_half = _mat_sqrt_sym(s_half @ cov_t @ s_half, inv=False)
+    t_mat = s_inv_half @ mid_half @ s_inv_half
+
+    srgb_grid = np.column_stack((r, g, b))
+    lin_grid = _srgb_to_linear(srgb_grid)
+    lab_grid = _linear_rgb_to_oklab(lin_grid)
+
+    mapped_lab = (lab_grid - mu_s[None, :]) @ t_mat.T + mu_t[None, :]
+    k = float(np.clip(strength, 0.0, 1.0))
+    blended_lab = lab_grid + k * (mapped_lab - lab_grid)
+    blended_lab[:, 0] = np.clip(blended_lab[:, 0], 0.0, 1.05)
+
+    mapped_lin = np.clip(_oklab_to_linear_rgb(blended_lab), 0.0, 4.0)
+    toned_lin = _opendrt_shoulder_tonemap(mapped_lin, shoulder=1.22, toe=0.008, hi_desat=0.20)
+    return np.clip(_linear_to_srgb(toned_lin), 0.0, 1.0)
+
+
+def generate_cube_lut(preset, out_path, *, size=33, match_reference=None, match_strength=0.85, source_media=None):
+    """Write standard Adobe 3D .cube LUT (OCIO 2.6, OpenDRT filmic, or Oklab MKL reference transfer)."""
     if preset not in LUT_PRESETS or preset == 'none':
         raise ValueError(f'LUT preset must be one of {LUT_PRESETS[1:]}, got {preset!r}')
     n = int(size)
     if not 9 <= n <= 65:
         raise ValueError(f'lut_size must be in [9, 65], got {n}')
+    strength = float(match_strength)
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError(f'match_strength must be in [0, 1], got {match_strength}')
 
     grid = np.linspace(0.0, 1.0, n, dtype=np.float64)
     # Adobe .cube loop order: R fastest, G middle, B slowest -> meshgrid(B, G, R, indexing='ij') flattened C-order.
@@ -341,9 +511,40 @@ def generate_cube_lut(preset, out_path, *, size=33):
     g = g_g.reshape(-1)
     b = b_g.reshape(-1)
 
+    extra_meta = {}
     if preset in OCIO_LUT_PRESETS:
         rgb = np.clip(_generate_ocio_lut(preset, r, g, b), 0.0, 1.0)
         engine = 'opencolorio_2.6'
+    elif preset == 'opendrt_filmic':
+        lin = _srgb_to_linear(np.column_stack((r, g, b)))
+        toned = _opendrt_shoulder_tonemap(lin, shoulder=1.18, toe=0.010, hi_desat=0.28)
+        lab = _linear_rgb_to_oklab(toned)
+        lab[:, 0] = np.clip(lab[:, 0] * 1.02 - 0.015 * np.sin(math.pi * np.clip(lab[:, 0], 0.0, 1.0)), 0.0, 1.0)
+        lab[:, 1] *= 1.06
+        lab[:, 2] *= 1.06
+        rgb = np.clip(_linear_to_srgb(_oklab_to_linear_rgb(lab)), 0.0, 1.0)
+        engine = 'oklab_opendrt_numpy'
+    elif preset == 'match_reference':
+        if not match_reference or not str(match_reference).strip():
+            raise ValueError('--match-reference <image_or_video> is required when --make-lut match_reference')
+        ref_path = Path(match_reference).expanduser().resolve()
+        if not ref_path.is_file():
+            raise ValueError(f'Reference media does not exist: {match_reference}')
+        tgt_rgb = _sample_media_rgb_pixels(ref_path)
+        if source_media is not None:
+            src_rgb = _sample_media_rgb_pixels(source_media)
+        else:
+            g17 = np.linspace(0.06, 0.94, 17, dtype=np.float64)
+            sb, sg, sr = np.meshgrid(g17, g17, g17, indexing='ij')
+            src_rgb = np.column_stack((sr.reshape(-1), sg.reshape(-1), sb.reshape(-1)))
+        rgb = _apply_oklab_mkl_lut(r, g, b, src_rgb, tgt_rgb, strength=strength)
+        engine = 'oklab_mkl_reference'
+        extra_meta = {
+            'reference_path': str(ref_path),
+            'reference_sha256': file_hash.sha256(ref_path),
+            'match_strength': round(strength, 3),
+            'target_palette_hex': _extract_oklab_palette(tgt_rgb, k=3),
+        }
     else:
         engine = 'numpy_procedural'
         luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -389,7 +590,7 @@ def generate_cube_lut(preset, out_path, *, size=33):
     ]
     lines.extend(f'{rv:.6f} {gv:.6f} {bv:.6f}' for rv, gv, bv in rgb)
     lut_file.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    return {
+    info_dict = {
         'preset': preset,
         'engine': engine,
         'path': str(lut_file),
@@ -398,6 +599,8 @@ def generate_cube_lut(preset, out_path, *, size=33):
         'bytes': lut_file.stat().st_size,
         'sha256': file_hash.sha256(lut_file),
     }
+    info_dict.update(extra_meta)
+    return info_dict
 
 
 def run_motion_analyze(args):
@@ -408,6 +611,7 @@ def run_motion_analyze(args):
 
     sample_fps = core.number(args.sample_fps, 'sample_fps', 1.0, 120.0)
     window_s = core.number(args.window, 'window', 0.05, 5.0)
+    match_strength = core.number(getattr(args, 'match_strength', 0.85), 'match_strength', 0.0, 1.0)
     lut_size = int(args.lut_size)
     if not 9 <= lut_size <= 65:
         raise ValueError(f'--lut-size must be in [9, 65], got {lut_size}')
@@ -458,7 +662,14 @@ def run_motion_analyze(args):
     out_dir = core.new_directory(out_cand)
     lut_info = None
     if args.make_lut != 'none':
-        lut_info = generate_cube_lut(args.make_lut, out_dir / f'{args.make_lut}.cube', size=lut_size)
+        lut_info = generate_cube_lut(
+            args.make_lut,
+            out_dir / f'{args.make_lut}.cube',
+            size=lut_size,
+            match_reference=getattr(args, 'match_reference', None),
+            match_strength=match_strength,
+            source_media=videos[0] if videos else None,
+        )
 
     report = {
         'status': 'passed',
@@ -488,6 +699,8 @@ def main(argv=None):
     parser.add_argument('--backend', choices=('auto', 'neuflow', 'farneback'), default='auto', help='Optical flow backend (default auto -> NeuFlow v2 if installed)')
     parser.add_argument('--gpu', action='store_true', help='Enable CUDA GPU acceleration for NeuFlow v2 ONNX')
     parser.add_argument('--make-lut', choices=LUT_PRESETS, default='none', help='Optional procedural 3D cinema LUT preset to export')
+    parser.add_argument('--match-reference', default=None, help='Local reference image/video for Oklab MKL color transfer (--make-lut match_reference)')
+    parser.add_argument('--match-strength', type=float, default=0.85, help='Color transfer strength in [0, 1] (default 0.85)')
     parser.add_argument('--lut-size', type=int, default=33, help='3D LUT grid size per axis in [9, 65] (default 33)')
     args = parser.parse_args(argv)
     try:

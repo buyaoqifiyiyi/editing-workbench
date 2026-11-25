@@ -97,6 +97,23 @@ vec4 transition(vec2 uv) {
     assert c3 == 0 and r3['status'] == 'passed' and r3['frames'] == 9, r3
     checks.append('ISF prism_chromatic effect passed on still image -> MP4')
 
+    for p_name, p_src, extra in (
+        ('duotone_grade', still, ['--duration', '0.2', '--fps', '30']),
+        ('color_pop', still, ['--duration', '0.2', '--fps', '30']),
+        ('neon_strobe', still, ['--duration', '0.2', '--fps', '30', '--params', '{"staticMode": 1.0}']),
+        ('dot_grid_backdrop', still, ['--duration', '0.2', '--fps', '30']),
+        ('echo_chromatic_snap', clip_a, []),
+        ('deep_glow', still, ['--duration', '0.2', '--fps', '30']),
+        ('deep_glow', still, ['--duration', '0.2', '--fps', '30', '--alpha']),
+        ('shutter_motion_blur', clip_a, ['--params', '{"shutterAngle": 180.0, "samples": 8}']),
+    ):
+        tag = f'{p_name}_alpha' if '--alpha' in extra else p_name
+        cp, rp = _run_main(['effect', '--input', p_src, '--out', root / f'fx-{tag}', '--preset', p_name, *extra])
+        assert cp == 0 and rp['status'] == 'passed' and rp['strict_decode'] == 'passed', rp
+        if '--alpha' in extra:
+            assert rp['pix_fmt'] == 'yuva444p12le', rp
+    checks.append('All 7 new technical & optical ISF presets (incl. 5-level Mipmap deep_glow + shutter_motion_blur) passed GPU & strict_decode')
+
     # 3. Custom ISF .fs with ProRes 4444 alpha (.mov yuva444p12le) + orientation check
     custom_isf = root / 'half_alpha.fs'
     custom_isf.write_text("""/*{
@@ -122,6 +139,45 @@ void main() {
     assert mid_rgba[8, 100, 0] > 180 and mid_rgba[-8, 100, 2] > 180, 'ISF orientation flipped!'
     assert mid_rgba[64, 96, 3] > 230 and mid_rgba[64, 4, 3] < 90, 'ISF alpha mask failed!'
     checks.append('custom ISF .fs + ProRes 4444 (yuva444p12le) alpha & orientation verified')
+
+    # 3b. RGBA ProRes 4444 video input alpha preservation + layer_motion_blur + light_wrap
+    fg_mov = root / 'fg_cutout.mov'
+    fg_rgba = np.zeros((8, 128, 160, 4), dtype=np.uint8)
+    for fi in range(8):
+        # Upper circle head + lower rectangle torso + wing/hair strands in upper-right/left edge
+        cv2.circle(fg_rgba[fi], (80, 38), 20, (50, 70, 120, 255), -1)
+        cv2.rectangle(fg_rgba[fi], (62, 54), (98, 127), (40, 50, 90, 255), -1)
+        # Hair strand extensions at left/right crown edges
+        cv2.ellipse(fg_rgba[fi], (58, 44), (10, 20), 15, 0, 360, (35, 45, 95, 255), -1)
+        cv2.ellipse(fg_rgba[fi], (102, 44), (10, 20), -15, 0, 360, (35, 45, 95, 255), -1)
+    shader_fx._encode_frames(fg_rgba, 24.0, fg_mov, alpha=True)
+
+    c_blur, r_blur = _run_main([
+        'effect', '--input', fg_mov, '--out', root / 'fx-layer-blur',
+        '--preset', 'layer_motion_blur', '--alpha',
+        '--params', '{"inDuration": 0.25, "inBlurPx": 18.0, "outDuration": 0.0}',
+    ])
+    assert c_blur == 0 and r_blur['status'] == 'passed' and r_blur['pix_fmt'] == 'yuva444p12le', r_blur
+    dec_blur, _, _, _, _, _ = shader_fx._read_media_frames(r_blur['output'], want_alpha=True)
+    assert dec_blur[0, 64, 150, 3] < 20, f'Alpha was stripped on RGBA video round-trip: corner alpha={dec_blur[0,64,150,3]}'
+    assert dec_blur[0, 44, 42, 3] > dec_blur[-1, 44, 42, 3], 'layer_motion_blur did not smear entry edge!'
+    checks.append('RGBA ProRes 4444 decode + layer_motion_blur alpha & directional blur verified')
+
+    bright_bg = root / 'bright_sky.png'
+    Image.new('RGB', (160, 128), (255, 245, 220)).save(bright_bg)
+    c_wrap, r_wrap = _run_main([
+        'effect', '--input', fg_mov, '--out', root / 'fx-light-wrap',
+        '--preset', 'light_wrap', '--bg', bright_bg, '--alpha',
+        '--params', '{"wrapRadiusPx": 8.0, "intensity": 0.85, "lumaThreshold": 0.2}',
+    ])
+    assert c_wrap == 0 and r_wrap['status'] == 'passed' and r_wrap['has_bg'] is True and r_wrap['pix_fmt'] == 'yuva444p12le', r_wrap
+    wrap_rgba = np.asarray(Image.open(r_wrap['preview_png']), dtype=np.uint8)
+    edge_luma = float(np.mean(wrap_rgba[80, 63, :3]))
+    core_luma = float(np.mean(wrap_rgba[80, 80, :3]))
+    assert edge_luma > core_luma + 18.0, f'light_wrap did not wrap rim light: edge={edge_luma}, core={core_luma}'
+    assert wrap_rgba[5, 5, 3] < 10, f'light_wrap polluted far corner alpha: {wrap_rgba[5,5,3]}'
+    checks.append(f'light_wrap --bg optical rim wrap verified (edge={edge_luma:.1f} vs core={core_luma:.1f})')
+    assert 'character_live25d' not in shader_fx.ISF_PRESETS
 
     # 4. Existing output refused
     cb, rb = _run_main(['effect', '--input', clip_a, '--out', fx_alpha_out])

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 
 import motion_flow
 import runtime_core as core
@@ -124,6 +125,34 @@ def check(root):
         red_corner = table[0, 0, -1]  # Adobe order (B, G, R): R=1, G=0, B=0
         assert red_corner[0] > 0.7 and red_corner[1] > 0.05, (preset, red_corner)
         checks.append(f'OCIO 2.6 {preset}: 33^3 monotonic gray={gray[0]:.3f}->{gray[-1]:.3f}, highlight_red={np.round(red_corner, 3).tolist()}')
+
+    # OpenDRT Filmic & Oklab MKL reference-match LUT verification
+    out_odrt = root / 'lut_opendrt'
+    co, ro = _run_main(['--out', out_odrt, '--make-lut', 'opendrt_filmic', '--lut-size', '33'])
+    assert co == 0 and ro['status'] == 'passed' and ro['lut']['engine'] == 'oklab_opendrt_numpy', ro
+    checks.append('OpenDRT filmic 33^3 .cube LUT generated and verified')
+
+    ref_img = root / 'warm_ref.png'
+    ref_arr = np.zeros((120, 180, 3), dtype=np.uint8)
+    ref_arr[:, :60] = (235, 165, 95)
+    ref_arr[:, 60:120] = (175, 102, 56)
+    ref_arr[:, 120:] = (90, 48, 28)
+    Image.fromarray(ref_arr, mode='RGB').save(ref_img)
+    out_mkl = root / 'lut_mkl'
+    cm, rm = _run_main([
+        '--out', out_mkl, '--make-lut', 'match_reference',
+        '--match-reference', ref_img, '--match-strength', '0.9', '--lut-size', '33',
+    ])
+    assert cm == 0 and rm['status'] == 'passed' and rm['lut']['engine'] == 'oklab_mkl_reference', rm
+    assert 2 <= len(rm['lut']['target_palette_hex']) <= 3, rm['lut']
+    mkl_lines = [
+        ln for ln in Path(rm['lut']['path']).read_text(encoding='utf-8').splitlines()
+        if ln and not ln.startswith(('TITLE', 'LUT_3D_SIZE', 'DOMAIN_'))
+    ]
+    mkl_tbl = np.array([[float(v) for v in ln.split()] for ln in mkl_lines]).reshape(33, 33, 33, 3)
+    mid_rgb = mkl_tbl[16, 16, 16]
+    assert mid_rgb[0] > mid_rgb[2] + 0.05, f'Expected warm shift on mid-gray, got {mid_rgb}'
+    checks.append(f'Oklab MKL match_reference LUT generated (palette={rm["lut"]["target_palette_hex"]}, mid_gray={np.round(mid_rgb, 3).tolist()})')
 
     code_b, rep_b = _run_main(['--input', root / 'missing.mp4', '--out', root / 'bad_out'])
     assert code_b == 1 and rep_b['status'] == 'failed' and not (root / 'bad_out').exists()

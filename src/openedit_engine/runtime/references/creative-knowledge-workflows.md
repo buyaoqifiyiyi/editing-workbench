@@ -51,7 +51,8 @@
 | 非绿幕前景抠像与竖屏智能重构图 | `matting`（MatAnyone 2 / RVM / MIT BiRefNet `--gpu` → ProRes 4444 RGBA）、`auto-reframe`（YuNet 人脸跟拍 16:9 ↔ 9:16） | 发丝边缘无需预览人工检视、人脸跟拍已达最终导演审美 |
 | 按乐段分析节拍、生成音效与对齐切点 | `music-structure`（Beat This! ONNX / allin1）、`beats`、`beat-apply [--use-downbeats]`、`sfx [--from-structure]`、`sfx-search`（CLAP ONNX） | 每拍必切、模型已理解音乐情绪或替代人工试听 |
 | 双语语义搜镜、光流运动与 AgX/ACES 调色 | `shot-search [--with-motion]`（SigLIP 2 ONNX）、`motion-analyze`（NeuFlow v2/Farneback + OCIO 2.6 `.cube` LUT）、`tracking` / `tracking-apply` | 语义/光流分数等于艺术匹配、全片色彩审美已确认 |
-| 补帧慢放、时域景深视差与无头 Shader 特效 | `interpolate`（Vulkan RIFE）、`depth`（Video Depth Anything / Depth Anything V2）、`shader-fx`（ModernGL GL-Transitions & ISF） | 补帧无伪影或 2.5D 分层无需人工看帧检查 |
+| 补帧慢放、时域景深视差与无头 Shader 特效 | `interpolate`（Vulkan RIFE）、`depth`（Video Depth Anything / Depth Anything V2）、`shader-fx`（ModernGL GL-Transitions & ISF：`light_wrap`、`layer_motion_blur` 等） | 补帧无伪影或 2.5D 分层无需人工看帧检查 |
+| 真 2D 网格 Live2D 人物眨眼、飘发与慢呼吸 | `mesh-avatar`（`status` / `render --codec prores_4444` / `attach`，复用本机 Mesh Avatar Studio） | 只适用正面/微侧立绘（90°纯侧脸维持刚体动效），仍需逐帧眨眼/蒙版复核 |
 | 指定音视频的分析/成片审片 | `music-edit` 的 `prepare`、`analyze`、`review`、`compile`（支持 `music-structure` 与 `beats` 对齐） | 授权可跨任务、素材分析等于成片审片、模型评语等于认可 |
 | 音量避让、FFT 降噪与 EBU R128 响度母带 | `ducking`、`denoise-audio`、`audio-master`（`streaming`/`podcast`/`broadcast` + `--reverb-ir` + `--sidechain` + `--measure-only`） | 自动包络或响度达标等于完成正常速度试听与全片审美验收 |
 | 渲染可复用动效与 Hero 透明配方 | `render-overlay`、`overlays[].recipe`（13 套配方含 `whip_transition` / `impact_punch` / `parallax_3d_scene`，见 [配方与映射](recipes.md)） | 静态 RGBA PNG 通过等于整段成片节奏或叠加审美合格 |

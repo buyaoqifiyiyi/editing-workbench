@@ -82,6 +82,7 @@ def doctor():
     hf_gsap = runtime_paths.discover_hyperframes_gsap(hf_exe)
     hf_font = runtime_paths.discover_cjk_font_file()
     hf_browser = runtime_paths.discover_chromium_browser()
+    mesh_avatar_info = runtime_paths.discover_mesh_avatar_studio()
 
     return {
         'status': 'ready' if ready else 'incomplete',
@@ -101,6 +102,7 @@ def doctor():
             'browser': str(hf_browser) if hf_browser else None,
             'license': 'Apache-2.0',
         },
+        'mesh_avatar': mesh_avatar_info,
         'local_models': runtime_paths.discover_local_models(),
         'optional_ai_packages': optional,
         'instructions': instructions,
@@ -121,7 +123,7 @@ def capabilities(query=None, live=False):
         ],
         'filmcraft': {
             'project_format': '.fcproj (plaintext JSON)',
-            'editing': 'Multi-track V/A timeline, ripple/insert/overwrite, transitions (Cross Dissolve, wipes, etc.), speed/reverse',
+            'editing': 'Multi-track V/A timeline, ripple/insert/overwrite, transitions (Cross Dissolve, wipes, etc.), speed/reverse, camera_motion AE Graph-Editor curve & cross-cut momentum compiler',
             'color_grading': 'Lumetri exposure/contrast/saturation/curves (Luma + RGB)/wheels/HSL/3D LUT',
             'blend_modes_and_effects': '26 blend modes, motion position/scale/rotation/opacity/interpolation, 90+ effects',
             'text_and_captions': 'graphics.newText + graphics.setCharStyle (multi-color highlights, stroke, background, shadow, CJK Noto Sans SC/Microsoft YaHei) + SRT/Subtitle tracks',
@@ -135,32 +137,43 @@ def capabilities(query=None, live=False):
             'alpha_overlay_export': 'ProRes 4444 RGBA (.mov, yuva444p12le) -> direct composite onto FilmCraft V2+',
             'caveat': 'WebM VP9 default CLI export drops alpha; ProRes 4444 (.mov) is locked as the verified alpha interchange',
         },
-        'hyperframes': {
+            'hyperframes': {
             'license': 'Apache-2.0',
             'available': runtime_paths.discover_hyperframes_cli() is not None,
             'recipes': sorted(hyperframes_backend.RECIPES),
             'supports_custom_html': True,
+            'supports_live_video_containers': True,
             'alpha_overlay_export': 'ProRes 4444 RGBA (.mov, yuva444p12le) -> direct composite onto FilmCraft V2+',
-            'caveat': 'Offline HTML/CSS/SVG/GSAP data-motion & UI card engine (set backend="hyperframes" in overlays[] or render-overlay spec); requires Node.js >=22 + local Chromium/Chrome.',
+            'caveat': 'Offline HTML/CSS/SVG/GSAP data-motion & live-video UI card engine (set backend="hyperframes" in overlays[] or render-overlay spec); requires Node.js >=22 + local Chromium/Chrome.',
         },
+        'mesh_avatar': (lambda ma: {
+            'license': 'MIT (Mesh Avatar Studio runtime)',
+            'configured': ma['configured'],
+            'available': ma['available'],
+            'studio_path': ma['studio_path'],
+            'features': 'True 2D layered mesh Live2D rigging (split eyes/lashes + skin inpaint, 4-node root-locked damped spring hair chains, neck-pivot 2.5D head turn, slow chest breathing)',
+            'alpha_overlay_export': 'PNG RGBA or ProRes 4444 RGBA (.mov, yuva444p12le) at configurable width/height/fps -> direct composite onto FilmCraft V2+',
+            'caveat': 'Intended for frontal / near-frontal transparent portraits; keep 90-degree pure side profiles as rigid cutouts with layer_motion_blur + light_wrap.',
+        })(runtime_paths.discover_mesh_avatar_studio()),
         'offline_ai_and_media': [
+            'mesh-avatar (Mesh Avatar Studio WebGL2: true 2D layered mesh Live2D blink/hair spring physics/breathing/2.5D head turn -> PNG RGBA or ProRes 4444 .mov)',
             'music-structure (Beat This! ONNX / allin1 CUDA / spectral: BPM, downbeats, drop points, phrase segments)',
             'sfx-search (LAION CLAP HTSAT ONNX / acoustic DSP: offline zero-shot local SFX search)',
             'interpolate (rife-ncnn-vulkan Vulkan slow-mo/interpolation & FFmpeg minterpolate + deband)',
             'depth (Video Depth Anything CUDA / Depth Anything V2 ONNX: depth maps, DoF bokeh, ProRes 4444 parallax layers)',
             'shot-search (Google SigLIP 2 ONNX / histogram: offline bilingual CN/EN natural-language video shot search)',
-            'shader-fx (headless ModernGL OpenGL 3.3: GL-Transitions MIT & ISF shader effects -> MP4 or ProRes 4444 .mov)',
+            'shader-fx (headless ModernGL OpenGL 3.3: 10 GL-Transitions MIT & 14 ISF shaders incl. light_wrap/layer_motion_blur/deep_glow/shutter_motion_blur/duotone_grade/color_pop/neon_strobe/dot_grid_backdrop/echo_chromatic_snap -> MP4 or ProRes 4444 .mov)',
             'auto-reframe (PySceneDetect + OpenCV YuNet face / saliency smooth pan -> editable 9:16 plan)',
             'rough-cut (one-command auto-cut -> faster-whisper -> clip-clamped/karaoke captions)',
             'audio-master (two-pass FFmpeg EBU R128 loudnorm + afir convolution reverb + sidechaincompress + clipping QC)',
             'sfx (procedural 8-type stereo 48kHz Foley/SFX bed + soft-knee limiter + BGM ducking keyframes)',
-            'motion-analyze (NeuFlow v2 ONNX / OpenCV Farneback active-flow + OpenColorIO 2.6 AgX/ACES 2.0 3D .cube LUTs)',
+            'motion-analyze (NeuFlow v2 ONNX / OpenCV Farneback active-flow + OpenColorIO 2.6 AgX/ACES/OpenDRT/Oklab-MKL match_reference 3D .cube LUTs)',
             'auto-cut (Silero VAD ONNX + FFmpeg silencedetect rough cut, optional --gpu)',
-            'matting (MatAnyone 2 temporal / RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA alpha .mov, optional --gpu/--device)',
+            'matting (MatAnyone 2 temporal / RVM / BiRefNet / RMBG ONNX -> ProRes 4444 RGBA .mov, optional --gpu/--target-fps/--defringe/--clean-color-holes/--bottom-feather)',
             'beats / beat-apply (librosa)', 'transcribe (faster-whisper CPU/CUDA)', 'separate (Demucs ONNX CPU/CUDA)',
             'denoise-audio (FFT)', 'ducking', 'captions / karaoke', 'tracking / tracking-apply (OpenCV CSRT)',
-            'reverse', 'practice-compare', 'normalize-media (FFmpeg single & batch VFR/Hi10P -> CFR)',
-            'audit (end-to-end project QA: overlap check, strict decode, EBU R128 loudness QC, beat delta, contact sheet)',
+            'reverse', 'practice-compare', 'inspect (--contact-sheet --analyze-framing shot_scale/aesthetic_score/rule_of_thirds_crop/trim_suggestion)', 'reference (editing_rhythm ASL/palette/shot_scale)', 'normalize-media (FFmpeg single & batch VFR/Hi10P -> CFR)',
+            'audit (end-to-end project QA: overlap check, strict decode, EBU R128 loudness QC, visual_qc blowout/black/Oklab continuity/font glyph gate, pacing_qc, motion_qc frozen-span/cut-continuity telemetry, --motion-review 360p/15fps HUD + cut_strips.jpg, beat delta, contact sheet)',
         ],
     }
     if live:
@@ -234,11 +247,13 @@ def main(argv=None):
     c_cap.add_argument('--query', help='Filter live FilmCraft commands and EffectCraft effects')
     c_cap.add_argument('--live', action='store_true', help='Query live CLI/MCP backends')
 
-    c_insp = sub.add_parser('inspect', help='Probe local media file/folder and extract sample frames')
+    c_insp = sub.add_parser('inspect', help='Probe local media file/folder, extract sample frames, and optionally triage framing/contact sheet')
     c_insp.add_argument('--input', required=True)
     c_insp.add_argument('--out', required=True)
     c_insp.add_argument('--frames', type=int, default=3)
     c_insp.add_argument('--max-files', type=int, default=200)
+    c_insp.add_argument('--contact-sheet', action='store_true', help='Generate tiled contact_sheet.jpg across probed clips')
+    c_insp.add_argument('--analyze-framing', action='store_true', help='Detect YuNet face center/headroom, internal cuts, and subtitle hazards')
 
     c_ref = sub.add_parser('reference', help='Extract scene-change reference frames via FFmpeg or PySceneDetect')
     c_ref.add_argument('--input', required=True)
@@ -342,7 +357,10 @@ def main(argv=None):
         elif args.action == 'capabilities':
             result = capabilities(query=args.query, live=args.live or bool(args.query))
         elif args.action == 'inspect':
-            result = media_prep.inspect_media(args.input, args.out, frames=args.frames, max_files=args.max_files)
+            result = media_prep.inspect_media(
+                args.input, args.out, frames=args.frames, max_files=args.max_files,
+                contact_sheet=args.contact_sheet, analyze_framing=args.analyze_framing,
+            )
         elif args.action == 'reference':
             result = media_prep.extract_reference(
                 args.input, args.out, start=args.start, duration=args.duration,

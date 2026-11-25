@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openedit-engine"
-version = "1.0.0"
+version = "1.1.0"
 description = "Pure open-source video editing and VFX engine (FilmCraft + EffectCraft + FFmpeg) with CLI and stdio MCP adapter"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

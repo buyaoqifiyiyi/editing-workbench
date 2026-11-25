@@ -11,7 +11,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 - **已验证能力**：
   - 任意安全分辨率与帧率：支持宽度 `64..7680`、高度 `64..4320`、帧率 `1..120fps`、时长最高 `86400s`（24 小时），无商业宿主人工分辨率或时长上限。
   - 完整多轨 V/A 时间轴编排：支持 `layer_order` 自定义视频轨、叠加轨、文字轨及独立音轨顺序，自动按轨号顺序与 `0.000001s`（1 微秒）精度排布；同轨重叠及跨媒体类型同名轨道在 `validate` 阶段直接拒绝。
-  - 转场、变速倒放与音频混音：`transition`（如 `Cross Dissolve`、擦除等，支持时长与入出边缘 `in`/`out`），片段速度 `0.05..32.0` 与 `reverse`；音频支持 `fade_in` / `fade_out`（FilmCraft `constant_power`）、`loudness`（`essentialSound.setType` + `essentialSound.autoMatch` 目标 LUFS 自动响度匹配）与 `beat_marks`（程序时间轴节拍标记）。
+  - 转场、变速倒放、AE 曲线运镜与音频混音：`transition`（如 `Cross Dissolve`、擦除等，支持时长与入出边缘 `in`/`out`）、`clips[].camera_motion`（高密度贝塞尔/弹簧入出速率曲线 + 跨切点动势接力 + 自动防黑边预放大 + 永不死停微漂移）、片段速度 `0.05..32.0` 与 `reverse`；音频支持 `fade_in` / `fade_out`（FilmCraft `constant_power`）、`loudness`（`essentialSound.setType` + `essentialSound.autoMatch` 目标 LUFS 自动响度匹配）与 `beat_marks`（程序时间轴节拍标记）。
   - 行业标准工程互操作：支持同步导出 **OTIO** (`.otio`) 与 **FCPXML** (`.fcpxml`)，并经 FilmCraft MCP `file.exportOtio` / `file.exportFcpxml` 写出。
   - 无头成片导出与严格全解码：支持 H.264、HEVC、ProRes、WAV、AAC，支持关闭硬件编码（CRF 软件编码）或 `auto`（含本机 NVENC GPU 加速），每次导出均经 `ffprobe` 流存在检查与 `ffmpeg -v error -xerror -f null -` 全流无错解码验证。
 - **使用边界**：手机 VFR 可变帧率或异形封装进入纯 Rust 解码器前应先执行 `normalize-media`；用户可使用 FilmCraft GUI 直接打开生成的明文 `.fcproj` 进行主观微调与最终视听确认。
@@ -22,7 +22,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 - **开源后端**：ArtCraft **EffectCraft**（Rust 内核，MIT/Apache-2.0，明文 `.ecproj` JSON 工程）。
 - **已验证能力**：
   - 覆盖 308 种内置特效、9 种图层样式、形状层/纯色层/文字层（含 `highlights` 区间高亮与 `text_preset` 动画器预设）/外部素材层（支持 `time`/`in`/`out`/`duration` 与 `time_remap`/`timeRemap` 连续变速曲线）/真实 **3D 相机层（`type="camera"` -> `layer.newCamera` + `three_d` Z 轴景深视差 + `motion_blur` 合成运动模糊）**、67 种内置入退场与行为预设、表达式、蒙版、灯光及 AE 风格 JSX 脚本（`effectcraft-exec` 与 `overlays[]` 声明式规范）。
-  - **声明式可复用配方库（`overlays[].recipe`）**：内置 **13 个** 分辨率自适应配方（`title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition`，以及 3 个素材驱动 Hero 配方 `whip_transition`、`impact_punch`、`parallax_3d_scene`），支持通过少量业务参数一键展开为标准 EffectCraft 多层工程，详见 [纯开源手法映射与配方库](recipes.md)。
+  - **声明式可复用配方库（`overlays[].recipe`）**：内置 **16 个** 分辨率自适应配方（`title_card`、`lower_third`、`keyword_callout`、`beat_flash`、`cinematic_bars`、`progress_banner`、`chapter_opener`、`pip_card`、`split_screen_frame`、`wipe_transition`、`editorial_card`，以及 5 个素材驱动 Hero 配方 `whip_transition`、`velocity_cut`、`impact_punch`、`parallax_3d_scene`、`hero_ring_cutout`），支持通过少量业务参数一键展开为标准 EffectCraft 多层工程，详见 [纯开源手法映射与配方库](recipes.md)。
   - **透明通道中间件锁定与内容寻址缓存**：在 1080p 实机验证中，CLI 默认 WebM VP9 导出会丢失 Alpha 通道；**`ProRes 4444 RGBA (.mov, yuva444p12le)`** 已实测保留完整可用 Alpha，并与 RGBA PNG 首尾协同。`render-overlay` 与 `build` 中的 `overlays` 均固定渲染 ProRes 4444 `.mov` 并自动挂载到 FilmCraft 上层视频轨合成；声明式/配方叠层默认按图层内容、画布、素材 SHA-256 与 CLI 指纹缓存在 `%LOCALAPPDATA%\OpenEditEngine\overlay-cache`（支持 `--no-cache` / `--no-overlay-cache` 绕过）。
 
 <a id="hyperframes-data-motion"></a>
@@ -30,7 +30,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 
 - **开源后端**：**HyperFrames**（Apache-2.0，无头 Node.js + Chromium 渲染内核；通过 `overlays[].backend: "hyperframes"` 或 `render-overlay --spec` 启用，不替代主时间轴与 EffectCraft）。
 - **已验证能力**：
-  - **4 套内置商业广告数据动画配方**：`kpi_bar_chart`（KPI 跳字 + 柱状图 + 独立安全带趋势折线）、`kpi_counter_banner`（多指标战报横幅）、`comparison_table`（双方案参数对比卡）、`milestone_progress`（阶段进度条逐项点亮）。均按短边 `1080` 自适应缩放，支持横竖屏与 4K，满足 1080p 字号 `>= 28px` 与高对比度可读性要求。
+  - **10 套内置数据、UI 连续画布与技术流 MG 动画配方（全面支持活视频容器）**：商业数据 4 套（`kpi_bar_chart`、`kpi_counter_banner`、`comparison_table`、`milestone_progress`）、UI 丝滑切换 2 套（`ui_flow_stage` 单画布共享元素 FLIP 展开 + RK4 弹簧物理 + 虚拟相机、`kinetic_ui_title` 错峰三联动标题）与技术流平面 MG 4 套（`viewfinder_hud` 取景器 HUD、`polaroid_grid` 拍立得+避让手绘红圈、`filmstrip_reel` 35mm 胶片卷轴、`text_matte_dissolve` 字体遮罩星尘消散）；其中 `ui_flow_stage`、`polaroid_grid`、`filmstrip_reel`、`text_matte_dissolve` 原生支持传入本地活视频 `video` / `fill_video` + `source_in`（构建期自动预裁并同步为静音 H.264 写入 `<video data-start>`，彻底告别 PPT 静图感），并保留 `image` 向后兼容与共享 `theme` 风格令牌（`editorial_scrapbook` / `neon_cyber` / `cinema_clean`）。
   - **离线自定义 HTML 逃生舱**：支持传入本地 `.html` 项目或内联 HTML/CSS/SVG/GSAP 代码与 `--variables` 参数注入；默认启用纯离线静态检查，自动拦截外部 `http(s)://` 脚本、样式或字体拉取（显式 `allow_network: true` 除外），默认注入本机静态 CJK 字体（`@font-face`）与本地 GSAP。
   - **严格 Alpha 锁定与质检**：与 EffectCraft 同构导出 **`ProRes 4444 RGBA (.mov, yuva444p12le)`** 直通 FilmCraft 叠加轨，默认先跑 `hyperframes lint --json`（可选 `check: true` 进行布局/WCAG 对比度/首帧空屏检查），并复用内容寻址 `overlay-cache` 与 `ffmpeg -v error -xerror` 严格解码验收。
 - **使用边界**：需本机安装 Node.js (>=22) 与 `@hyperframes/cli`（支持隔离装于 `%LOCALAPPDATA%\OpenEditTools\hyperframes` 或 `OPENEDIT_HYPERFRAMES_CLI`）及本地 Chromium/Chrome；渲染过程强制关闭遥测与自动更新，严禁调用交互预览 GUI。
@@ -59,7 +59,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 <a id="media-prep"></a>
 ## 媒体探测与 VFR 标准化
 
-- `inspect` 与 `reference` 基于 `ffprobe` / `ffmpeg`（已验证至 FFmpeg 9.0.2，使用现代 `-fps_mode vfr` 抽取参考帧与镜头切换候选）探测本地音视频与图片流参数、像素格式 Alpha 通道及 VFR 标志；`reference` 同时支持显式 `--detector pyscenedetect`（基于已装 PySceneDetect 0.7.2 `ContentDetector` 提取 `scenes`/`cuts`/中位镜头时长等切点候选，与 FFmpeg `--threshold` 严格隔离）。
+- `inspect` 与 `reference` 基于 `ffprobe` / `ffmpeg`（已验证至 FFmpeg 9.0.2，使用现代 `-fps_mode vfr` 抽取参考帧与镜头切换候选）探测本地音视频与图片流参数、像素格式 Alpha 通道及 VFR 标志；`inspect` 支持 `--contact-sheet` 一键拼合批量缩略条带总览图，以及 `--analyze-framing` 复用 YuNet 人脸中心/头顶留白与**景别估计**（`shot_scale`: `ECU|CU|MCU|MS|WS`）、清晰度与构图美学综合分（`aesthetic_score`/`sharpness_score`）、三分法裁切推荐（`rule_of_thirds_crop`）、首尾冗余滞留修剪建议（`trim_suggestion`）、帧间硬切检测与底栏硬字幕扫雷；`reference` 同时支持显式 `--detector pyscenedetect`（基于已装 PySceneDetect 0.7.2 `ContentDetector` 提取 `scenes`/`cuts`）并在所有模式额外输出 **`editing_rhythm` 拉片节奏谱**（ASL 平均镜头时长、4 分段速率曲线、Oklab 主色三色板与景别序列）。
 - `normalize-media` 将手机录制的可变帧率（VFR）或 10-bit Hi10P 编码转为恒定帧率（CFR）8-bit H.264/AAC 或 ProRes；传入文件夹时自动进入**批量模式**，跳过已合规的 8-bit CFR 素材，仅转换 VFR/Hi10P 异常文件并输出可直接用于 `migrate --map` 的 `path_map` 与 `prepare-report.json`（加 `--force` 强制重编全部文件）。
 - **素材来源核查（`.provenance.json`）**：构建前优先于落盘目录强制检查同目录 sidecar `*.provenance.json`，核对 `license_verification == "agent_review_recorded"`、`review_note` 与实测 `sha256`，校验不通过立即中止生成，并在成果目录写出 `素材来源.md` 与 `素材来源.json`。
 
@@ -84,7 +84,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 <a id="ai-matting"></a>
 ## 非绿幕离线 AI 抠像（matting -> ProRes 4444）
 
-- 通过 `matting` 支持 **MatAnyone 2**（`matanyone2.pth` 跨帧记忆视频抠像，经隔离 PyTorch CUDA 环境调用；支持 `--mask` 首帧蒙版或本地 BiRefNet 自动起模、`--max-size`、`--warmup` 与 `--decontaminate` 边缘去底色溢色；注意采用 **NTU S-Lab License 1.0 默认仅限非商用**）、**RVM**（`rvm_*.onnx` 时域循环状态，GPL-3.0）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，仅非商业用途）生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`。
+- 通过 `matting` 支持 **MatAnyone 2**（`matanyone2.pth` 跨帧记忆视频抠像，经隔离 PyTorch CUDA 环境调用；支持 `--mask` 首帧蒙版或本地 BiRefNet 自动起模、`--max-size`、`--warmup` 与 `--decontaminate` 边缘去底色溢色；注意采用 **NTU S-Lab License 1.0 默认仅限非商用**）、**RVM**（`rvm_*.onnx` 时域循环状态，GPL-3.0）、**BiRefNet**（`birefnet*.onnx`，MIT）与 **RMBG**（`rmbg*.onnx`，仅非商业用途）生成带直通道 Alpha 的 `ProRes 4444 RGBA (.mov, yuva444p12le)` 与 `preview_rgba.png` / `preview_alpha.png`；新增动漫精修开关 `--target-fps`（如 `30`fps 智能抽帧提速）、`--defringe`（边缘去白边）、`--clean-color-holes`（如 `blue_sky` 清理发缝/丝带闭合蓝天残留洞）与 `--bottom-feather`（半身像底部渐隐羽化）。
 - **边界**：ONNX 模式 CPU 默认可控边界（`--max-frames` 默认 600）；报告新增逐帧 `min_fg_ratio`、`top_band_min_fg_ratio`、`max_frame_fg_drop` 与 `dropout_warning` 指标辅助排查削顶或帧间突变（仍不替代实景合入后的发丝/边缘人工检视）；支持 `--gpu` / `--device cuda|auto` 启用 CUDA 加速。
 
 <a id="auto-reframe"></a>
@@ -126,7 +126,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 ## 神经/稠密光流分析与 OpenColorIO 2.6 AgX/ACES 3D `.cube` LUT（motion-analyze）
 
 - 通过 `motion-analyze` 支持 **NeuFlow v2 ONNX**（Apache-2.0，CUDA/CPU 神经网络稠密光流）与 OpenCV Farneback 估算每个素材的入场/出场运动方向（`entry_vector` / `exit_vector`）、推拉散度（`zoom_divergence`：`push_in` / `pull_out`）、动作爆发峰值（`action_peaks`）与视觉重心轨迹（`centroid`），辅助确定动势接应转场与音效卡点。
-- 基于 **OpenColorIO 2.6**（BSD-3-Clause）与程序化色彩映射导出标准 Adobe 33×33×33 `.cube` LUT（含 `--make-lut agx_base`、`agx_punchy`、`aces_cinema`、`aces_filmic_warm` 及 `steel_violet` / `cinema_warm` / `teal_orange`），在独立生成 LUT 时无需传入 `--input` 视频，可直接喂给 FilmCraft `clips[].grading.lut` 实现电影级高光肩部压缩。
+- 基于 **OpenColorIO 2.6**（BSD-3-Clause）与 **Oklab/OpenDRT** 算法导出标准 Adobe 33×33×33 `.cube` LUT：内置 `agx_base`、`agx_punchy`、`aces_cinema`、`aces_filmic_warm`、`opendrt_filmic`（OpenDRT 高光肩部柔顺滚落）、**`match_reference`**（`--match-reference <参考片或图像>`，以 Oklab MKL 协方差色彩迁移对齐目标影调并附带主色板 `target_palette_hex`）及 `steel_violet` / `cinema_warm` / `teal_orange`，独立生成 LUT 时无需传入 `--input` 视频，可直接喂给 FilmCraft `clips[].grading.lut`。
 
 <a id="interpolate"></a>
 ## Vulkan RIFE 神经网络补帧与丝滑慢动作（interpolate）
@@ -150,7 +150,7 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 
 - 通过 `shader-fx` 在纯无头 **ModernGL OpenGL 3.3 Core**（`create_standalone_context`，绝不弹窗或启动 GUI 桌面）中实时编译与执行行业标准着色器：
   - `transition`：兼容 MIT **`GL-Transitions`** 协议，内置 10 种常用炫酷转场预设（`directionalwarp`、`crosszoom`、`glitch_memories`、`swirl`、`radial`、`zoom_in_circles`、`wind`、`dreamy_zoom`、`burn`、`chromatic_split`）及自定义 `--shader <custom.glsl>` 与 `--params` 参数覆盖。
-  - `effect`：内置 **ISF**（Interactive Shader Format，MIT）JSON 头解析器，提供 `halation_bloom`、`prism_chromatic`、`film_grain_vignette`、`glitch_scanline`、`radial_zoom_blur` 与自定义 `.fs`；加 `--alpha` 直接输出保留透明通道的 **`ProRes 4444` (`yuva444p12le`)** `.mov` 供时间轴叠层使用。
+  - `effect`：内置 **ISF**（Interactive Shader Format，MIT）JSON 头与 `prevImage` / `nextImage` / `bgImage` 采样器，提供 **14 套** 滤镜预设：`halation_bloom`、`prism_chromatic`、`film_grain_vignette`、`glitch_scanline`、`radial_zoom_blur`、技术流 5 件套（`duotone_grade`、`color_pop`、`neon_strobe`、`dot_grid_backdrop`、`echo_chromatic_snap`）、**5 级 Mipmap Bloom `deep_glow`**、**时域快门角运动模糊 `shutter_motion_blur`**，以及透明立绘/抠像动势与光学融合两件套：**`layer_motion_blur`**（出入场预乘 Alpha 安全方向模糊）与 **`light_wrap`**（按 `--bg` 底层高亮漫射包裹边缘），并支持自定义 `.fs`；加 `--alpha` 直接输出保留透明通道的 **`ProRes 4444` (`yuva444p12le`)** `.mov`（完整支持从 `yuva444p12le` / RGBA 视频直读透明通道）供时间轴叠层使用。若需人物立绘真 Live2D 眨眼/发丝飘动/呼吸动画，请直接调用内置 [`mesh-avatar`](#mesh-avatar)，绝不用整图正弦扭曲替代。
 
 <a id="ducking"></a>
 ## 自动音频闪避（Ducking）
@@ -175,17 +175,26 @@ OpenEdit Engine 采用纯开源工具链（ArtCraft **FilmCraft** + ArtCraft **E
 <a id="project-audit"></a>
 ## 端到端项目质检与联系表（audit）
 
-- 通过 `audit --plan <edit-plan.json> --out <新目录> [--export <成片.mp4>] [--build-dir <build目录>] [--beats <music-structure|beats目录>] [--preset streaming|podcast|broadcast] [--contact-sheet]` 对成品交付执行一键自动化审计：
+- 通过 `audit --plan <edit-plan.json> --out <新目录> [--export <成片.mp4>] [--build-dir <build目录>] [--beats <music-structure|beats目录>] [--preset streaming|podcast|broadcast] [--contact-sheet] [--visual-qc] [--motion-review] [--font-check <ttf/ttc>]` 对成品交付执行一键自动化审计：
   - 主视频轨重复源区间重叠检查（`source_overlaps`）；
   - 成片及 `build-dir/overlays/*/*.mov` 的全流严格解码核验（`ffmpeg -v error -xerror`）；
   - 双轨响度、真峰值与 0 削波采样体检（复用 `audio-master` EBU R128 指标）；
   - V1 切点与节拍/Drop 目标的时间偏差统计（中位数/最大值毫秒误差）；
+  - **视觉卫生、动态帧差与字体门禁（`visual_qc` / `pacing_qc` / `motion_qc` / `--motion-review`）**：在生成 `qc_contact_sheet.jpg` 或传入 `--visual-qc` 时顺带抽检高亮过曝占比（`>= 35%` 亮斑告警）、全黑死帧（`>= 95%` 黑帧告警）、相邻采样帧 Oklab 跳变（`max_adjacent_oklab_delta`），并用本地 TTF/TTC `cmap` 校验 `captions`/`overlays` 全字符覆盖率拦截 `[?]` 豆腐块；只要提供 `--export`，自动采样计算 `motion_qc`（`dynamic_ratio` 活跃运动占比、连续 `>= 0.8s` 静态冻屏 `frozen_segments` 告警、V1 切点前后运动能量 `cut_continuity`）；加 `--motion-review` 可额外输出带时间码 HUD 的轻量 **`motion_review.mp4`**（360p/15fps）与 V1 切点前后 `±120ms` 四联爆裂条带 **`cut_strips.jpg`** 用于高速动态审片；
   - 优先覆盖 V1 切点的 `qc_contact_sheet.jpg` 拼图联系表。
 - **边界**：`audit` 的 `status == "passed"` 仅证明技术数据与指标达标，`continuous_audiovisual_review` 始终标为 `"unverified"`，不替代人类连续看片审美确认。
 
+<a id="mesh-avatar"></a>
+## 真 2D 网格 Live2D 透明人物动画（mesh-avatar）
+
+- 通过 `openedit mesh-avatar status`（或 `openedit doctor` 的 `mesh_avatar` 字段）自动探测本机配置的 **Mesh Avatar Studio**（MIT WebGL2 2D 网格立绘运行时与 Playwright 无头浏览器管线）。
+- **核心原理与真实表现**：严格按插画分层补底与骨骼物理驱动——eye 区域按多边形拆出独立眼球层、反混合上下睫毛层并对眼眶补肤色底图实现清晰不涂抹的自然眨眼；头发按“发根锁死（`weight=0`）→ 发梢 4 节点高阻尼弹簧链”独立驱动飘动而不扭曲帽檐、脸部或衣领；头部绕颈椎支点做 `2.5D` 微转头与 `3.2–4.6s` 慢呼吸曲线。
+- **双路径交付与 1080p 直出**：支持**单张正面透明立绘零外发短路径**（`new-project.py` → 网格精准标点 → `build-layers.py` 拆层视觉验收 → `pack-avatar` / `validate-avatar` → `openedit mesh-avatar render --width 1920 --height 1080 --fps 30 --codec prores_4444` 直出锁定 `ProRes 4444 RGBA .mov`，自动发现本机 Chrome/Edge 并通过严格解码核验）以及视频情境变体流程，详情见 [Mesh Avatar 流程与规范](mesh-avatar.md)。
+- **适用边界**：面向正面或微侧半身透明立绘；**90° 纯侧脸或大遮挡转身镜**应保持刚体锐利剪影，改用 `layer_motion_blur` + `light_wrap --bg` 与缓慢单向漂移。
+
 ## 其他扩展能力与验收边界
 
-- **Mesh Avatar 透明形象**：`mesh-avatar` 支持无头构建并打包带完整 Alpha 通道的身份保持 2D 虚拟形象透明视频供画中画或叠加使用。
+- **Mesh Avatar 透明形象**：完整流程、坐标规范与变体授权边界详见 [`mesh-avatar`](#mesh-avatar) 与 [Mesh Avatar 流程与规范](mesh-avatar.md)。
 - **10-bit H.264 (Hi10P) 兼容守卫**：实测 FilmCraft 对 `h264` + `yuv420p10le` 等 10-bit H.264 编码会静默渲染为 `MEDIA UNREADABLE` 警告画面（12-bit ProRes 4444 与 8-bit `yuv420p` 不受影响）；`inspect`、`validate` 与 `build` 已内置自动识别与前置拦截，提示先执行 `normalize-media` 转为 8-bit `yuv420p` CFR。
 - **多模态音乐驱动编排（`music-edit`）**：通过 `prepare` -> `analyze` / `review` -> `compile` 对接使用者自配的 OpenAI 兼容或 Gemini 原生视听模型（仅在显式 `analyze` / `review` 时产生请求与 API 用量；支持将 `beats` 或 `music-structure` 节拍直接编译为纯开源 `openedit`/`filmcraft` 计划）。详见 [原生视听与音乐编排](music-edit.md)。
 - **验证分级声明**：`validate` 通过 ≠ `build` 通过 ≠ `export` 全解码通过 ≠ 人类主观视听认可；关键视觉效果应同时结合 `preview` PNG 帧、`audit` 联系表及使用者最终看片反馈。

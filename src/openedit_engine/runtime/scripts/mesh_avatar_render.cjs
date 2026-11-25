@@ -8,24 +8,28 @@ const { pathToFileURL } = require('node:url');
 async function main() {
   const [studio, avatar, output, configFile, browserPath] = process.argv.slice(2);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+  const width = Number.isInteger(config.width) && config.width > 0 ? config.width : 1280;
+  const height = Number.isInteger(config.height) && config.height > 0 ? config.height : 720;
+  const fps = Number.isInteger(config.fps) && config.fps > 0 ? config.fps : 30;
+  const fit = config.fit === 'cover' ? 'cover' : 'contain';
   const runtime = path.join(studio, 'packages', 'runtime', 'dist', 'index.js');
   const { chromium } = require(path.join(studio, 'node_modules', 'playwright'));
-  const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}canvas{width:1280px;height:720px}</style><canvas width="1280" height="720"></canvas><script type="module">
+  const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:transparent}canvas{width:${width}px;height:${height}px;display:block}</style><canvas width="${width}" height="${height}"></canvas><script type="module">
 import {loadMeshAvatar,PARAMS} from '/runtime.js';
 try {
  const config=await (await fetch('/config')).json();
- const avatar=await loadMeshAvatar(document.querySelector('canvas'),'/avatar.mavatar',{manual:true,fit:'contain'});
+ const avatar=await loadMeshAvatar(document.querySelector('canvas'),'/avatar.mavatar',{manual:true,fit:${JSON.stringify(fit)}});
  const defaults=Object.fromEntries(PARAMS.map(p=>[p.id,p.def]));
  avatar.setAutoMotion(false);avatar.setAutoIdle(false);
  window.renderFrame=(i)=>{
-  const t=i/30; const keys=config.keyframes; let values={...defaults};
+  const t=i/${fps}; const keys=config.keyframes; let values={...defaults};
   for (const [name,points] of Object.entries(keys)) {
    let left=points[0],right=points[points.length-1];
    for(let k=1;k<points.length;k++) if(t<points[k].time){left=points[k-1];right=points[k];break;}
    let f=right.time===left.time?0:Math.max(0,Math.min(1,(t-left.time)/(right.time-left.time)));
    values[name]=left.value+(right.value-left.value)*f;
   }
-  avatar.setParameters(values);avatar.advance(1/30,30);
+  avatar.setParameters(values);avatar.advance(1/${fps},${fps});
   return document.querySelector('canvas').toDataURL('image/png').split(',')[1];
  }; document.body.dataset.ready='yes';
 } catch(e){document.body.dataset.error=String(e.stack||e)}
@@ -40,7 +44,7 @@ try {
   let browser;
   try {
     browser=await chromium.launch({headless:true,executablePath:browserPath});
-    const page=await browser.newPage({viewport:{width:1280,height:720},deviceScaleFactor:1});
+    const page=await browser.newPage({viewport:{width,height},deviceScaleFactor:1});
     const errors=[]; page.on('pageerror',e=>errors.push(e.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.waitForFunction(()=>document.body.dataset.ready||document.body.dataset.error,{timeout:30000});

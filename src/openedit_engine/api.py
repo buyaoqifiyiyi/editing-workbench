@@ -28,7 +28,7 @@ _CORE = {
 
 _SCRIPTS = {
     'practice-compare': ('practice_compare.py', 'Render bounded side-by-side comparison video from two local ranges.'),
-    'mesh-avatar': ('mesh_avatar.py', 'Build/pack bounded identity-preserving Mesh avatar transparent media.'),
+    'mesh-avatar': ('mesh_avatar.py', 'Probe status and build/pack/render true 2D layered mesh Live2D transparent character animation (blink, hair spring physics, breathing, 2.5D head turn) via Mesh Avatar Studio.'),
     'layout-tracks': ('layout_tracks.py', 'Compact safe non-overlapping overlay video tracks while preserving layer order.'),
     'music-edit': ('music_edit.py', 'Prepare bounded media, run configured multimodal model analysis/review, and compile frame-clock open edit plans.'),
     'beats': ('beats.py', 'Detect offline candidate beats from a selected local audio interval using librosa.'),
@@ -149,6 +149,8 @@ OPERATION_SCHEMAS = {
         'out': _str_param('--out', required=True, description='New probe output directory'),
         'frames': _num_param('--frames', 'integer', description='Frames per file in [1, 12]'),
         'max_files': _num_param('--max-files', 'integer', description='Max scanned media files in [1, 1000]'),
+        'contact_sheet': _bool_param('--contact-sheet', 'Generate tiled contact_sheet.jpg triage overview'),
+        'analyze_framing': _bool_param('--analyze-framing', 'Detect YuNet face center/headroom, internal cuts, and hard subtitle hazards'),
     }},
     'reference': {'params': {
         'input': _str_param('--input', required=True, description='Reference video path'),
@@ -418,6 +420,10 @@ OPERATION_SCHEMAS = {
         'max_size': _num_param('--max-size', 'integer', description='MatAnyone 2 shortest-side cap in pixels (default 720; <=0 keeps full)'),
         'warmup': _num_param('--warmup', 'integer', description='MatAnyone 2 frame-0 warmup iterations (default 10)'),
         'decontaminate': _bool_param('--decontaminate', 'Remove background color bleed on semi-transparent edges'),
+        'target_fps': _num_param('--target-fps', description='Optional output/inference FPS in [1, 120] (e.g. 30 for anime speedup)'),
+        'defringe': _num_param('--defringe', 'integer', description='Anime edge defringe strength in [0, 4] (erode + decontaminate)'),
+        'clean_color_holes': _str_param('--clean-color-holes', description='Enclosed chroma hole preset (blue_sky|cyan_sky|green_screen) or h_min,h_max,s_min,v_min'),
+        'bottom_feather': _num_param('--bottom-feather', description='Bottom edge vertical alpha fade ratio in [0.0, 0.45]'),
         'start': _num_param('--start'),
         'duration': _num_param('--duration'),
         'max_frames': _num_param('--max-frames', 'integer'),
@@ -533,7 +539,10 @@ OPERATION_SCHEMAS = {
         'make_lut': _str_param('--make-lut', choices=(
             'none', 'steel_violet', 'cinema_warm', 'teal_orange',
             'agx_base', 'agx_punchy', 'aces_cinema', 'aces_filmic_warm',
+            'opendrt_filmic', 'match_reference',
         )),
+        'match_reference': _str_param('--match-reference', description='Local reference image/video for Oklab MKL color transfer (--make-lut match_reference)'),
+        'match_strength': _num_param('--match-strength', description='Reference LUT blend strength in [0, 1] (default 0.85)'),
         'lut_size': _num_param('--lut-size', 'integer'),
     }},
     'interpolate': {'params': {
@@ -595,12 +604,17 @@ OPERATION_SCHEMAS = {
                 'preset': _str_param('--preset', choices=(
                     'halation_bloom', 'prism_chromatic', 'film_grain_vignette',
                     'glitch_scanline', 'radial_zoom_blur',
+                    'duotone_grade', 'color_pop', 'neon_strobe',
+                    'dot_grid_backdrop', 'echo_chromatic_snap',
+                    'shutter_motion_blur', 'deep_glow',
+                    'layer_motion_blur', 'light_wrap',
                 )),
                 'shader': _str_param('--shader', description='Optional custom ISF .fs shader file'),
                 'duration': _num_param('--duration'),
                 'fps': _num_param('--fps'),
                 'max_frames': _num_param('--max-frames', 'integer'),
                 'params': _str_param('--params', description='Optional JSON input/uniform overrides'),
+                'bg': _str_param('--bg', description='Optional background image/video for optical light_wrap'),
                 'alpha': _bool_param('--alpha', 'Export RGBA ProRes 4444 (yuva444p12le) .mov'),
             },
         },
@@ -643,6 +657,7 @@ OPERATION_SCHEMAS = {
     'mesh-avatar': {
         'params': {},
         'subcommands': {
+            'status': {'studio': _str_param('--studio')},
             'configure': {'studio': _str_param('--studio', required=True)},
             'inspect-video': {
                 'video': _str_param('--video', required=True),
@@ -684,6 +699,11 @@ OPERATION_SCHEMAS = {
                 'frames': _num_param('--frames', 'integer', required=True),
                 'keyframes': _str_param('--keyframes'),
                 'browser': _str_param('--browser'),
+                'width': _num_param('--width', 'integer'),
+                'height': _num_param('--height', 'integer'),
+                'fps': _num_param('--fps', 'integer'),
+                'codec': _str_param('--codec', choices=('png', 'prores_4444')),
+                'fit': _str_param('--fit', choices=('contain', 'cover')),
             },
             'attach': {
                 'plan': _str_param('--plan', required=True),
@@ -702,6 +722,9 @@ OPERATION_SCHEMAS = {
         'beats': _str_param('--beats', description='Optional music-structure (structure.json or dir) or beats dir for cut alignment check'),
         'preset': _str_param('--preset', choices=('streaming', 'podcast', 'broadcast')),
         'contact_sheet': _bool_param('--contact-sheet', 'Generate qc_contact_sheet.jpg from cut points and uniform frames'),
+        'visual_qc': _bool_param('--visual-qc', 'Sample export frames for highlight blowout and near-black QC'),
+        'motion_review': _bool_param('--motion-review', 'Generate compact 360p/15fps motion_review.mp4 with timestamp HUD and cut_strips.jpg'),
+        'font_check': _str_param('--font-check', description='Optional TTF/OTF/TTC font path for caption/overlay glyph coverage check'),
         'sheet_frames': _num_param('--sheet-frames', 'integer'),
         'overlap_tolerance': _num_param('--overlap-tolerance'),
     }},
@@ -909,7 +932,10 @@ _KNOWLEDGE_SYNONYMS = (
     (('补帧', '升格', '慢动作', 'rife', 'interpolate', 'deband'), ('interpolate', 'rife', 'vulkan', 'deband', 'slow_factor')),
     (('景深', '深度', '视差', 'depth', 'video depth anything', 'bokeh', 'parallax'), ('depth', 'depth_map', 'parallax', 'bokeh', 'effectcraft')),
     (('搜镜', '找画面', 'siglip', 'shot-search', '语义检索'), ('shot-search', 'siglip2', 'pyscenedetect', '镜头')),
-    (('shader', 'glsl', 'isf', 'moderngl', 'gl-transitions', 'halation', 'shader-fx'), ('shader-fx', 'gl-transitions', 'isf', 'moderngl', 'halation')),
+    (('shader', 'glsl', 'isf', 'moderngl', 'gl-transitions', 'halation', 'shader-fx', 'light_wrap', 'layer_motion_blur', '边缘包裹', '方向模糊'),
+     ('shader-fx', 'gl-transitions', 'isf', 'moderngl', 'halation', 'light_wrap', 'layer_motion_blur')),
+    (('mesh-avatar', 'mesh_avatar', 'live2d', '立绘动起来', '眨眼', '发丝', '头发飘动', '呼吸', '骨骼', '网格立绘', '虚拟形象', '角色绑定', 'mavatar'),
+     ('mesh-avatar', 'live2d', 'mavatar', '眨眼', '发丝', '头发', '弹簧', '呼吸', 'mesh', 'rig')),
     (('opencolorio', 'agx', 'aces', 'neuflow', 'lut'), ('motion-analyze', 'agx', 'aces', 'opencolorio', 'neuflow', 'cube', 'lut')),
     (('蒙版', 'mask', '嵌套', 'composites'), ('蒙版', 'mask', '嵌套', 'composites')),
     (('调色', 'lumetri', '曲线', '色轮', 'hsl'), ('调色', 'lumetri', 'hsl', '曲线', '色轮')),
@@ -958,7 +984,8 @@ _CAPABILITY_TOPIC_ANCHORS = (
     ('interpolate', ('interpolate', 'rife', '补帧', '慢动作', 'deband', '光流补帧')),
     ('depth-parallax', ('depth', 'video depth anything', 'depth anything', '景深', '深度', '视差', 'bokeh', 'parallax')),
     ('shot-search', ('shot-search', 'siglip', 'siglip2', '以文搜镜', '搜镜', '语义搜镜')),
-    ('shader-fx', ('shader-fx', 'gl-transitions', 'isf', 'moderngl', 'shader', 'glsl', 'halation', '滤镜', '转场')),
+    ('shader-fx', ('shader-fx', 'gl-transitions', 'isf', 'moderngl', 'shader', 'glsl', 'halation', '滤镜', '转场', 'light_wrap', 'layer_motion_blur', '边缘包裹')),
+    ('mesh-avatar', ('mesh-avatar', 'mesh_avatar', 'live2d', '立绘动起来', '眨眼', '发丝', '头发飘动', '呼吸', '骨骼', '网格立绘', '虚拟形象', 'mavatar')),
     ('project-audit', ('audit', '质检', '联系表', 'source_overlaps', '去重审计')),
 )
 

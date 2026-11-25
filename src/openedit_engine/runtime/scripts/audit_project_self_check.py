@@ -110,7 +110,34 @@ def check(root):
     assert sheet_path.is_file()
     with Image.open(sheet_path) as im:
         assert im.size[0] >= 400 and im.size[1] >= 100
-    checks.append('clean project audit passed (0 overlaps, strict decode, audio QC, 0ms beat alignment, contact sheet)')
+    assert rep_ok['visual_qc']['sampled_frames'] == 6 and rep_ok['visual_qc']['pass_qc'] is True, rep_ok['visual_qc']
+    assert 'max_adjacent_oklab_delta' in rep_ok['visual_qc']
+    assert rep_ok['pacing_qc']['clip_count'] == 2 and rep_ok['pacing_qc']['asl_seconds'] == 1.0, rep_ok['pacing_qc']
+    assert rep_ok['motion_qc'] and rep_ok['motion_qc']['dynamic_ratio'] >= 0.7 and rep_ok['motion_qc']['frozen_segments'] == [], rep_ok['motion_qc']
+    checks.append('clean project audit passed (0 overlaps, strict decode, audio QC, visual_qc, pacing_qc, motion_qc, 0ms beat alignment, contact sheet)')
+
+    code_mr, rep_mr = _run_main([
+        '--plan', clean_plan, '--out', root / 'audit-motion-review',
+        '--export', export_mp4, '--motion-review',
+    ])
+    assert code_mr == 0 and rep_mr['status'] == 'passed', rep_mr
+    assert rep_mr['motion_review']['video']['strict_decode'] == 'passed'
+    assert Path(rep_mr['motion_review']['video']['path']).is_file()
+    strips_p = Path(rep_mr['motion_review']['cut_strips']['path'])
+    assert strips_p.is_file()
+    with Image.open(strips_p) as sim:
+        assert sim.size[0] >= 600 and sim.size[1] >= 120
+    checks.append('--motion-review generated 360p/15fps preview and cut_strips.jpg cleanly')
+
+    static_plan = root / 'static-plan.json'
+    core.write_json(static_plan, {
+        'schema_version': 1, 'name': 'audit-static', 'canvas': {'width': 320, 'height': 180, 'fps': 30},
+        'clips': [{'path': str(src_a), 'start': 0.0, 'source_in': 0.0, 'duration': 2.0, 'volume': 0}],
+    })
+    code_st, rep_st = _run_main(['--plan', static_plan, '--out', root / 'audit-static', '--export', src_a])
+    assert code_st == 0 and rep_st['status'] == 'passed', rep_st
+    assert len(rep_st['motion_qc']['frozen_segments']) >= 1 and rep_st['motion_qc']['dynamic_ratio'] <= 0.25, rep_st['motion_qc']
+    checks.append('motion_qc detected static frozen segment deterministically')
 
     dup_plan = root / 'dup-plan.json'
     core.write_json(dup_plan, {
@@ -130,6 +157,33 @@ def check(root):
     assert code_dup == 0 and rep_dup['status'] == 'attention', rep_dup
     assert rep_dup['source_overlaps_count'] == 1, rep_dup
     checks.append('duplicate source interval overlap detected cleanly as attention')
+
+    white_mp4 = root / 'white_blowout.mp4'
+    core.run([
+        ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+        '-f', 'lavfi', '-i', 'color=c=white:s=320x180:r=30:d=1',
+        '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(white_mp4),
+    ])
+    code_blow, rep_blow = _run_main([
+        '--plan', clean_plan, '--out', root / 'audit-blowout',
+        '--export', white_mp4, '--visual-qc', '--sheet-frames', 4,
+    ])
+    assert code_blow == 0 and rep_blow['status'] == 'attention'
+    assert rep_blow['visual_qc']['blowout_frames'] and not rep_blow['visual_qc']['pass_qc'], rep_blow['visual_qc']
+    checks.append('visual_qc flagged highlight blowout cleanly')
+
+    consola = Path('C:/Windows/Fonts/consola.ttf')
+    if consola.is_file():
+        tofu_plan = root / 'tofu-plan.json'
+        core.write_json(tofu_plan, {
+            'schema_version': 1, 'name': 'audit-tofu', 'canvas': {'width': 320, 'height': 180, 'fps': 30},
+            'clips': [{'path': str(src_a), 'start': 0.0, 'source_in': 0.0, 'duration': 1.0, 'volume': 0}],
+            'captions': [{'text': 'PLAY ▶', 'start': 0.0, 'duration': 1.0}],
+        })
+        code_tofu, rep_tofu = _run_main(['--plan', tofu_plan, '--out', root / 'audit-tofu', '--font-check', str(consola)])
+        assert code_tofu == 0 and rep_tofu['status'] == 'attention'
+        assert rep_tofu['visual_qc']['font_glyphs']['missing'], rep_tofu['visual_qc']
+        checks.append('font glyph check caught missing U+25B6 symbol cleanly')
 
     code_bad, rep_bad = _run_main(['--plan', clean_plan, '--out', out_clean])
     assert code_bad == 1 and rep_bad['status'] == 'failed'

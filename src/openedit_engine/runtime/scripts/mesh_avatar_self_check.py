@@ -61,6 +61,52 @@ class MeshAvatarChecks(unittest.TestCase):
         args.samples=21; args.out=self.root/'bad'
         with patch.object(mesh_avatar,'video_info',return_value=10.0), patch.object(mesh_avatar.shutil,'which',return_value='ffmpeg'):
             with self.assertRaisesRegex(ValueError,'3 to 20'): mesh_avatar.inspect_video(args)
+    def test_status_prores_1080p_attach_and_render_bounds(self):
+        from PIL import Image
+        with patch.dict('os.environ', {'LOCALAPPDATA': str(self.root)}):
+            rep = mesh_avatar.status(SimpleNamespace(studio=None))
+            self.assertEqual(rep['status'], 'unconfigured')
+            self.assertFalse(rep['available'])
+        Image.new('RGB', (1920, 1080), (10, 20, 40)).save(self.root / 'bg_hd.png')
+        hd_mov = self.root / 'avatar_hd.mov'
+        subprocess.run([
+            'ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue@0.5:s=1920x1080:r=30:d=1,format=rgba',
+            '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p12le', str(hd_mov),
+        ], check=True, capture_output=True)
+        hd_receipt = self.root / 'hd_dir'
+        hd_receipt.mkdir()
+        hd_video = hd_receipt / 'avatar.mov'
+        hd_mov.replace(hd_video)
+        (hd_receipt / 'receipt.json').write_text(json.dumps({
+            'video': str(hd_video), 'video_sha256': mesh_avatar.digest(hd_video), 'duration': 1.0,
+        }), encoding='utf-8')
+        plan_hd = {
+            'schema_version': 2, 'name': 'mesh-hd',
+            'canvas': {'width': 1920, 'height': 1080, 'fps': 60},
+            'layer_order': ['video'],
+            'clips': [{'path': 'bg_hd.png', 'start': 0, 'duration': 1}],
+        }
+        src_hd = self.root / 'hd.json'
+        src_hd.write_text(json.dumps(plan_hd), encoding='utf-8')
+        out_hd = self.root / 'hd_out.json'
+        res = mesh_avatar.attach(SimpleNamespace(plan=src_hd, video=hd_video, out=out_hd, start=0, track='avatar'))
+        self.assertEqual(res['status'], 'validated')
+        self.assertEqual(json.loads(out_hd.read_text(encoding='utf-8'))['layer_order'], ['video', 'avatar'])
+
+        studio = self.root / 'studio_v'
+        (studio / 'packages/runtime/dist').mkdir(parents=True)
+        (studio / 'packages/runtime/dist/index.js').write_text('', encoding='utf-8')
+        (studio / 'node_modules/playwright').mkdir(parents=True)
+        av = self.root / 'dummy.mavatar'
+        av.write_bytes(b'mavatar')
+        for bad_kw in (
+            {'width': 1921, 'height': 1080, 'fps': 30, 'codec': 'prores_4444', 'fit': 'contain', 'frames': 10},
+            {'width': 1920, 'height': 1080, 'fps': 30, 'codec': 'mp4', 'fit': 'contain', 'frames': 10},
+            {'width': 1920, 'height': 1080, 'fps': 60, 'codec': 'png', 'fit': 'stretch', 'frames': 10},
+        ):
+            r_args = SimpleNamespace(studio=studio, avatar=av, out=self.root / 'ro', keyframes=None, browser=None, **bad_kw)
+            with self.assertRaises(ValueError):
+                mesh_avatar.render(r_args)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--out',type=Path,required=True);a=p.parse_args()

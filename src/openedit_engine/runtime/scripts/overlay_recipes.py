@@ -2,6 +2,9 @@
 from pathlib import Path
 import re
 
+import motion_curves
+import runtime_core as core
+
 VALID_TEXT_PRESETS = frozenset({
     'none',
     'typewriter',
@@ -17,10 +20,33 @@ VALID_BLEND_MODES = frozenset({'Add', 'Screen', 'Overlay', 'Normal'})
 _HEX_RE = re.compile(r'^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$')
 RECIPE_PATH_PARAMS = {
     'whip_transition': ('clip_a', 'clip_b'),
+    'velocity_cut': ('clip_a', 'clip_b'),
     'impact_punch': ('clip',),
     'parallax_3d_scene': ('background', 'foreground'),
+    'hero_ring_cutout': ('foreground', 'background'),
 }
 HERO_MOTION_BLUR_RECIPES = frozenset(RECIPE_PATH_PARAMS)
+
+STYLE_THEMES = {
+    'editorial_scrapbook': {
+        'accent_color': '#A855F7',
+        'secondary_color': '#F43F5E',
+        'frame_color': '#F8FAFC',
+        'bg_color': '#0D0B16',
+    },
+    'neon_cyber': {
+        'accent_color': '#22D3EE',
+        'secondary_color': '#22C55E',
+        'frame_color': '#E2E8F0',
+        'bg_color': '#050811',
+    },
+    'cinema_clean': {
+        'accent_color': '#38BDF8',
+        'secondary_color': '#F59E0B',
+        'frame_color': '#FFFFFF',
+        'bg_color': '#0F172A',
+    },
+}
 
 
 def _check_media_path(value, label):
@@ -70,7 +96,7 @@ def resolve_recipe_media_paths(spec, resolver):
     if not keys or not isinstance(params, dict):
         return
     for key in keys:
-        if key in params and isinstance(params[key], str):
+        if key in params and isinstance(params[key], str) and params[key].strip():
             params[key] = resolver(params[key], key)
 
 
@@ -87,6 +113,25 @@ def _check_num(value, label, low, high):
     if val < low or val > high:
         raise ValueError(f'{label} must be in [{low}, {high}]')
     return val
+
+
+def _check_int(value, label, low, high):
+    if type(value) is not int:
+        raise ValueError(f'{label} must be an integer')
+    if not (low <= value <= high):
+        raise ValueError(f'{label} must be an integer in [{low}, {high}]')
+    return value
+
+
+def _resolve_theme_tokens(p):
+    theme = p.get('theme')
+    if theme is None:
+        return None, {}
+    name = _check_text(theme, 'params.theme', 32).lower()
+    if name not in STYLE_THEMES:
+        raise ValueError(f'params.theme must be one of {tuple(STYLE_THEMES)}')
+    p['theme'] = name
+    return name, STYLE_THEMES[name]
 
 
 def _check_bool(value, label):
@@ -313,6 +358,28 @@ def _validate_params(recipe_name, raw_params, duration):
         p['optics_fov'] = _check_num(p.get('optics_fov', 54.0), 'params.optics_fov', 0.0, 120.0)
         p['chromatic'] = _check_num(p.get('chromatic', 22.0), 'params.chromatic', 0.0, 60.0)
         p['glow'] = _check_bool(p.get('glow', True), 'params.glow')
+    elif recipe_name == 'velocity_cut':
+        for key in ('clip_a', 'clip_b'):
+            if key not in p:
+                raise ValueError(f'overlay recipe velocity_cut requires params.{key}')
+            p[key] = _check_media_path(p[key], f'params.{key}')
+        mode = p.get('mode', 'zoom_in')
+        valid_modes = ('zoom_in', 'zoom_out', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'spin_cw', 'spin_ccw')
+        if mode not in valid_modes:
+            raise ValueError(f'params.mode must be one of {valid_modes}')
+        p['mode'] = mode
+        p['cut_ratio'] = _check_num(p.get('cut_ratio', 0.48), 'params.cut_ratio', 0.2, 0.8)
+        v_curve = p.get('velocity_curve', 'expo')
+        if v_curve not in ('expo', 'snap', 'overshoot'):
+            raise ValueError('params.velocity_curve must be expo, snap, or overshoot')
+        p['velocity_curve'] = v_curve
+        p['strength'] = _check_num(p.get('strength', 1.0), 'params.strength', 0.3, 2.0)
+        p['drift_scale'] = _check_num(p.get('drift_scale', 0.05), 'params.drift_scale', 0.0, 0.15)
+        p['blur_strength'] = _check_num(p.get('blur_strength', 48.0), 'params.blur_strength', 0.0, 120.0)
+        p['optics_fov'] = _check_num(p.get('optics_fov', 52.0), 'params.optics_fov', 0.0, 95.0)
+        p['chromatic'] = _check_num(p.get('chromatic', 9.0), 'params.chromatic', 0.0, 28.0)
+        p['glow'] = _check_bool(p.get('glow', False), 'params.glow')
+        p['time_ramp_boost'] = _check_num(p.get('time_ramp_boost', 1.0), 'params.time_ramp_boost', 1.0, 4.0)
     elif recipe_name == 'impact_punch':
         if 'clip' not in p:
             raise ValueError('overlay recipe impact_punch requires params.clip')
@@ -359,6 +426,47 @@ def _validate_params(recipe_name, raw_params, duration):
         p['camera_zoom_delta'] = _check_num(p.get('camera_zoom_delta', 90.0), 'params.camera_zoom_delta', -400.0, 400.0)
         p['clones'] = _check_bool(p.get('clones', False), 'params.clones')
         p['orbit_rings'] = _check_bool(p.get('orbit_rings', False), 'params.orbit_rings')
+    elif recipe_name == 'hero_ring_cutout':
+        _, tkn = _resolve_theme_tokens(p)
+        if 'foreground' not in p or p['foreground'] is None:
+            raise ValueError('overlay recipe hero_ring_cutout requires params.foreground')
+        p['foreground'] = _check_media_path(p['foreground'], 'params.foreground')
+        if p.get('background') is not None and str(p['background']).strip():
+            p['background'] = _check_media_path(p['background'], 'params.background')
+        else:
+            p['background'] = None
+        p['title'] = _check_text(p['title'], 'params.title', 80, allow_empty=True) if p.get('title') is not None else ''
+        p['subtitle'] = _check_text(p['subtitle'], 'params.subtitle', 120, allow_empty=True) if p.get('subtitle') is not None else ''
+        p['accent_color'] = _check_hex(p.get('accent_color', tkn.get('accent_color', '#A855F7')), 'params.accent_color')
+        p['secondary_color'] = _check_hex(p.get('secondary_color', tkn.get('secondary_color', '#38BDF8')), 'params.secondary_color')
+        p['bg_color'] = _check_hex(p.get('bg_color', tkn.get('bg_color', '#0D0B16')), 'params.bg_color')
+        p['ring_count'] = _check_int(p.get('ring_count', 2), 'params.ring_count', 1, 3)
+        p['ring_speed'] = _check_num(p.get('ring_speed', 48.0), 'params.ring_speed', -360.0, 360.0)
+        p['focus_pull_s'] = _check_num(p.get('focus_pull_s', min(0.35, duration)), 'params.focus_pull_s', 0.0, min(2.0, duration))
+        p['focus_pull_blur'] = _check_num(p.get('focus_pull_blur', 18.0), 'params.focus_pull_blur', 0.0, 60.0)
+        p['fg_scale'] = _check_num(p.get('fg_scale', 100.0), 'params.fg_scale', 50.0, 160.0)
+        p['fg_offset_x'] = _check_num(p.get('fg_offset_x', 0.0), 'params.fg_offset_x', -0.4, 0.4)
+        p['fg_offset_y'] = _check_num(p.get('fg_offset_y', 0.0), 'params.fg_offset_y', -0.4, 0.4)
+        p['glow'] = _check_bool(p.get('glow', True), 'params.glow')
+    elif recipe_name == 'editorial_card':
+        _, tkn = _resolve_theme_tokens(p)
+        p['panels'] = _check_int(p.get('panels', 3), 'params.panels', 1, 3)
+        if 'labels' in p and p['labels'] is not None:
+            raw_labels = p['labels']
+            if not isinstance(raw_labels, list) or len(raw_labels) != p['panels']:
+                raise ValueError(f'params.labels must be an array of {p["panels"]} strings')
+            p['labels'] = [_check_text(item, f'params.labels[{i}]', 40) for i, item in enumerate(raw_labels)]
+        else:
+            p['labels'] = []
+        p['header'] = _check_text(p['header'], 'params.header', 80, allow_empty=True) if p.get('header') is not None else ''
+        p['border_color'] = _check_hex(p.get('border_color', tkn.get('frame_color', '#F8FAFC')), 'params.border_color')
+        p['accent_color'] = _check_hex(p.get('accent_color', tkn.get('accent_color', '#A855F7')), 'params.accent_color')
+        p['badge_bg'] = _check_hex(p.get('badge_bg', tkn.get('bg_color', '#0D0B16')), 'params.badge_bg')
+        p['border_width'] = _check_num(p.get('border_width', 6.0), 'params.border_width', 2.0, 20.0)
+        p['gap_px'] = _check_num(p.get('gap_px', 24.0), 'params.gap_px', 8.0, 80.0)
+        p['margin_ratio'] = _check_num(p.get('margin_ratio', 0.08), 'params.margin_ratio', 0.04, 0.20)
+        p['animate_in'] = _check_num(p.get('animate_in', min(0.28, round(duration * 0.25, 3))), 'params.animate_in', 0.05, min(1.5, duration))
+        p['glow'] = _check_bool(p.get('glow', False), 'params.glow')
     return p
 
 
@@ -1143,6 +1251,220 @@ def _expand_whip_transition(p, w, h, dur):
     return [layer_a, layer_b]
 
 
+def _safe_time_remap_keys(path, t0, t1, *, boost, accel_in=True):
+    """Build monotonic source timeRemap keys safely clamped within the source video length."""
+    try:
+        info = core.probe(path)
+    except Exception:
+        return None
+    if info.get('kind') != 'video':
+        return None
+    src_dur = float(info.get('duration') or 0.0)
+    span = max(0.04, float(t1) - float(t0))
+    if src_dur <= 0.08:
+        return None
+    target_span = min(src_dur - 0.02, span * max(1.0, float(boost)))
+    if target_span <= 0.04:
+        return None
+    curve = 'expo_in' if accel_in else 'expo_out'
+    pts = motion_curves.sample_curve_values(t0, t1, 0.0, target_span, curve=curve, steps=6, round_digits=4)
+    return [{'time': round(t, 4), 'value': round(v, 4)} for t, v in pts]
+
+
+def _expand_velocity_cut(p, w, h, dur):
+    cx, cy = round(w * 0.5, 2), round(h * 0.5, 2)
+    t_cut = round(max(0.06, min(dur - 0.06, dur * p['cut_ratio'])), 4)
+    tail = max(0.08, dur - t_cut)
+    mode = p['mode']
+    amp = p['strength']
+    drift_pct = round(p['drift_scale'] * 100.0, 2)
+    out_curve = 'snap_in' if p['velocity_curve'] == 'snap' else 'expo_in'
+    in_curve = 'snap_out' if p['velocity_curve'] == 'snap' else ('overshoot' if p['velocity_curve'] == 'overshoot' else 'expo_out')
+
+    t_ramp_a = round(max(0.02, t_cut * 0.35), 4)
+    t_settle_b = round(min(dur, t_cut + tail * 0.48), 4)
+    t_blur_b = round(min(dur, t_cut + tail * 0.32), 4)
+
+    blur_s = round(p['blur_strength'], 2)
+    fov = round(p['optics_fov'], 2)
+    chroma = round(p['chromatic'], 2)
+    is_slide = mode.startswith('slide_')
+
+    # Axis deltas matched in direction & momentum across the cut boundary.
+    tile_a_end = [cx, cy]
+    tile_b_start = [cx, cy]
+    rot_a_end = 0.0
+    rot_b_start = 0.0
+    scale_a_start = 100.0
+    scale_a_end = 100.0
+    scale_b_start = 100.0
+    scale_b_rest = 100.0
+
+    if mode == 'zoom_in':
+        scale_a_start, scale_a_end = 100.0, round(100.0 + 36.0 * amp, 2)
+        # Keep d(scale)/dt strictly positive across both clips without dipping below 100%.
+        scale_b_start, scale_b_rest = 100.0, round(100.0 + 22.0 * amp, 2)
+    elif mode == 'zoom_out':
+        scale_a_start, scale_a_end = round(100.0 + 30.0 * amp, 2), 100.0
+        scale_b_start, scale_b_rest = round(100.0 + 26.0 * amp, 2), 100.0
+    elif mode in ('spin_cw', 'spin_ccw'):
+        sgn = 1.0 if mode == 'spin_cw' else -1.0
+        rot_a_end = round(sgn * 14.0 * amp, 2)
+        rot_b_start = round(-sgn * 16.0 * amp, 2)
+        scale_a_start, scale_a_end = 106.0, round(106.0 + 18.0 * amp, 2)
+        scale_b_start, scale_b_rest = round(118.0 + 10.0 * amp, 2), 106.0
+    else:
+        shift_x = round(w * 0.42 * amp, 2)
+        shift_y = round(h * 0.42 * amp, 2)
+        if mode == 'slide_left':
+            tile_a_end, tile_b_start = [round(cx - shift_x, 2), cy], [round(cx + shift_x, 2), cy]
+        elif mode == 'slide_right':
+            tile_a_end, tile_b_start = [round(cx + shift_x, 2), cy], [round(cx - shift_x, 2), cy]
+        elif mode == 'slide_up':
+            tile_a_end, tile_b_start = [cx, round(cy - shift_y, 2)], [cx, round(cy + shift_y, 2)]
+        else:
+            tile_a_end, tile_b_start = [cx, round(cy + shift_y, 2)], [cx, round(cy - shift_y, 2)]
+        scale_a_start, scale_a_end = 102.0, round(104.0 + 10.0 * amp, 2)
+        scale_b_start, scale_b_rest = round(108.0 + 8.0 * amp, 2), 101.0
+
+    scale_b_end = round(scale_b_rest + (drift_pct if mode != 'zoom_out' else -min(drift_pct, 0.0)), 2)
+
+    blur_eff_a = (
+        {'name': 'ec.blur.directional', 'values': {'direction': 90.0 if mode in ('slide_left', 'slide_right') else 0.0, 'length': 0.0}}
+        if is_slide else
+        {'name': 'ec.blur.ccradialfast', 'values': {'center': [0.5, 0.5], 'amount': 0.0, 'zoom': 0}}
+    )
+    blur_param = 'length' if is_slide else 'amount'
+    blur_eff_b = dict(blur_eff_a, values={**blur_eff_a['values'], blur_param: blur_s})
+
+    # Layer A: gentle breathing push then exponential velocity launch into cut.
+    a_scale_ramp = motion_curves.sample_curve_values(t_ramp_a, t_cut, round(scale_a_start + 1.5, 2), scale_a_end, curve=out_curve, steps=6, round_digits=2)
+    a_scale_keys = [{'time': 0.0, 'value': [scale_a_start, scale_a_start]}] + [
+        {'time': t, 'value': [v, v]} for t, v in a_scale_ramp
+    ]
+    a_blur_keys = [
+        {'time': t, 'value': v}
+        for t, v in motion_curves.sample_curve_values(t_ramp_a, t_cut, 0.0, blur_s, curve=out_curve, steps=5, round_digits=2)
+    ]
+    a_fov_keys = [
+        {'time': t, 'value': v}
+        for t, v in motion_curves.sample_curve_values(t_ramp_a, t_cut, 0.0, fov, curve=out_curve, steps=5, round_digits=2)
+    ]
+    kfs_a = [
+        {'path': 'scale', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(a_scale_keys, t_cut)},
+        {'path': f'effects/#2/{blur_param}', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(a_blur_keys, t_cut)},
+        {'path': 'effects/#3/fieldOfView', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(a_fov_keys, t_cut)},
+        {'path': 'effects/#4/aberrationRed', 'interpolation': 'easeIn', 'keys': _clamp_monotone_keys([
+            {'time': t_ramp_a, 'value': 0.0}, {'time': t_cut, 'value': chroma},
+        ], t_cut)},
+        {'path': 'effects/#4/aberrationBlue', 'interpolation': 'easeIn', 'keys': _clamp_monotone_keys([
+            {'time': t_ramp_a, 'value': 0.0}, {'time': t_cut, 'value': -chroma},
+        ], t_cut)},
+    ]
+    if is_slide:
+        tx_pts = motion_curves.sample_curve_values(t_ramp_a, t_cut, cx, tile_a_end[0], curve=out_curve, steps=6, round_digits=2)
+        ty_pts = motion_curves.sample_curve_values(t_ramp_a, t_cut, cy, tile_a_end[1], curve=out_curve, steps=6, round_digits=2)
+        kfs_a.append({'path': 'effects/#1/tileCenter', 'interpolation': 'linear', 'keys': _clamp_monotone_keys([
+            {'time': tx_pts[i][0], 'value': [tx_pts[i][1], ty_pts[i][1]]} for i in range(len(tx_pts))
+        ], t_cut)})
+    if abs(rot_a_end) > 1e-3:
+        r_pts = motion_curves.sample_curve_values(t_ramp_a, t_cut, 0.0, rot_a_end, curve=out_curve, steps=6, round_digits=2)
+        kfs_a.append({'path': 'rotation', 'interpolation': 'linear', 'keys': _clamp_monotone_keys([
+            {'time': t, 'value': v} for t, v in r_pts
+        ], t_cut)})
+
+    mt_w = 210 if mode in ('slide_left', 'slide_right') else (140 if mode in ('slide_up', 'slide_down') else 150)
+    mt_h = 210 if mode in ('slide_up', 'slide_down') else (140 if mode in ('slide_left', 'slide_right') else 150)
+    effects_a = [
+        {'name': 'ec.stylize.motiontile', 'values': {'tileCenter': [cx, cy], 'outputWidth': mt_w, 'outputHeight': mt_h, 'mirrorEdges': True}},
+        blur_eff_a,
+        {'name': 'ec.distort.opticscompensation', 'values': {'reverseLensDistortion': True, 'fieldOfView': 0.0}},
+        {'name': 'ec.vr.chromaticaberrations', 'values': {'frameLayout': 0, 'aberrationRed': 0.0, 'aberrationGreen': 0.0, 'aberrationBlue': 0.0, 'falloff': 48.0, 'falloffInvert': False}},
+    ]
+    tr_a = _safe_time_remap_keys(p['clip_a'], 0.0, t_cut, boost=p['time_ramp_boost'], accel_in=True) if p['time_ramp_boost'] > 1.02 else None
+    if tr_a:
+        kfs_a.append({'path': 'timeRemap', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(tr_a, t_cut)})
+
+    layer_a = {
+        'type': 'footage',
+        'name': 'vel_cut_a',
+        'path': p['clip_a'],
+        'time': 0.0,
+        'out': t_cut,
+        'position': [cx, cy],
+        'scale': [scale_a_start, scale_a_start],
+        'motion_blur': True,
+        **({'time_remap': True} if tr_a else {}),
+        'effects': effects_a,
+        'keyframes': kfs_a,
+    }
+
+    # Layer B: exponential-out velocity inheritance from cut -> continuous drift settle to dur.
+    b_scale_settle = motion_curves.sample_curve_values(t_cut, t_settle_b, scale_b_start, scale_b_rest, curve=in_curve, steps=8, round_digits=2)
+    b_scale_keys = [{'time': t, 'value': [v, v]} for t, v in b_scale_settle]
+    if abs(scale_b_end - scale_b_rest) > 0.05 and dur > t_settle_b + 0.02:
+        b_scale_keys.append({'time': round(dur, 4), 'value': [scale_b_end, scale_b_end]})
+    b_blur_keys = [
+        {'time': t, 'value': round(max(0.0, v), 2)}
+        for t, v in motion_curves.sample_curve_values(t_cut, t_blur_b, blur_s, 0.0, curve='expo_out', steps=6, round_digits=2)
+    ]
+    b_fov_keys = [
+        {'time': t, 'value': round(max(0.0, v), 2)}
+        for t, v in motion_curves.sample_curve_values(t_cut, t_settle_b, fov, 0.0, curve='expo_out', steps=6, round_digits=2)
+    ]
+    effects_b = [
+        {'name': 'ec.stylize.motiontile', 'values': {'tileCenter': [cx, cy], 'outputWidth': mt_w, 'outputHeight': mt_h, 'mirrorEdges': True}},
+        blur_eff_b,
+        {'name': 'ec.distort.opticscompensation', 'values': {'reverseLensDistortion': True, 'fieldOfView': fov}},
+        {'name': 'ec.vr.chromaticaberrations', 'values': {'frameLayout': 0, 'aberrationRed': chroma, 'aberrationGreen': 0.0, 'aberrationBlue': -chroma, 'falloff': 48.0, 'falloffInvert': False}},
+    ]
+    kfs_b = [
+        {'path': 'scale', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(b_scale_keys, dur)},
+        {'path': f'effects/#2/{blur_param}', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(b_blur_keys, dur)},
+        {'path': 'effects/#3/fieldOfView', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(b_fov_keys, dur)},
+        {'path': 'effects/#4/aberrationRed', 'interpolation': 'easeOut', 'keys': _clamp_monotone_keys([
+            {'time': t_cut, 'value': chroma}, {'time': t_settle_b, 'value': 0.0},
+        ], dur)},
+        {'path': 'effects/#4/aberrationBlue', 'interpolation': 'easeOut', 'keys': _clamp_monotone_keys([
+            {'time': t_cut, 'value': -chroma}, {'time': t_settle_b, 'value': 0.0},
+        ], dur)},
+    ]
+    if is_slide:
+        tx_pts = motion_curves.sample_curve_values(t_cut, t_settle_b, tile_b_start[0], cx, curve=in_curve, steps=8, round_digits=2)
+        ty_pts = motion_curves.sample_curve_values(t_cut, t_settle_b, tile_b_start[1], cy, curve=in_curve, steps=8, round_digits=2)
+        kfs_b.append({'path': 'effects/#1/tileCenter', 'interpolation': 'linear', 'keys': _clamp_monotone_keys([
+            {'time': tx_pts[i][0], 'value': [tx_pts[i][1], ty_pts[i][1]]} for i in range(len(tx_pts))
+        ], dur)})
+    if abs(rot_b_start) > 1e-3:
+        r_pts = motion_curves.sample_curve_values(t_cut, t_settle_b, rot_b_start, 0.0, curve=in_curve, steps=8, round_digits=2)
+        kfs_b.append({'path': 'rotation', 'interpolation': 'linear', 'keys': _clamp_monotone_keys([
+            {'time': t, 'value': v} for t, v in r_pts
+        ], dur)})
+    if p['glow']:
+        effects_b.append({'name': 'ec.stylize.glow', 'values': {'based': 1, 'threshold': 88.0, 'radius': 14.0, 'intensity': 0.20}})
+        kfs_b.append({'path': 'effects/#5/intensity', 'interpolation': 'easeOut', 'keys': _clamp_monotone_keys([
+            {'time': t_cut, 'value': 0.20}, {'time': min(dur, round(t_cut + tail * 0.28, 4)), 'value': 0.0},
+        ], dur)})
+    tr_b = _safe_time_remap_keys(p['clip_b'], t_cut, dur, boost=p['time_ramp_boost'], accel_in=False) if p['time_ramp_boost'] > 1.02 else None
+    if tr_b:
+        kfs_b.append({'path': 'timeRemap', 'interpolation': 'linear', 'keys': _clamp_monotone_keys(tr_b, dur)})
+
+    layer_b = {
+        'type': 'footage',
+        'name': 'vel_cut_b',
+        'path': p['clip_b'],
+        'time': t_cut,
+        'out': round(dur, 4),
+        'position': [cx, cy],
+        'scale': [scale_b_start, scale_b_start],
+        'motion_blur': True,
+        **({'time_remap': True} if tr_b else {}),
+        'effects': effects_b,
+        'keyframes': kfs_b,
+    }
+    return [layer_a, layer_b]
+
+
 def _expand_impact_punch(p, w, h, dur):
     cx, cy = round(w * 0.5, 2), round(h * 0.5, 2)
     peak_t = round(p['peak_time'], 4)
@@ -1441,6 +1763,271 @@ def _expand_parallax_3d_scene(p, w, h, dur):
     return layers
 
 
+def _expand_hero_ring_cutout(p, w, h, dur):
+    cx, cy = round(w * 0.5, 2), round(h * 0.5, 2)
+    unit = min(w, h)
+    scale_u = unit / 1080.0
+    layers = []
+
+    if p['background']:
+        layers.append({
+            'type': 'footage',
+            'name': 'cutout_bg_plate',
+            'path': p['background'],
+            'time': 0.0,
+            'out': round(dur, 4),
+            'motion_blur': True,
+            'position': [cx, cy],
+            'effects': [
+                {'name': 'ec.color.exposure', 'values': {'master/exposure': -0.65}},
+            ],
+            'keyframes': [{'path': 'transform/scale', 'interpolation': 'easeOut', 'keys': _clamp_monotone_keys([
+                {'time': 0.0, 'value': [102.0, 102.0]},
+                {'time': round(dur, 4), 'value': [108.0, 108.0]},
+            ], dur)}],
+        })
+
+    ring_cx = round(w * (0.5 + p['fg_offset_x'] * 0.5), 2)
+    ring_cy = round(h * (0.52 + p['fg_offset_y'] * 0.5), 2)
+    base_d = round(unit * 0.72, 1)
+    ring_specs = [
+        ('ring_outer', base_d, round(base_d * 0.88, 1), p['accent_color'], 8.0, 1.0),
+        ('ring_mid', round(base_d * 0.80, 1), round(base_d * 0.72, 1), p['secondary_color'], 5.5, -1.25),
+        ('ring_inner', round(base_d * 0.62, 1), round(base_d * 0.56, 1), '#F8FAFC', 3.5, 1.65),
+    ]
+    fade_out = round(min(0.24, dur * 0.16), 3)
+    out_keys = _fade_out_keys(dur, fade_out, start_op=92.0) if dur >= 0.4 else []
+    for idx in range(p['ring_count']):
+        rname, rw, rh, col, sw, dir_mul = ring_specs[idx]
+        rot_end = round(p['ring_speed'] * dir_mul * dur, 2)
+        kfs = [{'path': 'transform/rotation', 'interpolation': 'linear', 'keys': _clamp_monotone_keys([
+            {'time': 0.0, 'value': round(idx * 22.0, 1)},
+            {'time': round(dur, 4), 'value': round(idx * 22.0 + rot_end, 2)},
+        ], dur)}]
+        if out_keys:
+            kfs.append({'path': 'transform/opacity', 'interpolation': 'easeOut', 'keys': out_keys})
+        layers.append({
+            'type': 'shape',
+            'kind': 'ellipse',
+            'name': rname,
+            'motion_blur': True,
+            'size': [rw, rh],
+            'position': [ring_cx, ring_cy],
+            'fillType': 'none',
+            'fillOpacity': 0.0,
+            'stroke': col,
+            'strokeWidth': max(1.5, round(sw * scale_u, 2)),
+            'effects': [{'name': 'Glow', 'values': {'threshold': 32.0, 'radius': 20.0, 'intensity': 1.25}}] if p['glow'] else [],
+            'keyframes': kfs,
+        })
+
+    fg_fx = []
+    fg_kfs = []
+    if p['focus_pull_s'] > 0.04 and p['focus_pull_blur'] > 0.5:
+        fg_fx.append({'name': 'ec.blur.gaussian', 'values': {'blurriness': p['focus_pull_blur'], 'dimensions': 0, 'repeatEdge': False}})
+        fg_kfs.append({'path': 'effects/#1/blurriness', 'interpolation': 'easeOut', 'keys': _clamp_monotone_keys([
+            {'time': 0.0, 'value': p['focus_pull_blur']},
+            {'time': round(min(dur, p['focus_pull_s']), 4), 'value': 0.0},
+        ], dur)})
+    fg_cx = round(w * (0.5 + p['fg_offset_x']), 2)
+    fg_cy = round(h * (0.5 + p['fg_offset_y']), 2)
+    layers.append({
+        'type': 'footage',
+        'name': 'hero_foreground',
+        'path': p['foreground'],
+        'time': 0.0,
+        'out': round(dur, 4),
+        'motion_blur': True,
+        'position': [fg_cx, fg_cy],
+        'scale': [p['fg_scale'], p['fg_scale']],
+        'effects': fg_fx,
+        **({'keyframes': fg_kfs} if fg_kfs else {}),
+    })
+
+    if p['ring_count'] >= 2:
+        front_d = round(base_d * 0.90, 1)
+        layers.append({
+            'type': 'shape',
+            'kind': 'ellipse',
+            'name': 'ring_front_arc',
+            'motion_blur': True,
+            'size': [front_d, round(front_d * 0.38, 1)],
+            'position': [ring_cx, round(min(h * 0.86, ring_cy + unit * 0.19), 2)],
+            'rotation': -8.0,
+            'fillType': 'none',
+            'fillOpacity': 0.0,
+            'stroke': p['accent_color'],
+            'strokeWidth': max(1.5, round(6.5 * scale_u, 2)),
+            'masks': [{'shape': 'rect', 'rect': [round(-front_d * 0.6, 1), 0.0, round(front_d * 1.2, 1), round(front_d * 0.35, 1)], 'mode': 'add'}],
+            'effects': [{'name': 'Glow', 'values': {'threshold': 28.0, 'radius': 22.0, 'intensity': 1.35}}] if p['glow'] else [],
+            **({'keyframes': [{'path': 'transform/opacity', 'interpolation': 'easeOut', 'keys': out_keys}]} if out_keys else {}),
+        })
+
+    if p['title'] or p['subtitle']:
+        t_sz = round(max(24.0, min(58.0, unit * 0.048)))
+        s_sz = round(max(16.0, min(32.0, unit * 0.026)))
+        has_t = bool(p['title'])
+        has_s = bool(p['subtitle'])
+        max_u = max(_text_visual_units(p['title']) * t_sz if has_t else 0.0, _text_visual_units(p['subtitle']) * s_sz if has_s else 0.0)
+        box_w = round(min(w * 0.44, max(unit * 0.24, max_u + t_sz * 1.4)), 1)
+        box_h = round((t_sz * 1.55 if has_t else 0.0) + (s_sz * 1.6 if has_s else 0.0) + 26.0, 1)
+        bx = round(w * 0.055 + box_w * 0.5, 2)
+        by = round(h * 0.11 + box_h * 0.5, 2)
+        layers.append({
+            'type': 'shape',
+            'kind': 'rounded',
+            'name': 'hero_badge_bg',
+            'size': [box_w, box_h],
+            'position': [bx, by],
+            'fill': p['bg_color'],
+            'fillOpacity': 84.0,
+            'stroke': p['accent_color'],
+            'strokeWidth': 2.0,
+            'styles': ['dropShadow'],
+            **({'keyframes': [{'path': 'transform/opacity', 'interpolation': 'easeOut', 'keys': out_keys}]} if out_keys else {}),
+        })
+        if has_t:
+            ty = round(by - (s_sz * 0.55 if has_s else 0.0) + t_sz * 0.22, 2)
+            layers.append({
+                'type': 'text',
+                'name': 'hero_title',
+                'text': p['title'],
+                'size': t_sz,
+                'color': '#F8FAFC',
+                'stroke_color': '#020617',
+                'stroke_width': max(1.5, round(t_sz * 0.05, 1)),
+                'justify': 'center',
+                'position': [bx, ty],
+                **({'keyframes': [{'path': 'transform/opacity', 'interpolation': 'easeOut', 'keys': out_keys}]} if out_keys else {}),
+            })
+        if has_s:
+            sy = round(by + (t_sz * 0.65 if has_t else 0.0) + s_sz * 0.25, 2)
+            layers.append({
+                'type': 'text',
+                'name': 'hero_subtitle',
+                'text': p['subtitle'],
+                'size': s_sz,
+                'color': p['accent_color'],
+                'stroke': False,
+                'stroke_width': 0.0,
+                'justify': 'center',
+                'position': [bx, sy],
+                **({'keyframes': [{'path': 'transform/opacity', 'interpolation': 'easeOut', 'keys': out_keys}]} if out_keys else {}),
+            })
+    return layers
+
+
+def _expand_editorial_card(p, w, h, dur):
+    unit = min(w, h)
+    panels = p['panels']
+    margin_x = w * p['margin_ratio']
+    margin_y = h * p['margin_ratio']
+    has_header = bool(p['header'])
+    hdr_h = round(max(36.0, min(64.0, unit * 0.056)), 1) if has_header else 0.0
+    gap = p['gap_px']
+    avail_w = max(120.0, w - 2.0 * margin_x - gap * (panels - 1))
+    panel_w = round(avail_w / panels, 2)
+    top_y = margin_y + (hdr_h + 18.0 if has_header else 0.0)
+    panel_h = round(max(80.0, h - top_y - margin_y), 2)
+    cy = round(top_y + panel_h * 0.5, 2)
+
+    fade_out = round(min(0.26, dur * 0.16), 3)
+    out_keys = _fade_out_keys(dur, fade_out) if dur >= 0.4 else []
+    anim = p['animate_in']
+    layers = []
+
+    if has_header:
+        h_sz = round(max(18.0, hdr_h * 0.54))
+        h_pw = round(min(w * 0.84, max(hdr_h * 2.8, (_text_visual_units(p['header']) + 2.0) * h_sz)), 1)
+        h_cx = round(w * 0.5, 2)
+        h_cy = round(margin_y + hdr_h * 0.5, 2)
+        layers.append({
+            'type': 'shape',
+            'kind': 'rounded',
+            'name': 'ed_header_bg',
+            'size': [h_pw, hdr_h],
+            'position': [h_cx, h_cy],
+            'fill': p['badge_bg'],
+            'fillOpacity': 88.0,
+            'stroke': p['accent_color'],
+            'strokeWidth': 2.0,
+            'styles': ['dropShadow'],
+            **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+        })
+        layers.append({
+            'type': 'text',
+            'name': 'ed_header_text',
+            'text': p['header'],
+            'size': h_sz,
+            'color': '#F8FAFC',
+            'stroke': False,
+            'stroke_width': 0.0,
+            'justify': 'center',
+            'position': [h_cx, round(h_cy + h_sz * 0.34, 2)],
+            **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+        })
+
+    for idx in range(panels):
+        px = round(margin_x + panel_w * 0.5 + idx * (panel_w + gap), 2)
+        stagger_t = round(min(dur * 0.35, idx * min(0.06, anim * 0.25)), 4)
+        kfs = [{
+            'path': 'transform/scale',
+            'interpolation': 'easyEaseOut',
+            'keys': _clamp_monotone_keys([
+                {'time': stagger_t, 'value': [92.0, 92.0]},
+                {'time': min(dur, round(stagger_t + anim, 4)), 'value': [100.0, 100.0]},
+            ], dur),
+        }]
+        if out_keys:
+            kfs.append({'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'})
+        layers.append({
+            'type': 'shape',
+            'kind': 'rounded',
+            'name': f'ed_panel_frame_{idx}',
+            'size': [panel_w, panel_h],
+            'position': [px, cy],
+            'fillType': 'none',
+            'fillOpacity': 0.0,
+            'stroke': p['border_color'],
+            'strokeWidth': p['border_width'],
+            'styles': ['dropShadow'],
+            'effects': [{'name': 'Glow', 'values': {'threshold': 55.0, 'radius': 18.0, 'intensity': 1.0}}] if p['glow'] else [],
+            'keyframes': kfs,
+        })
+        if idx < len(p['labels']):
+            lbl = p['labels'][idx]
+            lbl_sz = round(max(15.0, min(30.0, unit * 0.026)))
+            pill_h = round(lbl_sz * 1.7, 1)
+            pill_w = round(min(panel_w * 0.86, max(pill_h * 2.0, (_text_visual_units(lbl) + 1.6) * lbl_sz)), 1)
+            badge_cx = round(px - panel_w * 0.5 + pill_w * 0.5 + p['border_width'] + 10.0, 2)
+            badge_cy = round(cy + panel_h * 0.5 - pill_h * 0.5 - p['border_width'] - 10.0, 2)
+            layers.append({
+                'type': 'shape',
+                'kind': 'rounded',
+                'name': f'ed_label_bg_{idx}',
+                'size': [pill_w, pill_h],
+                'position': [badge_cx, badge_cy],
+                'fill': p['badge_bg'],
+                'fillOpacity': 88.0,
+                'stroke': p['accent_color'],
+                'strokeWidth': 1.5,
+                **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+            })
+            layers.append({
+                'type': 'text',
+                'name': f'ed_label_text_{idx}',
+                'text': lbl,
+                'size': lbl_sz,
+                'color': '#F8FAFC',
+                'stroke': False,
+                'stroke_width': 0.0,
+                'justify': 'center',
+                'position': [badge_cx, round(badge_cy + lbl_sz * 0.34, 2)],
+                **({'keyframes': [{'path': 'transform/opacity', 'keys': out_keys, 'interpolation': 'easeOut'}]} if out_keys else {}),
+            })
+    return layers
+
+
 RECIPES = {
     'title_card': {
         'description': 'Centered rounded backdrop + accent line + main/subtitle text with wipe reveal, highlights, and drop shadow.',
@@ -1595,6 +2182,24 @@ RECIPES = {
         },
         'builder': _expand_whip_transition,
     },
+    'velocity_cut': {
+        'description': 'AE Graph-Editor cross-cut velocity bridge matching exit/entry speed across clips with mirror motiontile, optics punch, blur, chromatic split, continuous drift, and optional speed ramp.',
+        'params': {
+            'clip_a': 'required local outgoing clip path',
+            'clip_b': 'required local incoming clip path',
+            'mode': 'zoom_in | zoom_out | slide_left | slide_right | slide_up | slide_down | spin_cw | spin_ccw (default zoom_in)',
+            'cut_ratio': '0.2..0.8 normalized cut timing inside overlay duration (default 0.48)',
+            'velocity_curve': 'expo | snap | overshoot Graph-Editor velocity profile (default expo)',
+            'strength': '0.3..2.0 curve displacement/zoom strength multiplier (default 1.0)',
+            'drift_scale': '0.0..0.15 post-settle continuous drift ratio (default 0.05)',
+            'blur_strength': '0..120 directional/radial motion blur amount (default 48)',
+            'optics_fov': '0..95 lens optics warp FoV at cut (default 52)',
+            'chromatic': '0..28 RGB aberration split at cut (default 9)',
+            'glow': 'bool subtle entry flash decay on B (default false)',
+            'time_ramp_boost': '1.0..4.0 optional monotonic timeRemap speed-ramp multiplier (default 1.0)',
+        },
+        'builder': _expand_velocity_cut,
+    },
     'impact_punch': {
         'description': 'Beat-drop or punch impact bridge with camera shake, radial blur, optics punch, RGB split, grain, and optional bezier timeRemap ramp.',
         'params': {
@@ -1627,6 +2232,46 @@ RECIPES = {
             'orbit_rings': 'bool glowing front/back 3D energy orbit rings (default false)',
         },
         'builder': _expand_parallax_3d_scene,
+    },
+    'hero_ring_cutout': {
+        'description': 'AI matte cutout foreground with counter-rotating orbital glow rings, initial focus pull, and optional editorial badge.',
+        'params': {
+            'foreground': 'required local RGBA/ProRes 4444 cutout path',
+            'background': 'optional local background plate path (omit for transparent V1 composite)',
+            'theme': 'optional editorial_scrapbook | neon_cyber | cinema_clean preset',
+            'title': 'optional archival headline text (<=80)',
+            'subtitle': 'optional secondary subtitle text (<=120)',
+            'accent_color': 'hex color (default theme or #A855F7)',
+            'secondary_color': 'hex color (default theme or #38BDF8)',
+            'bg_color': 'hex color for badge backing (default theme or #0D0B16)',
+            'ring_count': '1..3 rotating orbital rings (default 2)',
+            'ring_speed': '-360..360 deg/s rotation speed (default 48.0)',
+            'focus_pull_s': '0..2.0 seconds initial Gaussian focus pull (default 0.35)',
+            'focus_pull_blur': '0..60 initial blurriness radius (default 18.0)',
+            'fg_scale': '50..160 percent foreground scale (default 100.0)',
+            'fg_offset_x': '-0.4..0.4 horizontal offset fraction (default 0.0)',
+            'fg_offset_y': '-0.4..0.4 vertical offset fraction (default 0.0)',
+            'glow': 'bool ring glow (default true)',
+        },
+        'builder': _expand_hero_ring_cutout,
+    },
+    'editorial_card': {
+        'description': 'Transparent-interior multi-panel scrapbook / split editorial frames with snap-in scale, optional header, and dark-backed tags.',
+        'params': {
+            'theme': 'optional editorial_scrapbook | neon_cyber | cinema_clean preset',
+            'panels': '1..3 transparent framed windows (default 3)',
+            'labels': 'optional array of panel badge strings matching panels count',
+            'header': 'optional top editorial header pill (<=80)',
+            'border_color': 'hex color (default theme or #F8FAFC)',
+            'accent_color': 'hex color (default theme or #A855F7)',
+            'badge_bg': 'hex color for tag pills (default theme or #0D0B16)',
+            'border_width': '2..20 px border thickness (default 6)',
+            'gap_px': '8..80 px inter-panel gap (default 24)',
+            'margin_ratio': '0.04..0.20 outer stage margin fraction (default 0.08)',
+            'animate_in': '0.05..1.5 seconds panel snap-in duration',
+            'glow': 'bool outer border glow (default false)',
+        },
+        'builder': _expand_editorial_card,
     },
 }
 
