@@ -1053,7 +1053,7 @@ def validate_plan(plan_path, user_data=None):
     allowed_root = {
         'schema_version', 'name', 'mode', 'backend', 'canvas', 'clips', 'audio', 'captions',
         'overlays', 'motion_graphics', 'effects', 'filters', 'composites', 'layer_order',
-        'notes', 'missing_assets', 'export', 'allow_vip_effects',
+        'notes', 'missing_assets', 'export', 'allow_vip_effects', 'main_track',
     }
     fields(plan, allowed_root, 'edit-plan', ('schema_version', 'name', 'canvas', 'clips'))
     if type(plan['schema_version']) is not int or plan['schema_version'] not in (1, 2):
@@ -1267,5 +1267,11 @@ def validate_plan(plan_path, user_data=None):
                 or len(order) != len(set(order))
                 or set(order) != set(track_types)):
             raise ValueError('layer_order must contain each actual track name exactly once')
+
+    if 'main_track' in plan:
+        clip_tracks = {c.get('track', 'video') for c in plan['clips']}
+        if not isinstance(plan['main_track'], str) or plan['main_track'] not in clip_tracks:
+            raise ValueError(f'main_track must name a track that has clips; got {plan["main_track"]!r}, '
+                             f'clip tracks: {", ".join(sorted(clip_tracks))}')
 
     return plan, probes, warnings

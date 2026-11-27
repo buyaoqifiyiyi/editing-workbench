@@ -311,7 +311,7 @@ OPERATION_SCHEMAS = {
         'tolerance': _num_param('--tolerance', description='Seconds a cut may miss a beat and still count as on beat, in [0.01, 0.25]'),
         'skip_motion': _bool_param('--skip-motion', 'Skip optical-flow motion for the ending check'),
         'plan': _str_param('--plan', description='edit-plan.json that exported this cut; its main-track shot boundaries (incl. dissolves and flash-covered cuts) become the cut list, plus detected in-shot cuts'),
-        'plan_track': _str_param('--plan-track', description='Main video track name in --plan (default video)'),
+        'plan_track': _str_param('--plan-track', description='Main video track name in --plan (default: the plan main_track, else video)'),
     }},
     'beats': {'params': {
         'input': _str_param('--input', required=True),

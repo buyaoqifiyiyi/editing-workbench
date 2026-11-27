@@ -81,8 +81,8 @@ def _clip_timing(placed, start_sec, source_in_sec=0.0, speed=1.0):
 
 def _plan_track_mapping(plan, overlays_info):
     """Map semantic plan track names deterministically to FilmCraft V1..Vn / A1..An tracks."""
-    v_set = {'video'}
-    v_default = ['video']
+    v_set = set()
+    v_default = []
     for item in plan.get('clips', []):
         t = item.get('track', 'video')
         if t not in v_set:
@@ -111,9 +111,16 @@ def _plan_track_mapping(plan, overlays_info):
             a_set.add(t)
             a_default.append(t)
 
+    if 'video' in v_set:
+        v_default.remove('video')
+        v_default.insert(0, 'video')  # default mode: the conventional main track stays at the bottom
+    if not v_default:
+        v_default, v_set = ['video'], {'video'}
+
     order = plan.get('layer_order')
     if isinstance(order, list) and order:
-        v_tracks = ['video'] + [t for t in order if t in v_set and t != 'video']
+        # Explicit layer_order is authoritative bottom-to-top: a background lane listed before 'video' sits under it.
+        v_tracks = [t for t in order if t in v_set]
         for t in v_default:
             if t not in v_tracks:
                 v_tracks.append(t)

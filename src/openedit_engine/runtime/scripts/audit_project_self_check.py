@@ -139,6 +139,35 @@ def check(root):
     assert len(rep_st['motion_qc']['frozen_segments']) >= 1 and rep_st['motion_qc']['dynamic_ratio'] <= 0.25, rep_st['motion_qc']
     checks.append('motion_qc detected static frozen segment deterministically')
 
+    # connection_qc: plan-only audit (no export) so only the connection warnings decide the status
+    hard_plan = root / 'hard-cuts-plan.json'
+    hard_clips = [{'path': str(src_a if i % 2 == 0 else src_b), 'start': i * 0.25, 'source_in': i * 0.25,
+                   'duration': 0.25, 'volume': 0} for i in range(8)]
+    core.write_json(hard_plan, {'schema_version': 1, 'name': 'audit-hard-cuts',
+                                'canvas': {'width': 320, 'height': 180, 'fps': 30}, 'clips': hard_clips})
+    code_hard, rep_hard = _run_main(['--plan', hard_plan, '--out', root / 'audit-hard-cuts'])
+    cq = rep_hard['connection_qc']
+    assert code_hard == 0 and rep_hard['status'] == 'attention', rep_hard
+    assert cq['cuts'] == 7 and cq['hard_cuts'] == 7 and cq['hard_cut_ratio'] == 1.0, cq
+    assert len(cq['warnings']) == 2 and any('hard cuts' in r for r in rep_hard['attention_reasons']), cq
+
+    linked_clips = [dict(c) for c in hard_clips]
+    for i in (1, 3, 5):
+        linked_clips[i]['transition'] = {'name': 'Cross Dissolve', 'duration': 0.1}
+    linked_clips[6]['camera_motion'] = {'out_preset': 'whip_out_left'}
+    linked_clips.append({'path': str(src_b), 'track': 'card', 'start': 0.3, 'source_in': 0.0, 'duration': 0.6, 'volume': 0})
+    linked_plan = root / 'linked-cuts-plan.json'
+    core.write_json(linked_plan, {'schema_version': 1, 'name': 'audit-linked-cuts',
+                                  'canvas': {'width': 320, 'height': 180, 'fps': 30}, 'clips': linked_clips})
+    code_link, rep_link = _run_main(['--plan', linked_plan, '--out', root / 'audit-linked-cuts'])
+    lq = rep_link['connection_qc']
+    assert code_link == 0 and rep_link['status'] == 'passed', rep_link
+    assert lq['hard_cuts'] == 2 and lq['warnings'] == [], lq
+    assert lq['connected_by'].get('transition') == 3 and lq['connected_by'].get('motion_handoff') == 1, lq
+    assert lq['carried_elements'] and lq['carried_elements'][0]['cuts_crossed'] == 2, lq
+    checks.append(f"connection_qc flags all-hard-cut plan ({cq['hard_cuts']}/{cq['cuts']}) and passes linked plan "
+                  f"({lq['hard_cuts']}/{lq['cuts']} hard, carried={len(lq['carried_elements'])})")
+
     dup_plan = root / 'dup-plan.json'
     core.write_json(dup_plan, {
         'schema_version': 1,

@@ -68,6 +68,7 @@ def _plan_cuts(plan_path, track, span):
     if not path.is_file():
         raise ValueError(f'Plan does not exist: {path}')
     plan = json.loads(path.read_text(encoding='utf-8'))
+    track = track or plan.get('main_track') or 'video'
     clips = [c for c in plan.get('clips', []) if isinstance(c, dict) and c.get('track', 'video') == track]
     if not clips:
         raise ValueError(f'Plan has no clips on track {track!r}; pass --plan-track')
@@ -118,7 +119,8 @@ def _beat_fit(cuts, beats, downbeats, span, tol):
             entry['observation'] = (f'切点落在拍上的比例 {on_beat:.0%}，随便乱切也大约有 {beat_chance:.0%}，'
                                     f'看不出在卡拍；如果本意是卡点，优先检查 off_beat_cuts 里的 {len(off)} 个切点')
         else:
-            entry['observation'] = f'切点落在拍上的比例 {on_beat:.0%}，明显高于随机水平（约 {beat_chance:.0%}）'
+            entry['observation'] = (f'切点落在拍上的比例 {on_beat:.0%}，明显高于随机水平（约 {beat_chance:.0%}）；'
+                                    '这只说明切点位置，不说明镜头之间怎样衔接，衔接看 audit 的 connection_qc')
     return entry
 
 
@@ -293,6 +295,8 @@ def _markdown(report):
              (('beat_fit', '卡拍'), ('density_fit', '切点密度与音乐起伏'), ('drop_fit', '音乐爆点'), ('ending_fit', '结尾'))
              if report[key].get('observation')]
     lines += [f'- {label}：{text}' for label, text in noted] or ['- 没有发现明显和音乐脱节的地方。']
+    if report.get('connection_hint'):
+        lines.append(f"- 镜头衔接：{report['connection_hint']}")
     off = report['beat_fit'].get('off_beat_cuts') or []
     if off:
         lines += ['', '## 没落在拍上的切点', '', '| 切点（秒） | 离最近的拍（秒） |', '|---|---|']
@@ -365,6 +369,9 @@ def run(args):
             '拍点、乐段和爆点是离线候选检测，可能落在半拍/倍拍；未试听不代表卡点听感。',
         ],
     }
+    if plan_info and len(plan_info['cuts']) >= 6 and plan_info['with_transition'] == 0:
+        report['connection_hint'] = (f"工程主轨 {len(plan_info['cuts'])} 个切点没有一个带转场；卡拍再准也可能全是硬切，"
+                                     '交付前用 audit --plan 看 connection_qc，并对照衔接表逐个切点确认')
     report['chart'] = _chart(report, out / 'music_fit.jpg')
     core.write_json(out / 'music-fit.json', report)
     (out / 'music-fit.md').write_text(_markdown(report), encoding='utf-8')
@@ -385,7 +392,7 @@ def main(argv=None):
     parser.add_argument('--tolerance', type=float, default=0.05, help='Seconds a cut may miss a beat and still count as on beat (default 0.05)')
     parser.add_argument('--skip-motion', action='store_true', help='Skip optical-flow motion for the ending check')
     parser.add_argument('--plan', default=None, help='edit-plan.json that exported this cut; its main-track shot boundaries (incl. dissolves and flash-covered cuts) become the cut list, plus detected in-shot cuts')
-    parser.add_argument('--plan-track', default='video', help='Main video track name in --plan (default video)')
+    parser.add_argument('--plan-track', default=None, help='Main video track name in --plan (default: the plan main_track, else video)')
     try:
         report = run(parser.parse_args(argv))
     except Exception as exc:
@@ -393,6 +400,8 @@ def main(argv=None):
         return 1
     summary = {k: report[k] for k in ('status', 'operation', 'window_s', 'chart')}
     summary['observations'] = {k: report[k].get('observation') for k in ('beat_fit', 'density_fit', 'drop_fit', 'ending_fit')}
+    if report.get('connection_hint'):
+        summary['observations']['connection'] = report['connection_hint']
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     return 0
 

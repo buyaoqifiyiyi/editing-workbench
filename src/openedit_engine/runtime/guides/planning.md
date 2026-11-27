@@ -13,7 +13,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 - **FilmCraft（主剪辑 / 调色 / 字幕 / 导出）**：承接多轨 V/A 时间轴、硬切与转场、变速/倒放、Lumetri 曲线/色轮/HSL/LUT、26 种混合模式、富文本多色重点词高亮、图形与烧录字幕、OTIO/FCPXML 交换与 H.264/HEVC/ProRes 导出，产出可由桌面端直接打开微调的明文 `.fcproj` 工程。
 - **EffectCraft（动效层 / 特效 / 透明叠层）**：所有经本引擎制作的成片（不限片型）默认都要设计 EffectCraft 动效层，为标题、重点信息、切点、转场与收尾增加质感，不以“FilmCraft 基础运动已够用”跳过；具体做法见 [动效层默认考虑](#动效层默认考虑)。通过 `overlays[]` / `render-overlay` 固定渲染为 **ProRes 4444 RGBA (.mov, `yuva444p12le`)** 叠层并自动合入主时间轴，或通过 `effectcraft-exec` 直通调用。
-- **FFmpeg 与离线 AI 工具（按需白名单辅助）**：`inspect`、`reference [--detector pyscenedetect]`、`normalize-media`、`mesh-avatar`（真 2D 网格 Live2D 人物驱动）、`music-structure`、`shot-search [--with-motion]`、`motion-analyze`、`sfx [--from-structure]` / `sfx-search`、`interpolate`、`depth`、`shader-fx`、`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `beat-apply [--use-downbeats]` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` / `layout-tracks` 及 `audit` 仅按具体创作问题选用（不为了堆技术而强制启用）。
+- **FFmpeg 与离线 AI 工具（按需白名单辅助）**：`inspect`、`reference [--detector pyscenedetect]`、`normalize-media`、`mesh-avatar`（真 2D 网格 Live2D 人物驱动）、`music-structure`、`shot-search [--with-motion]`、`motion-analyze`、`sfx [--from-structure]` / `sfx-search`、`interpolate`、`depth`、`shader-fx`、`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `beat-apply [--use-downbeats]` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` / `layout-tracks` 及 `audit` 仅按具体创作问题选用（不为了堆技术而强制启用）。例外：人物轮廓清楚的关键镜头默认先试 `matting`（用于抠像破框、遮挡转场和跨镜头延续），检查边缘与 `dropout_warning` 后再决定是否使用，不用时在衔接表写明原因。
 
 单独特效、调色或音频任务只处理相关部分，不强行建立完整主时间轴。
 
@@ -49,14 +49,14 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
   3. **Director → Trim Refiner → Reviewer 审美迭代闭环**：
      - **Director（选镜与景别编排）**：先跑 `openedit inspect --contact-sheet --analyze-framing`，依据 `shot_scale`（`ECU/CU/MCU/MS/WS`）、`aesthetic_score`、`rule_of_thirds_crop` 与 `sharpness_score` 安排景别起伏与重点构图；
      - **Trim Refiner（活视频容器、动势接力与审美克制）**：对照 `trim_suggestion` 剔除首尾滞留暗场；**多卡/胶片/字体遮罩容器（`ui_flow_stage`、`polaroid_grid`、`filmstrip_reel`、`text_matte_dissolve`）优先传入活视频 `video` + `source_in` 而非静图以杜绝 PPT 僵硬感**；相邻镜头善用 `clips[].camera_motion`（`whip_out_* -> whip_in_*` / `zoom_*` + 持续 `drift` 微推进防死停）与 EffectCraft `velocity_cut` 做跨切点速度继承；坚持视觉语言统一克制，避免在单支短片内硬塞风格打架的网页磨砂玻璃弹窗与过多模板组件；
-     - **Reviewer（动态与静帧双线自审）**：渲染后结合 `audit --contact-sheet --visual-qc --motion-review` 同时核查 `qc_contact_sheet.jpg`、`cut_strips.jpg`、`motion_review.mp4` 与 `motion_qc`（`frozen_segments` 冻屏扫描、`cut_continuity` 切点动势衔接、过曝及节奏变化），消除静态 PPT 死区与“匀速节拍器硬切”。
+     - **Reviewer（动态与静帧双线自审）**：渲染后结合 `audit --contact-sheet --visual-qc --motion-review` 同时核查 `qc_contact_sheet.jpg`、`cut_strips.jpg`、`motion_review.mp4` 与 `motion_qc`（`frozen_segments` 冻屏扫描、`cut_continuity` 切点动势衔接、过曝及节奏变化）以及 `connection_qc`（硬切占比、跨镜头延续元素、画面跳变大的硬切），消除静态 PPT 死区与“匀速节拍器硬切”。
 
-将上述参考观察与知识检索贯彻到以下 5 项动作中（沿用项目分析、`creative-brief.json` 或 `notes`，不另建强制表单）：
+将上述参考观察与知识检索贯彻到以下 5 项动作中（沿用项目分析、`creative-brief.json` 或 `notes`；除 [衔接表](#4-在关键连接处作选择) 外不另建强制表单）：
 
 1. **选材与设计时一起决定**：关键段落将“信息或关系的变化”与“镜头怎样表达变化”配对，落到源范围、动作与反应、入出点、密度、观看重心、声音边界与前后接管；持续长镜头可以成立但要有保留依据，并将原片自带切镜/摄影运动/原声调度与本次新增剪辑选择分开判断。
 2. **知识在决定前参与**：开工或重剪前先用 `search_knowledge` / `openedit knowledge` 检索剧情组织与剪辑表现两方面方法，按 [主动展开候选](../references/creative-knowledge-techniques.md#主动展开候选) 为关键段落比较通用剪法与实质不同的高级候选，再落到选材、切点与层序；仅阅读指南、列技巧名称或增加特效数量不算落实。
 3. **制作中核对落实**：先用代表性段落及其前后文确认两条思路同时成立，再展开同类段落；若只改变片段排序，回到段落内部重做，不以补字幕、全场统一轻推横移或零散贴包装结清剪辑表达。
-4. **每版分别验收**：内容推进与剪辑表现分别写明已实现、存在问题与尚未验证项，并指向实际时间范围与预览证据；发现关键表达缺失时先修正再交付。**没有可实际观看的参考片时**，音乐主导的成片导出后必须运行 `openedit music-fit --input 成片 --plan 导出它的edit-plan.json --out 新目录`（有干净 BGM 的 `music-structure` 结果时加 `--structure` 与 `--music-offset`；有工程就必须传 `--plan`，否则叠化、闪白下和相近画面之间的切点会被漏认，各段切点数与爆点结论不可靠），把音乐当参考自查四件事：切点卡拍比例是否明显高于随机水平、最密的切点段是否落在音乐最响的段落、音乐爆点有没有画面接、最后四分之一是否泄气及结尾是否截断乐句；逐条处理 `music-fit.md` 里的提示（修改，或写明为什么有意这样处理）后再交付，不把“没有提示”当作审美通过。结构校验、`strict_decode` 与 `audit` 指标保留各自技术层级，不替代连续视听审美。
+4. **每版分别验收**：内容推进与剪辑表现分别写明已实现、存在问题与尚未验证项，并指向实际时间范围与预览证据；发现关键表达缺失时先修正再交付。**没有可实际观看的参考片时**，音乐主导的成片导出后必须运行 `openedit music-fit --input 成片 --plan 导出它的edit-plan.json --out 新目录`（有干净 BGM 的 `music-structure` 结果时加 `--structure` 与 `--music-offset`；有工程就必须传 `--plan`，否则叠化、闪白下和相近画面之间的切点会被漏认，各段切点数与爆点结论不可靠），把音乐当参考自查四件事：切点卡拍比例是否明显高于随机水平、最密的切点段是否落在音乐最响的段落、音乐爆点有没有画面接、最后四分之一是否泄气及结尾是否截断乐句；逐条处理 `music-fit.md` 里的提示（修改，或写明为什么有意这样处理）后再交付，不把“没有提示”当作审美通过。卡拍比例只说明切点落在哪里，不说明镜头之间怎样衔接：卡拍 100% 的全硬切成片同样不合格，衔接质量看衔接表与 `audit` 的 `connection_qc`。结构校验、`strict_decode` 与 `audit` 指标保留各自技术层级，不替代连续视听审美。
 5. **反馈只更新被评价的部分**：用户认可剧情但否定剪辑时，保留认可的剧情骨架并重做镜头与声画表现，不记作整版认可也不默认推翻已认可剧情；局部修改只复查受影响段落与相邻接点。
 
 ## 创作判断流程
@@ -81,7 +81,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 ### 3. 让声音与画面共同组织时间
 
-音乐主导时先确定实际 BGM 版本及源段，识别乐句、音色/配器变化、停顿、重音与人声语义，再安排画面发展；按需使用 `music-structure`（下行拍/语义乐段/Drop）、`separate`（人声与伴奏分离）、`sfx --from-structure` / `sfx-search`（构建音效床或检索拟音）与 `ducking` / `audio-master --sidechain`（闪避与响度统一）。带演唱 MV 若需歌词/对白对齐，可结合分离后的人声轨做 `transcribe` 段级转写并核对人声 RMS 气口包络标定入出点，绝不直抄未经核对的平台 LRC 时码，也不硬造零时长词级切分。原声主导时先保留动作因果、完整对白口型与反应。具体策略见 [混剪声音策略](../references/styles/anime-mix.md#bgm-与原声并置)。
+音乐主导时先确定实际 BGM 版本及源段，识别乐句、音色/配器变化、停顿、重音与人声语义，再安排画面发展；按需使用 `music-structure`（下行拍/语义乐段/Drop）、`separate`（人声与伴奏分离）、`sfx --from-structure` / `sfx-search`（构建音效床或检索拟音）与 `ducking` / `audio-master --sidechain`（闪避与响度统一）。带演唱的 MV 开剪前先拿到歌词，按歌词语义安排段落与情绪落点（先 `separate` 分离人声再 `transcribe`；转写乱码或错字多时直接问用户歌名或歌词，不凭音色猜情绪）；歌词/对白对齐时结合分离后的人声轨做 `transcribe` 段级转写并核对人声 RMS 气口包络标定入出点，绝不直抄未经核对的平台 LRC 时码，也不硬造零时长词级切分。原声主导时先保留动作因果、完整对白口型与反应。具体策略见 [混剪声音策略](../references/styles/anime-mix.md#bgm-与原声并置)。
 
 用户已指定 BGM 并要求自动匹配镜头/意境或卡点时，按 [原生视听与音乐编排](../references/music-edit.md) 核查当前专用配置与当次授权；就绪后只对已授权的明确源选区执行 `prepare` + `analyze` + `beats`/`music-structure` 动作锚点编译，未配置或未授权时如实报告缺口，**严禁用均匀每 N 拍切镜、纯文字推测或模板指南冒充内容匹配**。拍点与峰值只是候选，未试听前不写听感结论。
 
@@ -93,9 +93,11 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 **主动创造转场条件**：叙事联系不足时先重选或重排；含义成立但缺少天然视觉匹配时，主动使用技术建立连接——用裁切、位移和缩放构造视觉锚点，借助光流运动趋势（`shot-search --with-motion`、`motion-analyze`、`whip_transition`）接续动作方向与速度，用蒙版或 `matting` 前景构造物理遮挡，使用干净的 `shader-fx` 几何/光学过渡，或让下一镜提前以小窗/分屏进入并按精确源时钟（`s + d * v`）接管全屏。提前进入与接管时须核查前滚是否夹入原片内切点，保持主体可辨认，保护对白口型、起音及文字阅读时间，严格遵守用户的无重复要求；视觉包装不能补造因果。
 
-关键接点比较 2–3 种实质不同的剪法（如动作中硬切 vs 切反应、图形/动势匹配 vs J/L 声音桥接、窗口接管 vs 保持动作）并择优落实；普通明确接点直接决定，不为每一刀写评审表。当用户要求丰富转场或反馈“观感改善但转场/表现仍偏少”时，审查全片的换景、时间跳转、情绪转折与景别变化，在仍直切或单调过渡的位置分段分配锚点匹配、运动延续、遮挡、光线与窗口接管变化，强变化后交还清楚主体并留出呼吸。连接是否改善观看与表现是否足够丰富分开评估，不设固定效果数量门槛。
+关键接点比较 2–3 种实质不同的剪法（如动作中硬切 vs 切反应、图形/动势匹配 vs J/L 声音桥接、窗口接管 vs 保持动作）并择优落实；普通明确接点直接决定，不为每一刀写长篇评审，但每一刀在衔接表里都要有一行。当用户要求丰富转场或反馈“观感改善但转场/表现仍偏少”时，审查全片的换景、时间跳转、情绪转折与景别变化，在仍直切或单调过渡的位置分段分配锚点匹配、运动延续、遮挡、光线与窗口接管变化，强变化后交还清楚主体并留出呼吸。连接是否改善观看与表现是否足够丰富分开评估，不设固定效果数量门槛。
 
-完成条件：关键接点有观看重心与关系依据，选择已落到源入出点、顺序、停留、构图或声音边界，而非空洞技巧名称。
+**衔接表（整版新建或重剪必交）**：视觉概念（画面隐喻、版式、主色、字体）定下后、编译 `build` 之前，在 `剪辑交付.md`（或项目 `notes`）按段落写衔接表：每个切点一行，写“前镜 → 后镜 → 衔接方式 → 理由”。衔接方式从元素延续（同一图形、卡片、文字、色块跨镜头保留并变化）、形状变形、遮罩揭示、抠像破框、推拉摇移与动势接力、匹配剪辑、声音桥、转场配方中选；硬切也是一种选择，但必须写明理由（重音、反差、动作接点）。只写“卡拍”不算理由。没有衔接表不进入 `build`；局部修改只更新受影响切点的行。
+
+完成条件：关键接点有观看重心与关系依据，选择已落到源入出点、顺序、停留、构图或声音边界，而非空洞技巧名称；衔接表里每个切点都有衔接方式与理由，导出后 `audit` 的 `connection_qc` 与衔接表一致（报出的硬切都能在表里找到理由，否则回去改）。
 
 ### 5. 把技巧变成适量且可执行的表现
 
@@ -103,7 +105,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 按纯开源能力与素材条件落实参数：
 
-- **轨道与职责**：主剪辑、Lumetri 调色、`camera_motion` 曲线动效、遮罩、嵌套、多色高亮图形及烧录字幕使用 FilmCraft（有双语歌词/对白时在 `layer_order` 将字幕轨置于常规特效叠层上方）；高阶透明动效、表达式与真 3D 视差使用 EffectCraft `overlays[]`（**16 套** 自适应/Hero 配方含 `velocity_cut`、`whip_transition`、`impact_punch`、`parallax_3d_scene`、`hero_ring_cutout`）或 HyperFrames `overlays[]`（**10 套** 离线数据与活视频 UI 连续画布配方如 `ui_flow_stage`、`kinetic_ui_title`、`viewfinder_hud`，锁定 `ProRes 4444 RGBA`）。
+- **轨道与职责**：主剪辑、Lumetri 调色、`camera_motion` 曲线动效、遮罩、嵌套、多色高亮图形及烧录字幕使用 FilmCraft（有双语歌词/对白时在 `layer_order` 将字幕轨置于常规特效叠层上方）；高阶透明动效、表达式与真 3D 视差使用 EffectCraft `overlays[]`（**16 套** 自适应/Hero 配方含 `velocity_cut`、`whip_transition`、`impact_punch`、`parallax_3d_scene`、`hero_ring_cutout`）或 HyperFrames `overlays[]`（**10 套** 离线数据与活视频 UI 连续画布配方如 `ui_flow_stage`、`kinetic_ui_title`、`viewfinder_hud`，锁定 `ProRes 4444 RGBA`）。写了 `layer_order` 时按列表从下到上逐条叠放（第一项在最底层，背景轨可以排在主镜头轨下面）；主镜头轨不叫 `video` 时在计划顶层写 `main_track`，否则 `audit` 与 `music-fit` 认不到切点。
 - **禁止闭门造车与工具盘点前置**：开工设计任何视觉/运动机制前，必须先核对 `openedit doctor`、全量 `describe_operations` / `capabilities` 与本机已配组件（如 `mesh-avatar`、`hyperframes`、EffectCraft/FilmCraft 原生能力）；**引擎已有专业网格/合成能力时，严禁私自手搓降级替代滤镜**（如用整图 UV 正弦波冒充 Live2D 发丝与眨眼）。
 - **AI 视效素材前提与适用边界**：`mesh-avatar` 仅用于**正面或微侧半身透明立绘**（90° 纯侧脸保持刚体动效配合 `layer_motion_blur` + `light_wrap`）；`matting` 须检查 `dropout_warning`、擦除与前景完整度；合入 `parallax_3d_scene` 等前景分离合成时，底景板应先剔除原主体/做浅景深洁净化处理并控制相机偏移防“双影重影”；`interpolate` 传入自定义 `--slow-factor` 时使用 `--model auto`（`rife-v4.6`）；`depth` 避开大面积镜面与玻璃反光镜次；`shader-fx`（如 `directionalwarp`、`radial`）须抽帧核对边界拉伸或接缝，优先选用边缘收敛稳定的预设（如 `crosszoom`、`dreamy_zoom`）。
 - **整洁计划与安全轨道复用**：复杂段落可在项目内写 `creative-brief.json` 记录源范围、层职责与起止变化，执行计划 `edit-plan.json` 严格只写允许字段并以整微秒算术防浮点边界重叠；带显式 `layer_order` 的多轨计划可在 `build` 前按 [安全轨道复用](../references/plan-format.md#安全轨道复用) 运行 `openedit layout-tracks` 审阅映射，仅在方便用户在 GUI 微调且画面核查通过时采用新计划，不强求固定轨数，不改动用户已保存工程。
@@ -137,11 +139,11 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 - **方向未定**：默认给出 **3 个**有实质差异的简短方向（素材只支撑 2 个时说明理由，用户指定数量时照办）；差异来自表达重心、组织顺序、节奏结构或声画主次，每项说明观众感受、大致做法与制约条件并推荐 1 个；未看过素材仅提供条件性建议，不编制作周期或效果保证。
 - **参考视频边界**：先核实能否读取视频本身，区分“按此模仿”与“仅供了解素材”；封面、标题、评论与单帧抽样不能当作完整观片结果；仅有成片时，原作者轨道与具体参数只作待核实候选。
-- **交接与修订**：复用项目已有分析、`creative-brief.json`、`notes` 与 `剪辑交付.md`，按实际需要记录中心主张、选中源段、声画转折、关键连接、技法取舍与未核实项，不另建强制表单。局部修订只复查受影响段落及相邻接点，已有足够证据时不再重复验证无变化部分。
+- **交接与修订**：复用项目已有分析、`creative-brief.json`、`notes` 与 `剪辑交付.md`，按实际需要记录中心主张、选中源段、声画转折、关键连接、技法取舍与未核实项；除衔接表外不另建强制表单。局部修订只复查受影响段落及相邻接点，已有足够证据时不再重复验证无变化部分。
 
 ## 交付与两类验收分离
 
 向用户汇报成果时，务必明确区分以下两项，绝不将自动指标或结构通过表述为连续视听审美合格：
 
-1. **内容与视听表达层面**：分别说明本版剧情推进思路与剪辑表现思路（选段取舍、切点/J-L-cut 声桥、转场与动效节制、调色与歌词/字幕分工），以及仍待用户主观看片确认的节奏、情绪或审美风险。
+1. **内容与视听表达层面**：分别说明本版剧情推进思路与剪辑表现思路（选段取舍、切点/J-L-cut 声桥、转场与动效取舍——既防堆砌也防全片硬切，报出 `connection_qc` 的硬切占比与跨镜头延续元素数、调色与歌词/字幕分工），以及仍待用户主观看片确认的节奏、情绪或审美风险。
 2. **技术验证层面**：分层列明实际执行的证据与范围（`validate` 结构校验、`build` / `export` 的 `ffmpeg -v error -xerror` 全解码、`preview` PNG 静帧视觉核查、`audit` 指标与 `qc_contact_sheet.jpg` 联系表、已授权时的 `music-edit review` 覆盖范围与画音版本一致状态），并提示使用者可随时打开 `.fcproj` 在 FilmCraft GUI 中进行主观精修与完整连续视听验收（`continuous_audiovisual_review` 由用户最终确认）。

@@ -222,6 +222,11 @@ def _analyze_visual_frame(img_rgb, ts):
     }
 
 
+def main_track(plan):
+    """Track that carries the shots (plan main_track, default 'video'); cuts are read from it."""
+    return str(plan.get('main_track') or 'video')
+
+
 def _analyze_pacing_qc(v1_clips):
     """Advisory editing rhythm & cadence telemetry for primary V1 timeline clips."""
     durs = [max(0.0, float(c['duration'])) for c in v1_clips]
@@ -260,6 +265,123 @@ def _analyze_pacing_qc(v1_clips):
     }
 
 
+# Overlay recipes that are themselves a shot-to-shot transition when they straddle a cut.
+_TRANSITION_RECIPES = frozenset({'whip_transition', 'wipe_transition', 'velocity_cut'})
+# Short accents that sit on a cut without connecting the two shots.
+_ACCENT_RECIPES = frozenset({'beat_flash', 'impact_punch'})
+_OUT_MOTION_PREFIXES = ('whip_out', 'zoom_in_launch', 'zoom_out_launch', 'tilt_launch')
+_IN_MOTION_PREFIXES = ('whip_in', 'zoom_snap', 'tilt_snap')
+CONNECTION_MIN_CUTS = 6
+HARD_CUT_RATIO_ALERT = 0.8
+JARRING_CUT_JUMP = 80.0  # mean 0-255 grey difference on the cut frame (motion_qc.cut_continuity[].cut_jump)
+
+
+def _motion_preset(clip, side):
+    cm = clip.get('camera_motion')
+    if not isinstance(cm, dict):
+        return 'none'
+    p = str(cm.get(f'{side}_preset') or 'none')
+    single = str(cm.get('preset') or 'none')
+    prefixes = _OUT_MOTION_PREFIXES if side == 'out' else _IN_MOTION_PREFIXES
+    if p == 'none' and single.startswith(prefixes):
+        p = single
+    return p
+
+
+def _analyze_connection_qc(plan, v1_clips, cut_continuity=None):
+    """How each main-track cut is connected, as far as the plan shows: transitions, camera_motion hand-offs,
+    transition overlays, and elements (other-track clips / overlays) that carry across the cut.
+    Counts the means; does not judge whether a connection looks good."""
+    cuts = [round(float(c['start']), 3) for c in v1_clips[1:]]
+    spans = [float(c['start']) + float(c['duration']) for c in plan.get('clips', [])]
+    spans += [float(o['start']) + float(o['duration']) for o in plan.get('overlays', [])]
+    timeline = max([0.1] + spans)
+    kinds = {t: set() for t in cuts}
+
+    for i, clip in enumerate(v1_clips):
+        tr = clip.get('transition')
+        if not tr:
+            continue
+        edge = tr.get('edge') if isinstance(tr, dict) else None
+        edge = edge or ('in' if i > 0 else 'out')
+        t = round(float(clip['start']) + (float(clip['duration']) if edge == 'out' else 0.0), 3)
+        if t in kinds:
+            kinds[t].add('transition')
+    for prev, cur in zip(v1_clips, v1_clips[1:]):
+        t = round(float(cur['start']), 3)
+        if _motion_preset(prev, 'out') != 'none' or _motion_preset(cur, 'in').startswith(_IN_MOTION_PREFIXES):
+            kinds[t].add('motion_handoff')
+
+    elements = []
+    for c in plan.get('clips', []):
+        if c.get('track', 'video') != main_track(plan):
+            elements.append(('clip', str(c.get('track', '')), float(c['start']), float(c['duration']), ''))
+    for o in plan.get('overlays', []):
+        recipe = str(o.get('recipe') or '')
+        elements.append(('overlay', recipe or str(o.get('track') or 'overlay'), float(o['start']), float(o['duration']), recipe))
+    carried, persistent = [], []
+    for kind, label, start, dur, recipe in elements:
+        end = start + dur
+        if recipe in _TRANSITION_RECIPES or recipe in _ACCENT_RECIPES:
+            tag = 'overlay_transition' if recipe in _TRANSITION_RECIPES else 'accent'
+            for t in cuts:
+                if start - 0.05 <= t <= end + 0.05:
+                    kinds[t].add(tag)
+            continue
+        crossed = [t for t in cuts if start <= t - 0.1 and end >= t + 0.1]
+        if not crossed:
+            continue
+        if dur >= 0.8 * timeline:
+            persistent.append({'kind': kind, 'label': label, 'start': round(start, 3), 'duration': round(dur, 3)})
+            continue
+        carried.append({'kind': kind, 'label': label, 'start': round(start, 3), 'duration': round(dur, 3),
+                        'cuts_crossed': len(crossed)})
+        for t in crossed:
+            kinds[t].add('carried_element')
+
+    connecting = {'transition', 'motion_handoff', 'overlay_transition', 'carried_element'}
+    per_cut = [{'time': t, 'means': sorted(kinds[t]), 'hard': not (kinds[t] & connecting)} for t in cuts]
+    hard = [c for c in per_cut if c['hard']]
+    jumps = {}
+    for c in cut_continuity or []:
+        jumps[round(float(c['time']), 3)] = float(c['cut_jump'])
+    jarring = [{'time': c['time'], 'cut_jump': round(jumps[c['time']], 3)} for c in hard
+               if c['time'] in jumps and jumps[c['time']] >= JARRING_CUT_JUMP]
+    ratio = round(len(hard) / len(cuts), 3) if cuts else 0.0
+    means_count = defaultdict(int)
+    for c in per_cut:
+        for m in c['means']:
+            means_count[m] += 1
+
+    warnings = []
+    if len(cuts) >= CONNECTION_MIN_CUTS and ratio >= HARD_CUT_RATIO_ALERT:
+        warnings.append(f'{len(hard)}/{len(cuts)} main-track cuts ({ratio:.0%}) are plain hard cuts with no transition, '
+                        'motion hand-off or element carried across; every hard cut needs a written reason in the connection table.')
+    if len(cuts) >= CONNECTION_MIN_CUTS and not carried:
+        warnings.append('No element (other-track clip or overlay) carries across any cut; every cut replaces the whole picture.')
+    if jarring:
+        times = ', '.join(f"{j['time']:.2f}s({j['cut_jump']:.0f})" for j in jarring[:6])
+        warnings.append(f'{len(jarring)} hard cut(s) with a large picture jump (cut_jump >= {JARRING_CUT_JUMP:.0f}) at {times}; '
+                        'design a connection there or state why the jump is intended.')
+    return {
+        'cuts': len(cuts),
+        'hard_cuts': len(hard),
+        'hard_cut_ratio': ratio,
+        'connected_by': dict(sorted(means_count.items())),
+        'carried_elements': carried,
+        'persistent_frame_elements': persistent,
+        'matting_clips': sum(1 for c in plan.get('clips', []) if c.get('matting_cache')),
+        'jarring_hard_cuts': jarring,
+        'jarring_cut_jump_threshold': JARRING_CUT_JUMP,
+        'per_cut': per_cut,
+        'warnings': warnings,
+        'note': ('Counts connection means readable from the plan (transition, camera_motion hand-off, transition overlays, '
+                 'elements crossing a cut); it does not judge whether they look good. A hard cut with a stated reason is fine. '
+                 'beat_flash/impact_punch accents do not count as connections; whole-film frames (HUD, background grid) are '
+                 'listed in persistent_frame_elements and do not count either.'),
+    }
+
+
 def _sample_export_times(v1_clips, total_dur, sheet_frames):
     dur = max(0.05, float(total_dur))
     raw_times = [min(max(0.0, float(c['start']) + min(0.05, float(c['duration']) * 0.25)), max(0.0, dur - 0.04)) for c in v1_clips]
@@ -291,7 +413,7 @@ def _strict_decode(path):
 
 def _check_source_overlaps(plan, probes, overlap_tol):
     v1_clips = sorted(
-        (c for c in plan.get('clips', []) if c.get('track', 'video') == 'video'),
+        (c for c in plan.get('clips', []) if c.get('track', 'video') == main_track(plan)),
         key=lambda c: float(c['start']),
     )
     used = defaultdict(list)
@@ -710,6 +832,10 @@ def run_audit(args):
 
     strict_decode = {}
     attention_reasons = []
+    if plan.get('clips') and not v1_clips:
+        attention_reasons.append(
+            f'Main track {main_track(plan)!r} has no clips, so cut, pacing, rhythm and connection checks see 0 cuts; '
+            'set plan "main_track" to the track that carries the shots.')
     export_probe = None
     audio_qc = None
 
@@ -789,6 +915,7 @@ def run_audit(args):
         'duration_s': timeline_dur,
         'canvas': plan['canvas'],
         'total_clips': len(plan.get('clips', [])),
+        'main_track': main_track(plan),
         'v1_cuts': len(v1_clips),
         'audio_items': len(plan.get('audio', [])),
         'overlays': len(plan.get('overlays', [])),
@@ -856,6 +983,8 @@ def run_audit(args):
         'warnings': vqc_warnings,
     }
     pacing_qc = _analyze_pacing_qc(v1_clips)
+    connection_qc = _analyze_connection_qc(plan, v1_clips, (motion_qc or {}).get('cut_continuity'))
+    attention_reasons.extend(connection_qc['warnings'])
 
     report = {
         'status': 'attention' if attention_reasons else 'passed',
@@ -870,6 +999,7 @@ def run_audit(args):
         'audio_qc': audio_qc,
         'visual_qc': visual_qc,
         'pacing_qc': pacing_qc,
+        'connection_qc': connection_qc,
         'motion_qc': motion_qc,
         'motion_review': motion_review,
         'rhythm_alignment': rhythm_alignment,
