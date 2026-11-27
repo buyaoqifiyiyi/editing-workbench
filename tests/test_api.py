@@ -51,10 +51,11 @@ class EngineInterfaceTests(unittest.TestCase):
                      'separate', 'tracking', 'tracking-apply', 'auto-cut', 'matting',
                      'auto-reframe', 'rough-cut', 'audio-master', 'sfx', 'sfx-search',
                      'music-structure', 'motion-analyze', 'interpolate', 'depth',
-                     'shot-search', 'shader-fx', 'stock', 'mesh-avatar', 'audit', 'bootstrap'):
+                     'shot-search', 'shader-fx', 'stock', 'mesh-avatar', 'audit', 'bootstrap',
+                     'music-fit'):
             self.assertIn(name, schemas)
         self.assertEqual(set(schemas), set(api.operations()))
-        self.assertEqual(len(schemas), 47)
+        self.assertEqual(len(schemas), 48)
         self.assertEqual(api.operation_schemas('validate'), schemas['validate'])
         with self.assertRaises(ValueError):
             api.operation_schemas('nonexistent-op')

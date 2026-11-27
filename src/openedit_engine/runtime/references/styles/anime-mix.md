@@ -83,6 +83,17 @@
 
 文字改善而整体观感仍不足时，重审主体、图形与镜头状态变化；不要继续只给文字加效果。
 
+## 动效层推荐组合
+
+按 [动效层默认考虑](../../guides/planning.md#动效层默认考虑) 逐段设计，混剪与 MV 的动效跟着音乐结构走（参数见 [动效配方库](../recipes.md)，平面 MG 审美纪律见上文）：
+
+- **切点与重拍**：重拍用 `beat_flash`，Drop 与高潮用 `impact_punch`（可加 `time_remap_keys` 变速）；相邻动势镜头用 `velocity_cut` / `whip_transition` 接力。
+- **文字与歌词**：歌词、标语与角色名用 `keyword_callout` 或 `text_matte_dissolve`；开场与段落标题用 `kinetic_ui_title` / `title_card`。
+- **空间与容器**：有透明前景时用 `parallax_3d_scene` / `hero_ring_cutout`；平面 MG 流用 `editorial_card`、`polaroid_grid`、`filmstrip_reel`、`ui_flow_stage`，全片统一一个 `theme`。
+- **画幅**：情绪段可用 `cinematic_bars` 收窄画幅，高潮段放开形成对比。
+
+强动效集中在 Drop 和高潮，主歌与情绪停留处减弱，给画面呼吸。
+
 ## 转场与冲击
 
 硬切适合动作接点和重音；景别、情绪、空间或构图明显变化时主动设计连接。先看动作方向、遮挡、颜色和视觉重心，再考虑推拉、方向擦除、分割、溶解等原生转场；扫块或短特效与原生转场分别记录，不把一个扫块当作已经完成全段衔接。

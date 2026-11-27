@@ -51,7 +51,7 @@ _CATALOG = [
         'summary': '本地媒体元信息探测、VFR 恒定帧率标准化、帧提取与导出成品严格全解码核验。',
         'limitations': ['不替代主时间轴非线编排；与各离线 AI 工具协同运行。'],
         'guides': ['capabilities', 'reference/general-editing'],
-        'operations': ['inspect', 'reference', 'normalize-media', 'practice-compare', 'reverse', 'denoise-audio'],
+        'operations': ['inspect', 'reference', 'normalize-media', 'practice-compare', 'music-fit', 'reverse', 'denoise-audio'],
         'single_supported': True,
         'routing': '通过 inspect / normalize-media / reference 及导出后严格全解码调用。',
     },

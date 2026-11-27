@@ -18,6 +18,7 @@ SRC_ROOT = Path(__file__).resolve().parents[3]
 CHECKS = {
     'open_engine': ('open_engine_self_check.py', 'out'),
     'practice_compare': ('practice_compare_self_check.py', 'out'),
+    'music_fit': ('music_fit_self_check.py', 'out'),
     'mesh_avatar': ('mesh_avatar_self_check.py', 'out'),
     'mesh_avatar_project': ('mesh_avatar_project_self_check.py', 'out'),
     'music_edit': ('music_edit_self_check.py', 'out'),

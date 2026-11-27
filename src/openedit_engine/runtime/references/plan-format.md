@@ -43,6 +43,7 @@
   - 坐标与尺寸：像素坐标 `center: [x, y]` 与 `size: [w, h]`，或归一化坐标 `center_x` / `center_y` 与画布比例 `width` / `height`（`0.0001..10.0`），或多边形/贝塞尔顶点 `path`（或 `points`，至少 3 个 `[x, y]` 点）。
   - 参数：`feather`（`0..1000`px；显式传入 `0` 会覆盖 FilmCraft 默认 `10px` 羽化）、`opacity`（`0..1`）、`expansion`（`-1000..1000`px）、`inverted`（或 `invert`）、`mode`（`none`/`add`/`subtract`/`intersect`/`lighten`/`darken`/`difference`）。
   - 遮罩关键帧 `keyframes[]`：按片段本地 `time`（`0..duration`）动态更新 `feather`、`opacity`、`expansion`、`path`、`center`、`size`（对 `rectangle`/`ellipse` 自动重算四顶点/贝塞尔路径）。
+  - 遮罩关键帧可选 `interpolation`：`linear`（默认，线性过渡）或 `hold`（保持当前形状，到下一个关键帧所在帧再一次性跳变，用于宫格逐格弹出、方框/圆形阶梯放大等“定住再跳”效果）。`hold` 在校验期展开为“下一关键帧前一帧（按 `canvas.fps`）的同状态副本”，因此不同 `fps` 下都精确到帧；使用 `hold` 时关键帧时间不可重复。遮罩路径不支持 `easeIn`/`easeOut` 等缓动，传入会直接报错。
 - **色键抠像：`chroma`**：
   - `method`：`"ultra_key"`（默认，专业绿幕/蓝幕抠像，支持 `key_color`/`color` `#RRGGBB`、`setting`、`output`、`transparency`、`highlight`、`shadow`、`tolerance`、`pedestal`、`choke`、`soften`、`spill`、`contrast`、`mid_point`、`desaturate`、`range`、`spill_luma`，别名 `strength`/`feather`）或 `"color_key"`（支持 `color`/`key_color`、`tolerance` `0..255`、`thin` `-5..5`、`feather` `0..50`）。
 - **混合模式与转场**：
@@ -65,6 +66,7 @@
 - **必填**：`text`（1..4000 非空字符）、`start`、`duration`。
 - **双模式 `kind`**：
   - `kind: "graphic"`（默认）：默认置于 `track: "captions"`，编译为 FilmCraft `graphics.newText` 矢量图形文字层，默认坐标 `(x=0.0, y=-0.7)`（或直接传像素 `position: [px, py]`），支持 `font` / `font_style` / `font_path`（静态 TTF/OTF）、`size`（`1..500`）、`color` / `stroke_color` / `background_color`（`#RRGGBB` 或 `#RRGGBBAA`）、`border`/`stroke`、`stroke_width`、`background`、`shadow`、`bold`、`italic`、`align`、`style.alpha` 与 `transform.alpha`。
+  - **描边默认值**：`border` 默认 `true`，`stroke` 是它的同义字段（只写 `stroke: false` 即可关闭描边；两者同时出现且取值相反时报错）。未写 `stroke_width` 时按字号自动取 `size × 0.08`（限制在 `1..4` px），避免小字号被固定 4px 描边吃掉笔画；显式 `stroke_width` 超过 `size × 0.1` 时校验期给出警告。图形文字描边不支持透明度，`stroke_color` 带非 `FF` 的 Alpha 会被当作不透明渲染并给出警告。小字号片名建议 `border: false` + `shadow: true`。
   - `kind: "subtitle"`：默认置于 `track: "C1"`，创建独立 Subtitle 字幕轨并可在导出时烧录画面或随时间轴保留。
 - **同句多色重点词：`highlights[]`**：
   - 配列元素：`{"start": int, "end": int, "color": "#RRGGBB"}`，遵循半开字符区间 `0 <= start < end <= len(text)`，构建前排序并拒绝任意两段重叠。
@@ -110,6 +112,7 @@
 ## 轨道顺序与来源 Sidecar 约束
 
 - **轨道类型与重叠校验**：同一 `track` 名称不能同时承载不同类型的项目（`video` / `text` / `audio` / `effect` / `filter`），且同一轨道内不可发生区间重叠。
+- **自动分轨 `track: "auto:<前缀>"`**：`clips[]`、`captions[]`、`overlays[]`、`audio[]` 中写 `auto:flash` 这类轨名的项目，会在校验期按开始时间贪心打包进最少的互不重叠轨道 `flash1..N`（同一开始时间保持数组顺序；编号自动跳过已被显式使用的轨名），适合大量短促闪白、揭示块等叠层。编号越大的轨道越靠上层。若同时写了 `layer_order`，须在其中放一个 `"auto:flash"` 占位，校验期会原地展开为 `flash1..N`；漏写会报错。同一前缀只应承载同一类型的项目。
 - **`layer_order`**：若显式提供，必须不重复、无空白、且与工程中**实际出现的所有非空轨道集合完全一致**（包括视频、透明叠层 `overlay`、图形字幕、Subtitle 字幕轨与音频轨名称，若连带音轨 `A1` 会由 `clips[].volume > 0` 自动激活，也可先省略或显式列出所有活跃轨名）。
 - **`.provenance.json` Sidecar**：若引用媒体同目录存在 `<文件名>.provenance.json`，则必须同时包含 `"license_verification": "agent_review_recorded"`、非空 `review_note` 与匹配的实时 `sha256` 摘要，否则 `build` 在建目录前即中止并报错。
 

@@ -16,6 +16,18 @@
 
 转场依据产品轮廓、动作、色彩或场景设计；平稳展示、运动品牌和科技片可有不同强度。借用 [节奏混剪](anime-mix.md) 的冲击方式时仍保持产品细节可辨认，不把炫酷当成所有商品的统一要求。
 
+## 动效层推荐组合
+
+按 [动效层默认考虑](../../guides/planning.md#动效层默认考虑) 逐段设计，宣传片与产品片常用组合（参数与限制见 [动效配方库](../recipes.md)）：
+
+- **开场**：`cinematic_bars` 遮幅入画 + 品牌标题 `title_card` / `kinetic_ui_title`；快切蒙太奇切点配 `beat_flash`（峰值对齐切点，`peak_opacity` 约 50–70）。
+- **章节与主张**：`chapter_opener`（`card_style: "minimal"`，用品牌色作 `accent_color` / `text_color`），叠在白底或品牌色底图上，取代静态标题字。
+- **卖点与流程**：逐项卖点、服务步骤用 `keyword_callout` 一词一镜；数据与规模用 HyperFrames `kpi_counter_banner` / `kpi_bar_chart`；素材自带大字的镜头不再叠字。
+- **转场**：段落转换用品牌色 `wipe_transition`，动势强的相邻镜头用 `whip_transition` / `velocity_cut`。
+- **收尾**：落到 LOGO 标版前一记 `beat_flash`，标版本身保持干净，只留品牌口号。
+
+产品首次识别与功能演示处减弱动效，保证产品细节和关键文字读得清。
+
 ## 声音与方法来源
 
 解说、产品操作声、音乐分别按用途安排，保留能说明体验的真实声音；设计音效不能被当作产品实测性能。可用 [`openedit audio-master`](../capabilities.md#audio-master) 统一响度，并用 [`openedit auto-reframe`](../capabilities.md#auto-reframe) 适配横竖屏投放。引擎本身采用纯开源工具链（无商业软件会员限制），但外购音乐、商用字体、模特肖像与其他第三方素材仍须严格核对许可并保存 `.provenance.json` 追溯证据。

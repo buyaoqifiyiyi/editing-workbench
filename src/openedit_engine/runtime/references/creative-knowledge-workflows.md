@@ -47,6 +47,7 @@
 |---|---|---|
 | 查素材信息、切点候选或本地参考抽样 | `inspect`、`reference`（可选 `--detector pyscenedetect`）、`normalize-media`（批量 VFR/Hi10P → CFR） | 抽帧等于看完连续视频、听懂声音或还原高级转场 |
 | 同素材方法实操对照 | `practice-compare`：两段明确选区和已有预览，记录目标、变量及来源哈希 | 文件生成等于同素材已自动核实、原生完整混音、实际观看或审美通过 |
+| 无参考片时的音乐自审 | `music-fit`：成片 + 导出它的工程 `--plan`（主轨镜头边界为准，含叠化/闪白下的切点，再补画面检测到的镜头内切换；工程与成片时长不符时拒绝）；可选干净 BGM 的 `music-structure` 结果 + `--music-offset`；输出切点卡拍比例对比随机水平、各乐段切点密度、音乐爆点是否有切点、四段节奏与结尾是否泄气/截断，附 `music_fit.jpg` 与 `music-fit.md` | 没有提示等于审美通过、卡拍越多越好、高潮必须快切或每个爆点都必须切镜 |
 | 找对白候选、试人声分离与气口粗剪 | `transcribe`、`separate`、`auto-cut`、`rough-cut`（自动发现默认权重目录，支持 `--gpu` CUDA 加速；缺失权重时按 `doctor` 提示补齐） | 转写已校对、分离已无损或所有环境均已预置权重 |
 | 非绿幕前景抠像与竖屏智能重构图 | `matting`（MatAnyone 2 / RVM / MIT BiRefNet `--gpu` → ProRes 4444 RGBA）、`auto-reframe`（YuNet 人脸跟拍 16:9 ↔ 9:16） | 发丝边缘无需预览人工检视、人脸跟拍已达最终导演审美 |
 | 按乐段分析节拍、生成音效与对齐切点 | `music-structure`（Beat This! ONNX / allin1）、`beats`、`beat-apply [--use-downbeats]`、`sfx [--from-structure]`、`sfx-search`（CLAP ONNX） | 每拍必切、模型已理解音乐情绪或替代人工试听 |

@@ -12,7 +12,7 @@ description: 贯穿选段、表达主张、声画组织、镜头连接、技法�
 OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时长、参数白名单或密文草稿限制：
 
 - **FilmCraft（主剪辑 / 调色 / 字幕 / 导出）**：承接多轨 V/A 时间轴、硬切与转场、变速/倒放、Lumetri 曲线/色轮/HSL/LUT、26 种混合模式、富文本多色重点词高亮、图形与烧录字幕、OTIO/FCPXML 交换与 H.264/HEVC/ProRes 导出，产出可由桌面端直接打开微调的明文 `.fcproj` 工程。
-- **EffectCraft（高级动效 / 特效 / 透明叠层）**：当仅用 FilmCraft 基础运动/调色不足以完成高级文字动画、图层样式、复杂遮罩、表达式或 3D 合成时，通过 `overlays[]` / `render-overlay` 固定渲染为 **ProRes 4444 RGBA (.mov, `yuva444p12le`)** 叠层并自动合入主时间轴，或通过 `effectcraft-exec` 直通调用。
+- **EffectCraft（动效层 / 特效 / 透明叠层）**：所有经本引擎制作的成片（不限片型）默认都要设计 EffectCraft 动效层，为标题、重点信息、切点、转场与收尾增加质感，不以“FilmCraft 基础运动已够用”跳过；具体做法见 [动效层默认考虑](#动效层默认考虑)。通过 `overlays[]` / `render-overlay` 固定渲染为 **ProRes 4444 RGBA (.mov, `yuva444p12le`)** 叠层并自动合入主时间轴，或通过 `effectcraft-exec` 直通调用。
 - **FFmpeg 与离线 AI 工具（按需白名单辅助）**：`inspect`、`reference [--detector pyscenedetect]`、`normalize-media`、`mesh-avatar`（真 2D 网格 Live2D 人物驱动）、`music-structure`、`shot-search [--with-motion]`、`motion-analyze`、`sfx [--from-structure]` / `sfx-search`、`interpolate`、`depth`、`shader-fx`、`auto-cut` / `rough-cut` / `auto-reframe` / `matting` / `audio-master` / `beats` / `beat-apply [--use-downbeats]` / `ducking` / `transcribe` / `separate` / `denoise-audio` / `tracking` / `layout-tracks` 及 `audit` 仅按具体创作问题选用（不为了堆技术而强制启用）。
 
 单独特效、调色或音频任务只处理相关部分，不强行建立完整主时间轴。
@@ -56,7 +56,7 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 1. **选材与设计时一起决定**：关键段落将“信息或关系的变化”与“镜头怎样表达变化”配对，落到源范围、动作与反应、入出点、密度、观看重心、声音边界与前后接管；持续长镜头可以成立但要有保留依据，并将原片自带切镜/摄影运动/原声调度与本次新增剪辑选择分开判断。
 2. **知识在决定前参与**：开工或重剪前先用 `search_knowledge` / `openedit knowledge` 检索剧情组织与剪辑表现两方面方法，按 [主动展开候选](../references/creative-knowledge-techniques.md#主动展开候选) 为关键段落比较通用剪法与实质不同的高级候选，再落到选材、切点与层序；仅阅读指南、列技巧名称或增加特效数量不算落实。
 3. **制作中核对落实**：先用代表性段落及其前后文确认两条思路同时成立，再展开同类段落；若只改变片段排序，回到段落内部重做，不以补字幕、全场统一轻推横移或零散贴包装结清剪辑表达。
-4. **每版分别验收**：内容推进与剪辑表现分别写明已实现、存在问题与尚未验证项，并指向实际时间范围与预览证据；发现关键表达缺失时先修正再交付。结构校验、`strict_decode` 与 `audit` 指标保留各自技术层级，不替代连续视听审美。
+4. **每版分别验收**：内容推进与剪辑表现分别写明已实现、存在问题与尚未验证项，并指向实际时间范围与预览证据；发现关键表达缺失时先修正再交付。**没有可实际观看的参考片时**，音乐主导的成片导出后必须运行 `openedit music-fit --input 成片 --plan 导出它的edit-plan.json --out 新目录`（有干净 BGM 的 `music-structure` 结果时加 `--structure` 与 `--music-offset`；有工程就必须传 `--plan`，否则叠化、闪白下和相近画面之间的切点会被漏认，各段切点数与爆点结论不可靠），把音乐当参考自查四件事：切点卡拍比例是否明显高于随机水平、最密的切点段是否落在音乐最响的段落、音乐爆点有没有画面接、最后四分之一是否泄气及结尾是否截断乐句；逐条处理 `music-fit.md` 里的提示（修改，或写明为什么有意这样处理）后再交付，不把“没有提示”当作审美通过。结构校验、`strict_decode` 与 `audit` 指标保留各自技术层级，不替代连续视听审美。
 5. **反馈只更新被评价的部分**：用户认可剧情但否定剪辑时，保留认可的剧情骨架并重做镜头与声画表现，不记作整版认可也不默认推翻已认可剧情；局部修改只复查受影响段落与相邻接点。
 
 ## 创作判断流程
@@ -110,7 +110,16 @@ OpenEdit Engine 采用纯开源多核协同架构，无商业版分辨率、时�
 
 实现前区分直接可用、满足前提才可用与当前缺口，不可等价实现时如实说明，不静默删去核心要求。
 
-完成条件：选中技巧具备表达作用、素材前提、严格字段路径与清晰的预期观看变化。
+#### 动效层默认考虑
+
+新建、整体重剪或局部修改涉及标题/转场/重点信息时，无论片型（宣传片、Vlog、纪录片、讲解、混剪、MV、口播、相册等），都按段落设计 EffectCraft 动效层，不能只交付“FilmCraft 剪辑 + 静态字幕”的版本：
+
+1. **逐段表态**：在 `creative-brief.json`、`notes` 或 `剪辑交付.md` 里为每个段落写明用哪个 `overlays[]` 配方（或 `layers` / `script` 自定义动效）承担什么作用；某段刻意不加动效时写一句理由（如“长镜对白留白，加动效会抢戏”），不能空着。
+2. **常见落点优先用配方，不手搓替代**：片头/章节标题 → `title_card` / `chapter_opener` / `kinetic_ui_title`；人物与地点 → `lower_third`；关键词与卖点 → `keyword_callout`；切点与重音 → `beat_flash`；画幅氛围 → `cinematic_bars`；转场 → `wipe_transition` / `whip_transition` / `velocity_cut`；重拍冲击 → `impact_punch`；数据与进度 → `progress_banner` 或 HyperFrames `kpi_*`；分屏与画中画 → `split_screen_frame` / `pip_card`。引擎已有对应配方时，不用 Python/PIL 画静态图或普通字幕冒充动效。各片型的推荐组合见对应 [风格指南](../references/styles/commercial.md)。
+3. **质感来自统一与克制**：全片动效共用一套品牌色/主题色、字体与缓动；强动效集中在开场、章节、高潮和收尾，对白、口型与关键动作处减弱或让位；字幕与重点信息的阅读优先级高于装饰。“默认考虑”不等于堆数量，不设固定个数门槛。
+4. **先小样再全片**：新动效先用 `render-overlay --no-video` 出 PNG 核查中文字形、颜色和位置，再写入计划；成片后在动效峰值及其后 0.1–0.3 秒抽帧，确认闪白/擦除及时恢复、文字不压主体。
+
+完成条件：选中技巧具备表达作用、素材前提、严格字段路径与清晰的预期观看变化；每个段落的动效层用法或不用的理由已写明。
 
 ### 6. 用短段结果回看决定
 

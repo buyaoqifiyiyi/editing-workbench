@@ -492,8 +492,60 @@ def _validate_mask_points(pts, label):
         number(pt[1], f'{label}[{idx}][1]', -10000, 20000)
 
 
-def _validate_mask(mask, duration, canvas, label):
-    del canvas
+MASK_EASINGS = {'linear', 'hold'}
+
+
+def _hold_end(t_next, start, fps):
+    """Local time of the last output frame strictly before the next key (absolute timeline frame grid)."""
+    pos = (float(start) + float(t_next)) * fps
+    last = math.floor(pos + 1e-6)
+    if abs(pos - last) < 1e-6:
+        last -= 1  # next key sits exactly on a frame: hold through the frame before it
+    return last / fps - float(start)
+
+
+def _expand_mask_holds(mask, keys, canvas, mlabel, start=0.0):
+    """Expand `interpolation: "hold"` mask keys into a frame-exact hold-then-jump.
+
+    FilmCraft mask paths only interpolate linearly, so a held key gets a duplicate of its own state on
+    the last timeline frame before the next key: every rendered frame shows either the held shape or the
+    next one, never an in-between, even when the next key time is off the frame grid.
+    """
+    if not any(k.get('interpolation') == 'hold' for k in keys):
+        return keys
+    fps = float(canvas['fps'])
+    ordered = sorted(keys, key=lambda k: float(k['time']))
+    for a, b in zip(ordered, ordered[1:]):
+        if us(a['time']) == us(b['time']):
+            raise ValueError(f'{mlabel}.keyframes must have distinct times when hold interpolation is used')
+    center = list(mask['center']) if 'center' in mask else None
+    size = list(mask['size']) if 'size' in mask else None
+    out = []
+    for i, kf in enumerate(ordered):
+        out.append(kf)
+        if 'center' in kf:
+            center = list(kf['center'])
+        if 'size' in kf:
+            size = list(kf['size'])
+        if kf.get('interpolation') != 'hold' or i + 1 == len(ordered):
+            continue
+        t_hold = _hold_end(ordered[i + 1]['time'], start, fps)
+        if t_hold <= float(kf['time']) + 1e-6:
+            continue  # no rendered frame between the two keys: the jump already happens on a frame
+        dup = {'time': round(t_hold, 6), 'interpolation': 'linear'}
+        for prop in ('feather', 'opacity', 'expansion', 'path'):
+            if prop in kf:
+                dup[prop] = json.loads(json.dumps(kf[prop]))
+        if 'center' in kf or 'size' in kf:
+            if center is not None:
+                dup['center'] = list(center)
+            if size is not None:
+                dup['size'] = list(size)
+        out.append(dup)
+    return out
+
+
+def _validate_mask(mask, duration, canvas, label, start=0.0):
     mlabel = f'{label}.mask'
     allowed = {
         'shape', 'type', 'effect', 'center', 'center_x', 'center_y', 'size',
@@ -552,8 +604,11 @@ def _validate_mask(mask, duration, canvas, label):
             raise ValueError(f'{mlabel}.keyframes must be a non-empty array')
         for idx, kf in enumerate(kfs):
             klabel = f'{mlabel}.keyframes[{idx}]'
-            fields(kf, {'time', 'feather', 'opacity', 'expansion', 'path', 'center', 'size'}, klabel, ('time',))
+            fields(kf, {'time', 'feather', 'opacity', 'expansion', 'path', 'center', 'size', 'interpolation'},
+                   klabel, ('time',))
             number(kf['time'], f'{klabel}.time', 0.0, duration)
+            if 'interpolation' in kf and kf['interpolation'] not in MASK_EASINGS:
+                raise ValueError(f'{klabel}.interpolation must be linear or hold (mask shapes cannot ease)')
             if not any(k in kf for k in ('feather', 'opacity', 'expansion', 'path', 'center', 'size')):
                 raise ValueError(f'{klabel} must update at least one mask property')
             if 'feather' in kf:
@@ -574,6 +629,7 @@ def _validate_mask(mask, duration, canvas, label):
                     raise ValueError(f'{klabel}.size must be [width, height]')
                 number(kf['size'][0], f'{klabel}.size[0]', 0.0001, 20000)
                 number(kf['size'][1], f'{klabel}.size[1]', 0.0001, 20000)
+        mask['keyframes'] = _expand_mask_holds(mask, kfs, canvas, mlabel, start=start)
 
 
 def _validate_chroma(chroma, label):
@@ -675,7 +731,7 @@ def _validate_composites(composites, track_types, canvas):
                 spec['camera_motion'], duration, label=label, existing_keyframes=spec.get('keyframes'),
             )
         if 'mask' in spec:
-            _validate_mask(spec['mask'], duration, canvas, label)
+            _validate_mask(spec['mask'], duration, canvas, label, start=spec.get('start', 0.0))
         if 'grading' in spec:
             _validate_grading(spec['grading'], label)
         if 'effects' in spec:
@@ -713,7 +769,12 @@ def _register_track(track, track_type, item, label, tracks, track_types):
     tracks.setdefault(track, []).append(item)
 
 
-def _validate_captions(plan, base_dir, tracks, track_types):
+def _auto_stroke_width(size):
+    """Default graphic-caption outline that scales with glyph size (a fixed 4px outline smears small text)."""
+    return round(min(4.0, max(1.0, float(size) * 0.08)), 1)
+
+
+def _validate_captions(plan, base_dir, tracks, track_types, warnings=None):
     captions = plan.setdefault('captions', [])
     if not isinstance(captions, list):
         raise ValueError('captions must be an array')
@@ -740,7 +801,13 @@ def _validate_captions(plan, base_dir, tracks, track_types):
         item.setdefault('x', 0.0)
         item.setdefault('y', -0.7)
         item.setdefault('bold', False)
-        item.setdefault('border', True)
+        if 'stroke' in item and type(item['stroke']) is not bool:
+            raise ValueError(f'{label}.stroke must be boolean')
+        if 'border' not in item:
+            # `stroke` is the documented alias of `border`; previously `stroke: false` alone was overridden.
+            item['border'] = item.get('stroke', True)
+        elif 'stroke' in item and type(item['border']) is bool and item['stroke'] != item['border']:
+            raise ValueError(f'{label}.border and {label}.stroke disagree; set only one of them')
         item.setdefault('color', '#FFFFFF')
         item.setdefault('size', 48)
         item.setdefault('transform', {})
@@ -752,6 +819,17 @@ def _validate_captions(plan, base_dir, tracks, track_types):
             raise ValueError(f'{label}.bold must be boolean')
         if type(item['border']) is not bool:
             raise ValueError(f'{label}.border must be boolean')
+        if kind == 'graphic':
+            size = float(item['size'])
+            if 'stroke_width' in item:
+                stroke_w = number(item['stroke_width'], f'{label}.stroke_width', 0, 100)
+                limit = max(1.0, round(size * 0.1, 1))
+                if item['border'] and stroke_w > limit and warnings is not None:
+                    warnings.append(
+                        f'{label}: stroke_width {stroke_w:g} is heavy for size {size:g}; outlines will eat the glyphs '
+                        f'(use <= {limit:g}, or border=false with shadow=true for small text)')
+            elif item['border']:
+                item['stroke_width'] = _auto_stroke_width(size)
         if not isinstance(item['style'], dict):
             raise ValueError(f'{label}.style must be an object')
         _validate_transform(item['transform'], label)
@@ -759,6 +837,10 @@ def _validate_captions(plan, base_dir, tracks, track_types):
             if color_key in item:
                 if not isinstance(item[color_key], str) or not re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?', item[color_key]):
                     raise ValueError(f'{label}.{color_key} must be #RRGGBB or #RRGGBBAA')
+        if (kind == 'graphic' and item['border'] and len(item.get('stroke_color', '')) == 9
+                and item['stroke_color'][7:].lower() != 'ff' and warnings is not None):
+            warnings.append(f'{label}.stroke_color: alpha is not supported for graphic outlines and renders opaque; '
+                            'use a solid color or border=false')
         if 'font_path' in item:
             item['font_path'] = local_media_path(item['font_path'], base_dir, f'{label}.font_path')
         if 'highlights' in item:
@@ -893,6 +975,73 @@ def source_delivery(records):
     return '\n'.join(lines) + '\n'
 
 
+AUTO_TRACK_RE = re.compile(r'auto:([A-Za-z0-9_\-一-鿿]{1,40})')
+AUTO_TRACK_GROUPS = ('clips', 'captions', 'overlays', 'audio')
+
+
+def _resolve_auto_tracks(plan):
+    """Expand `track: "auto:<prefix>"` into the fewest non-overlapping lanes `<prefix>1..N`.
+
+    Items are packed greedily by start time (ties keep array order); a later lane stacks above an
+    earlier one. A `layer_order` entry `auto:<prefix>` expands in place to the generated lane names.
+    Returns {prefix: [lane names]}.
+    """
+    explicit, auto = set(), {}
+    for group in AUTO_TRACK_GROUPS:
+        items = plan.get(group)
+        if not isinstance(items, list):
+            continue
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict) or not isinstance(item.get('track'), str):
+                continue
+            track = item['track']
+            if track.startswith('auto:'):
+                m = AUTO_TRACK_RE.fullmatch(track)
+                if not m:
+                    raise ValueError(f'{group}[{idx}].track must be auto:<prefix> (letters, digits, _ or -)')
+                auto.setdefault(m.group(1), []).append((group, idx, item))
+            else:
+                explicit.add(track)
+    lanes_by_prefix = {}
+    for prefix, entries in auto.items():
+        keyed = []
+        for order, (group, idx, item) in enumerate(entries):
+            label = f'{group}[{idx}]'
+            start = us(number(item.get('start'), f'{label}.start', 0, 86400))
+            end = start + us(number(item.get('duration'), f'{label}.duration', 0.000001, 86400))
+            keyed.append((start, order, end, item))
+        lane_ends, names, serial = [], [], 0
+        for start, _, end, item in sorted(keyed, key=lambda k: (k[0], k[1])):
+            for lane, lane_end in enumerate(lane_ends):
+                if lane_end <= start:
+                    lane_ends[lane] = end
+                    item['track'] = names[lane]
+                    break
+            else:
+                serial += 1
+                while f'{prefix}{serial}' in explicit:
+                    serial += 1
+                names.append(f'{prefix}{serial}')
+                lane_ends.append(end)
+                item['track'] = names[-1]
+        lanes_by_prefix[prefix] = names
+    order = plan.get('layer_order')
+    if lanes_by_prefix and isinstance(order, list):
+        expanded = []
+        for name in order:
+            m = AUTO_TRACK_RE.fullmatch(name) if isinstance(name, str) else None
+            if m and m.group(1) in lanes_by_prefix:
+                expanded.extend(lanes_by_prefix[m.group(1)])
+            else:
+                expanded.append(name)
+        missing = [p for p in lanes_by_prefix if f'auto:{p}' not in order]
+        if missing:
+            raise ValueError('layer_order must list each auto track group as "auto:<prefix>": '
+                             + ', '.join(f'auto:{p}' for p in missing))
+        plan['layer_order'] = expanded
+    return lanes_by_prefix
+
+
 def validate_plan(plan_path, user_data=None):
     """Validate an open edit-plan.json (v1/v2) and probe all referenced local media files."""
     del user_data  # Pure open-source engine does not bind external proprietary user data.
@@ -927,6 +1076,7 @@ def validate_plan(plan_path, user_data=None):
 
     if 'motion_graphics' in plan and 'overlays' not in plan:
         plan['overlays'] = plan.pop('motion_graphics')
+    _resolve_auto_tracks(plan)
 
     clips = plan['clips']
     if not isinstance(clips, list) or not clips:
@@ -987,7 +1137,7 @@ def validate_plan(plan_path, user_data=None):
         if 'grading' in clip:
             _validate_grading(clip['grading'], label)
         if 'mask' in clip:
-            _validate_mask(clip['mask'], duration, canvas, label)
+            _validate_mask(clip['mask'], duration, canvas, label, start=clip['start'])
         if 'chroma' in clip:
             _validate_chroma(clip['chroma'], label)
         if 'effects' in clip:
@@ -1089,7 +1239,7 @@ def validate_plan(plan_path, user_data=None):
         if 'keyframes' in item:
             validate_parameter_keys(item['keyframes'], duration, label, 0, 10, source_in, speed)
 
-    _validate_captions(plan, base_dir, tracks, track_types)
+    _validate_captions(plan, base_dir, tracks, track_types, warnings)
     _validate_overlays(plan, base_dir, canvas, tracks, track_types)
     plan.setdefault('effects', [])
     plan.setdefault('filters', [])

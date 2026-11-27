@@ -25,3 +25,14 @@
 需要标题、资料图排版或照片处理时再查 [教学库](../tutorial-library.md) 与 [已学课程总手册](../course-techniques-openedit.md)。该库主要提供视觉与工程组织方法，不是纪实采访或事实核实课程；不声称已学习未审过的纪录片教学。
 
 计划与参数回读重点：说话的源范围、语境保留、音画同步、档案和现场区分、文字来源、时间跳转。无头导出 MP4、严格全解码与明文 `.fcproj` 交付后，最终语境与主观视听把关仍由用户完成。
+
+## 动效层推荐组合
+
+按 [动效层默认考虑](../../guides/planning.md#动效层默认考虑) 逐段设计，纪实片的动效以克制、服务信息为主（参数见 [动效配方库](../recipes.md)）：
+
+- **章节与时间地点**：章节用 `chapter_opener`（`card_style: "minimal"`、`glow: false`）；人物身份、拍摄地点与时间用 `lower_third`。
+- **影像氛围**：全片或关键段落用 `cinematic_bars` 建立观看感；历史资料与照片可放进 `editorial_card` 或 `polaroid_grid` 容器。
+- **数据与证据**：统计数字与进程用 HyperFrames `kpi_counter_banner` / `milestone_progress`，数值必须有来源。
+- **转场**：时代或章节切换用低对比的 `wipe_transition`；一般接点以剪辑本身为主，不加闪白。
+
+访谈、情绪停留和证据镜头不加装饰动效；不用动效暗示素材没有证明的结论。

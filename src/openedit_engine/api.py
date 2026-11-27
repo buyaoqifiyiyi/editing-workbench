@@ -28,6 +28,7 @@ _CORE = {
 
 _SCRIPTS = {
     'practice-compare': ('practice_compare.py', 'Render bounded side-by-side comparison video from two local ranges.'),
+    'music-fit': ('music_fit.py', 'Self-review a cut against its own music without a reference video: beat hits vs chance, cut density vs music energy, drops and ending.'),
     'mesh-avatar': ('mesh_avatar.py', 'Probe status and build/pack/render true 2D layered mesh Live2D transparent character animation (blink, hair spring physics, breathing, 2.5D head turn) via Mesh Avatar Studio.'),
     'layout-tracks': ('layout_tracks.py', 'Compact safe non-overlapping overlay video tracks while preserving layer order.'),
     'music-edit': ('music_edit.py', 'Prepare bounded media, run configured multimodal model analysis/review, and compile frame-clock open edit plans.'),
@@ -299,6 +300,18 @@ OPERATION_SCHEMAS = {
         'goal': _str_param('--goal', required=True),
         'change': _str_param('--change', required=True),
         'out': _str_param('--out', required=True),
+    }},
+    'music-fit': {'params': {
+        'input': _str_param('--input', required=True, description='Exported cut to review'),
+        'out': _str_param('--out', required=True, description='New output directory'),
+        'structure': _str_param('--structure', description='Existing music-structure output (structure.json or dir) for the clean BGM; default analyzes the cut audio'),
+        'music_offset': _num_param('--music-offset', description='Timeline second where --structure time 0 lands'),
+        'backend': _str_param('--backend', choices=('auto', 'beat-this', 'allin1', 'spectral')),
+        'threshold': _num_param('--threshold', description='FFmpeg scene threshold in [0.01, 1.0]'),
+        'tolerance': _num_param('--tolerance', description='Seconds a cut may miss a beat and still count as on beat, in [0.01, 0.25]'),
+        'skip_motion': _bool_param('--skip-motion', 'Skip optical-flow motion for the ending check'),
+        'plan': _str_param('--plan', description='edit-plan.json that exported this cut; its main-track shot boundaries (incl. dissolves and flash-covered cuts) become the cut list, plus detected in-shot cuts'),
+        'plan_track': _str_param('--plan-track', description='Main video track name in --plan (default video)'),
     }},
     'beats': {'params': {
         'input': _str_param('--input', required=True),
@@ -928,6 +941,7 @@ _KNOWLEDGE_SYNONYMS = (
     (('竖屏重构图', '横转竖', 'auto-reframe', 'yunet', '跟拍'), ('auto-reframe', '9:16', 'yunet', 'cover')),
     (('响度母带', 'loudnorm', 'ebu r128', 'lufs', 'audio-master', '混响', 'afir', 'sidechain', '卷积'), ('audio-master', 'loudnorm', 'lufs', 'afir', 'sidechain', '混响')),
     (('音乐结构', 'beat this', 'allin1', 'drop点', '乐段', 'downbeat', 'music-structure'), ('music-structure', 'beat-this', 'allin1', 'downbeat', 'chorus', 'bpm')),
+    (('无参考', '没有参考', '自审', '自查', 'music-fit', '卡没卡拍', '结尾泄气', '高潮对不上'), ('music-fit', '自审', '卡拍', '乐段', '爆点', '结尾')),
     (('音效检索', 'sfx-search', 'clap', 'freesound', '拟音库'), ('sfx-search', 'clap', 'freesound', '本地音效')),
     (('补帧', '升格', '慢动作', 'rife', 'interpolate', 'deband'), ('interpolate', 'rife', 'vulkan', 'deband', 'slow_factor')),
     (('景深', '深度', '视差', 'depth', 'video depth anything', 'bokeh', 'parallax'), ('depth', 'depth_map', 'parallax', 'bokeh', 'effectcraft')),

@@ -16,6 +16,17 @@
 
 硬切和景别变化跟随话语推进，章节和概念转换可使用简洁原生转场。剧情高潮或片头的音乐段可借用 [节奏混剪](anime-mix.md)，正文仍围绕讲解。穿插原片对白时保留必要上下文，不改变人物原意。
 
+## 动效层推荐组合
+
+按 [动效层默认考虑](../../guides/planning.md#动效层默认考虑) 逐段设计，讲解与教程片的动效以帮助理解为主（参数见 [动效配方库](../recipes.md)）：
+
+- **结构提示**：每章开头用 `chapter_opener`（`badge` 写章节号）；长教程全程用 `progress_banner` 显示进度。
+- **重点与术语**：关键词、结论与步骤名用 `keyword_callout`，与口播同步出现；人物或嘉宾介绍用 `lower_third`。
+- **对比与数据**：方案对比用 HyperFrames `comparison_table`，数据用 `kpi_bar_chart` / `kpi_counter_banner`；界面演示用 `pip_card` / `split_screen_frame` 框出重点区域。
+- **转场**：章节切换用 `wipe_transition`；剧情解说的高潮或反转处可用 `impact_punch` / `beat_flash` 强调。
+
+字幕与重点信息的阅读时间优先，同一时刻只保留一个视觉焦点。
+
 ## 声音与方法来源
 
 以讲解可懂为中心，原片声音与音乐在需要时调整音量、切开或淡化，检查是否与旁白竞争。口播去气口、识别字幕与多色重点词可直接调用 [`openedit rough-cut`](../capabilities.md#rough-cut)（含 `--gpu` 与 `--karaoke-mode`），背景音乐让位可直接通过 [`openedit ducking`](../capabilities.md#ducking) 生成严格递增的 `audio[].keyframes` 四点闪避包络，成品配音音量统一使用 [`openedit audio-master`](../capabilities.md#audio-master)（如 `podcast` `-16 LUFS` 预设）。不虚构未声明字段，也不把数值或波形分析代替真实正常速度试听。

@@ -38,7 +38,7 @@
 1. 在项目独立目录下编制 `edit-plan.json`（规范见 [计划格式](../references/plan-format.md) 与 [开源工作流](../references/openedit.md)）：
    - 支持自由画布尺寸（`64..7680` × `64..4320`、`1..120fps`），无商业分辨率/时长锁。
    - 主剪辑、转场、Lumetri 调色、运动与不透明度关键帧、26 种混合模式、`highlights` 多色高亮文字与烧录字幕轨写入 `clips`/`audio`/`captions`（有双语歌词或对白时在 `layer_order` 将字幕轨置于常规特效叠层上方；切点与时长按整微秒边界计算防重叠）。
-   - 需要 308 种高级特效、图层样式、复杂形状、3D 视差或表达式动效时，声明到 `overlays[]`（支持 13 套内置声明式与 Hero 配方，见 [配方与映射](../references/recipes.md)；编译时自动由 EffectCraft 无头渲染为 **`ProRes 4444 RGBA (.mov)`** 透明叠加层并挂入 FilmCraft 上层轨道）。
+   - **动效层（所有片型默认必做）**：按 [动效层默认考虑](planning.md#动效层默认考虑) 为每个段落设计 EffectCraft 动效，声明到 `overlays[]`（16 套 EffectCraft 内置声明式与 Hero 配方，另有 10 套 HyperFrames 配方，见 [配方与映射](../references/recipes.md)；也可用 `layers` / `script` 调用 308 种特效、图层样式、形状、3D 视差与表达式）。编译时自动由 EffectCraft 无头渲染为 **`ProRes 4444 RGBA (.mov)`** 透明叠加层并挂入 FilmCraft 上层轨道；多个短促叠层用 `track: "auto:<前缀>"` 自动分轨。不加动效的段落在 `notes` 或 `剪辑交付.md` 写明理由。
    - 所有联网/第三方授权素材均应附带通过校验的 `.provenance.json` sidecar。
 2. 执行严格结构与媒体探测校验：`openedit validate --plan <edit-plan.json>`。
 3. **可选人工可编辑轨道整理**：多轨显式 `layer_order` 计划在正式编译前，可按 [安全轨道复用](../references/plan-format.md#安全轨道复用) 运行 `openedit layout-tracks --plan <计划> --out <新计划.json>` 合并不同时段的普通视频叠层，审阅映射报告与画面后再决定是否采用。
